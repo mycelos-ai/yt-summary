@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import anyio
+import httpx
 from yt_dlp import YoutubeDL
 
 _VIDEO_ID_RE = re.compile(
@@ -46,3 +48,14 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
         duration_seconds=info.get("duration"),
         thumbnail_url=info.get("thumbnail"),
     )
+
+
+async def download_thumbnail(url: str | None, target: Path) -> None:
+    if not url:
+        return
+    async_target = anyio.Path(target)
+    await async_target.parent.mkdir(parents=True, exist_ok=True)
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        await async_target.write_bytes(resp.content)
