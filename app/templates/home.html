@@ -1,25 +1,33 @@
 {% extends "base.html" %}
 {% block content %}
+
+<section class="hero">
+  <h1>Summarize any YouTube video</h1>
+  <p>Paste a link, get a clean summary. Self-hosted, with chat over the transcript.</p>
+  <form method="post" action="/videos" class="submit-form">
+    <input type="url" name="url" placeholder="Paste YouTube URL" required>
+    <button type="submit">Summarize</button>
+  </form>
+</section>
+
 {% if startup_probe %}
   <p class="startup-probe {% if 'FAIL' in startup_probe %}status-failed{% elif 'OK' in startup_probe %}status-done{% else %}status{% endif %}">
     {{ startup_probe }}
   </p>
 {% endif %}
-<form method="post" action="/videos" class="submit-form">
-  <input type="url" name="url" placeholder="Paste YouTube URL" required>
-  <button type="submit">Summarize</button>
-</form>
 
 <form method="get" action="/" class="search-form">
   <input type="search" name="q" value="{{ q or '' }}" placeholder="Search past videos">
   <button type="submit">Search</button>
 </form>
 
+<p class="section-title">Library</p>
+
 <section id="video-list">
   {% for video in videos %}
     {% include "video_card.html" %}
   {% else %}
-    <p class="empty">No videos yet.</p>
+    <p class="empty">No videos yet — paste a URL above to get started.</p>
   {% endfor %}
 </section>
 {% endblock %}

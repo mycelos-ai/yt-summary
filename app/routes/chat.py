@@ -33,12 +33,12 @@ async def post_chat(
     async def streamer():
         yield (
             f'<div class="chat-msg chat-msg-user">'
-            f'<strong>user:</strong>'
+            f'<strong>user</strong>'
             f'<div class="chat-content">{escape(content)}</div></div>'
         )
         yield (
             '<div class="chat-msg chat-msg-assistant">'
-            '<strong>assistant:</strong><div class="chat-content">'
+            '<strong>assistant</strong><div class="chat-content">'
         )
         collected: list[str] = []
         try:

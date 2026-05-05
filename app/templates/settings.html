@@ -1,48 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Settings — yt-summary{% endblock %}
 {% block content %}
-<h1>Settings</h1>
+<div class="settings-page">
+  <h1>Settings</h1>
 
-<form method="post" action="/settings" class="settings-form">
-  <label>
-    LLM Model
-    <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama_chat/llama3.1">
-    <small>Provider prefix is required: <code>openai/...</code>, <code>anthropic/...</code>, <code>gemini/...</code>, <code>groq/...</code>, <code>ollama_chat/...</code>. For Ollama, prefer <code>ollama_chat/&lt;tag&gt;</code> over <code>ollama/&lt;tag&gt;</code> — it talks the OpenAI-compatible endpoint and honours the Base URL cleanly.</small>
-  </label>
-  <label>
-    LLM API Key
-    <input name="llm_api_key" type="password" placeholder="{% if has_api_key %}(set, leave blank to keep){% else %}your API key{% endif %}">
-  </label>
-  <label>
-    LLM Base URL (optional, for self-hosted OpenAI-compatible servers)
-    <input name="llm_base_url" value="{{ settings.get('llm_base_url', '') }}">
-    <small>If pointing at another machine, use its IP (e.g. <code>http://192.168.1.10:11434/</code>) — Python's resolver doesn't always handle <code>*.local</code> mDNS hostnames.</small>
-  </label>
-  <label>
-    Whisper Model
-    <select name="whisper_model">
-      {% for m in ['tiny', 'base', 'small', 'medium', 'large-v3'] %}
-        <option value="{{ m }}" {% if settings.get('whisper_model', 'small') == m %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button>Save</button>
-</form>
+  <p class="section-title">Language model</p>
 
-<div class="llm-test">
-  <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test-result" hx-swap="innerHTML">
-    Test LLM
-  </button>
-  <div id="llm-test-result"></div>
+  <form method="post" action="/settings" class="settings-form">
+    <label>
+      LLM Model
+      <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama_chat/llama3.1">
+      <small>Provider prefix is required: <code>openai/</code>, <code>anthropic/</code>, <code>gemini/</code>, <code>groq/</code>, <code>ollama_chat/</code>. For Ollama, prefer <code>ollama_chat/&lt;tag&gt;</code> over <code>ollama/&lt;tag&gt;</code> — it talks the OpenAI-compatible endpoint and honours the Base URL cleanly.</small>
+    </label>
+    <label>
+      LLM API Key
+      <input name="llm_api_key" type="password" placeholder="{% if has_api_key %}(set, leave blank to keep){% else %}your API key{% endif %}">
+    </label>
+    <label>
+      LLM Base URL <small style="display:inline; color: var(--steel); font-weight: 400;">— optional, for self-hosted servers</small>
+      <input name="llm_base_url" value="{{ settings.get('llm_base_url', '') }}">
+      <small>If pointing at another machine, use its IP (e.g. <code>http://192.168.1.10:11434/</code>) — Python's resolver doesn't always handle <code>*.local</code> mDNS hostnames.</small>
+    </label>
+    <label>
+      Whisper Model
+      <select name="whisper_model">
+        {% for m in ['tiny', 'base', 'small', 'medium', 'large-v3'] %}
+          <option value="{{ m }}" {% if settings.get('whisper_model', 'small') == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+
+  <div class="llm-test">
+    <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test-result" hx-swap="innerHTML">
+      Test LLM
+    </button>
+    <div id="llm-test-result"></div>
+  </div>
+
+  <p class="section-title" style="margin-top: 48px;">YouTube cookies</p>
+
+  <p class="cookies-state">
+    {% if has_cookies %}
+      ✓ cookies set <a href="/settings/youtube-curl/clear">clear</a>
+    {% else %}
+      no cookies set
+    {% endif %}
+  </p>
+
+  <form method="post" action="/settings/youtube-curl" class="curl-form">
+    <label>
+      Paste curl from DevTools
+      <small>Network tab → right click on a youtube.com request → "Copy as cURL"</small>
+      <textarea name="curl" rows="6" placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'"></textarea>
+    </label>
+    <button type="submit">Save cookies</button>
+  </form>
 </div>
-
-<h2>YouTube cookies</h2>
-<p>{% if has_cookies %}✓ cookies set <a href="/settings/youtube-curl/clear">clear</a>{% else %}no cookies set{% endif %}</p>
-<form method="post" action="/settings/youtube-curl" class="curl-form">
-  <label>
-    Paste curl from DevTools (Network tab → right click on a youtube.com request → "Copy as cURL")
-    <textarea name="curl" rows="6" placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'"></textarea>
-  </label>
-  <button>Save cookies</button>
-</form>
 {% endblock %}
