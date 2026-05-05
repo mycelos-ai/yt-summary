@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,16 +14,26 @@ from app.repos import jobs as jobs_repo
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from app.pipeline import process_video
+    from app.worker import Worker
+
     config = Config.from_env()
     config.ensure_dirs()
     db = await connect(config)
     await init_schema(db)
     await jobs_repo.reset_orphaned_running(db)
+
+    worker = Worker(db=db, config=config, process_video=process_video)
+    worker_task = asyncio.create_task(worker.run())
+
     app.state.config = config
     app.state.db = db
+    app.state.worker = worker
     try:
         yield
     finally:
+        worker.stop()
+        await worker_task
         await db.close()
 
 
