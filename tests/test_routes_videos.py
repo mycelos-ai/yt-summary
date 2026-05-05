@@ -254,3 +254,56 @@ def test_summary_fragment_stops_polling_when_done(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "every 2s" not in resp.text
     assert "Done." in resp.text
+
+
+def test_summary_fragment_htmx_poll_when_done_triggers_reload(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import jobs as jobs_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="sf3", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "sf3", "Final.", "openai/gpt-4o"
+            )
+            job_id = await jobs_repo.enqueue(app.state.db, "sf3")
+            await jobs_repo.complete(app.state.db, job_id)
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        # HTMX poll arrives and the latest job is in terminal state →
+        # HX-Refresh tells HTMX to reload the whole page.
+        resp = client.get(
+            "/v/sf3/summary-fragment", headers={"HX-Request": "true"}
+        )
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Refresh") == "true"
+
+
+def test_summary_fragment_initial_load_when_done_no_reload(tmp_path, monkeypatch):
+    """Plain (non-HTMX) request must NOT trigger reload — that would loop."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="sf4", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "sf4", "Final.", "openai/gpt-4o"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/sf4/summary-fragment")
+    assert resp.status_code == 200
+    assert "HX-Refresh" not in resp.headers
+    assert "Final." in resp.text

@@ -96,6 +96,15 @@ async def video_summary_fragment(
     if video is None:
         raise HTTPException(404)
     job = await jobs_repo.latest_for_video(db, video_id)
+
+    # If a poll arrives and the job has reached a terminal state, ask HTMX
+    # to do a full page reload so the chat form, reindex button label, and
+    # any other surrounding bits become consistent with the final state.
+    is_htmx_poll = request.headers.get("HX-Request") == "true"
+    job_terminal = job is not None and job.state.value in ("done", "failed")
+    if is_htmx_poll and job_terminal:
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+
     summary_html = _md.render(video.summary) if video.summary else ""
     return templates.TemplateResponse(
         request,
