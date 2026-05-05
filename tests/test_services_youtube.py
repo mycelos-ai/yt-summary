@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import respx
@@ -57,3 +57,60 @@ async def test_download_thumbnail_handles_missing_url(tmp_path):
     target = tmp_path / "thumb.jpg"
     await download_thumbnail(None, target)
     assert not target.exists()
+
+
+def test_vtt_to_plain_text():
+    from app.services.youtube import vtt_to_plain_text
+    vtt = (FIXTURES / "sample.vtt").read_text()
+    text = vtt_to_plain_text(vtt)
+    assert "Hello and welcome." in text
+    assert "FastAPI" in text
+    assert "WEBVTT" not in text
+    assert "-->" not in text
+
+
+async def test_fetch_subtitles_prefers_manual():
+    from app.services.youtube import fetch_subtitles
+    fake_info = {
+        "subtitles": {"en": [{"ext": "vtt", "url": "https://example.com/manual.vtt"}]},
+        "automatic_captions": {"en": [{"ext": "vtt", "url": "https://example.com/auto.vtt"}]},
+    }
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(return_value=(FIXTURES / "sample.vtt").read_text()),
+        ),
+    ):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is not None
+    text, source = result
+    assert "FastAPI" in text
+    assert source == "manual_subs"
+
+
+async def test_fetch_subtitles_falls_back_to_auto():
+    from app.services.youtube import fetch_subtitles
+    fake_info = {
+        "subtitles": {},
+        "automatic_captions": {"en": [{"ext": "vtt", "url": "https://example.com/auto.vtt"}]},
+    }
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(return_value=(FIXTURES / "sample.vtt").read_text()),
+        ),
+    ):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is not None
+    _, source = result
+    assert source == "auto_subs"
+
+
+async def test_fetch_subtitles_returns_none_when_unavailable():
+    from app.services.youtube import fetch_subtitles
+    fake_info = {"subtitles": {}, "automatic_captions": {}}
+    with patch("app.services.youtube._extract_info_with_subs", return_value=fake_info):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is None
