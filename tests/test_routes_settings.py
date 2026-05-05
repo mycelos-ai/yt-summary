@@ -69,7 +69,7 @@ def test_test_llm_with_model_calls_litellm(tmp_path, monkeypatch):
 
         async def setup():
             from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "ollama/llama3.1")
+            await settings_repo.set(app.state.db, "llm_model", "ollama_chat/llama3.1")
             await settings_repo.set(app.state.db, "llm_base_url", "http://localhost:11434")
 
         asyncio.get_event_loop().run_until_complete(setup())
@@ -77,14 +77,45 @@ def test_test_llm_with_model_calls_litellm(tmp_path, monkeypatch):
         fake_response = MagicMock()
         fake_response.choices = [MagicMock()]
         fake_response.choices[0].message.content = "ok"
-        with patch(
-            "app.routes.settings.litellm.acompletion",
-            AsyncMock(return_value=fake_response),
+        with (
+            patch(
+                "app.routes.settings._probe_ollama_reachable",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.routes.settings.litellm.acompletion",
+                AsyncMock(return_value=fake_response),
+            ),
         ):
             resp = client.post("/settings/test-llm")
     assert resp.status_code == 200
-    assert "ollama/llama3.1" in resp.text
+    assert "ollama_chat/llama3.1" in resp.text
     assert "responded" in resp.text
+
+
+def test_test_llm_ollama_reachability_error_is_clear(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(app.state.db, "llm_model", "ollama_chat/x")
+            await settings_repo.set(app.state.db, "llm_base_url", "http://1.2.3.4:11434")
+
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        with patch(
+            "app.routes.settings._probe_ollama_reachable",
+            AsyncMock(return_value="ConnectError: timeout"),
+        ):
+            resp = client.post("/settings/test-llm")
+    assert resp.status_code == 200
+    assert "Cannot reach Ollama" in resp.text
+    assert "ConnectError" in resp.text
 
 
 def test_save_settings_with_blank_api_key_keeps_existing(tmp_path, monkeypatch):

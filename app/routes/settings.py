@@ -1,6 +1,7 @@
 import asyncio
 
 import aiosqlite
+import httpx
 import litellm
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -61,6 +62,18 @@ async def save_settings(
     return RedirectResponse("/settings", status_code=303)
 
 
+async def _probe_ollama_reachable(base_url: str) -> str | None:
+    """Return None if Ollama answers /api/tags, else a human error string."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{base_url.rstrip('/')}/api/tags")
+            if r.status_code != 200:
+                return f"HTTP {r.status_code} from {base_url}/api/tags"
+        return None
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+
 @router.post("/settings/test-llm", response_class=HTMLResponse)
 async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
     settings = await settings_repo.get_all(db)
@@ -71,6 +84,17 @@ async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
         )
     api_key = settings.get("llm_api_key")
     base_url = settings.get("llm_base_url")
+
+    # For Ollama, do a direct reachability probe first so we surface a clear
+    # error instead of a confusing LiteLLM/aiohttp wrapper message.
+    if base_url and model.startswith(("ollama/", "ollama_chat/")):
+        err = await _probe_ollama_reachable(base_url)
+        if err is not None:
+            return HTMLResponse(
+                f'<p class="status status-failed">⚠ Cannot reach Ollama at '
+                f'{base_url}: {err}</p>'
+            )
+
     kwargs = {
         "model": model,
         "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
