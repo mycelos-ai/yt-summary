@@ -1,6 +1,6 @@
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse
 from markupsafe import escape
 
 from app.main import get_db
@@ -12,7 +12,15 @@ from app.services.chat import stream_reply
 router = APIRouter()
 
 
-@router.post("/v/{video_id}/chat")
+def _msg_html(role: str, content: str) -> str:
+    return (
+        f'<div class="chat-msg chat-msg-{role}">'
+        f"<strong>{role}</strong>"
+        f'<div class="chat-content">{escape(content)}</div></div>'
+    )
+
+
+@router.post("/v/{video_id}/chat", response_class=HTMLResponse)
 async def post_chat(
     video_id: str,
     content: str = Form(...),
@@ -30,33 +38,27 @@ async def post_chat(
     history = await chat_repo.history(db, video_id)
     await chat_repo.append(db, video_id, "user", content)
 
-    async def streamer():
-        yield (
-            f'<div class="chat-msg chat-msg-user">'
-            f'<strong>user</strong>'
-            f'<div class="chat-content">{escape(content)}</div></div>'
-        )
-        yield (
-            '<div class="chat-msg chat-msg-assistant">'
-            '<strong>assistant</strong><div class="chat-content">'
-        )
-        collected: list[str] = []
-        try:
-            async for token in stream_reply(
-                transcript=video.transcript or "",
-                history=history,
-                user_message=content,
-                model=model,
-                api_key=api_key,
-                base_url=settings.get("llm_base_url"),
-            ):
-                collected.append(token)
-                yield str(escape(token))
-        except Exception as e:
-            err = f"\n\n[error: {e}]"
-            collected.append(err)
-            yield str(escape(err))
-        yield "</div></div>"
-        await chat_repo.append(db, video_id, "assistant", "".join(collected))
+    collected: list[str] = []
+    error: str | None = None
+    try:
+        async for token in stream_reply(
+            transcript=video.transcript or "",
+            history=history,
+            user_message=content,
+            model=model,
+            api_key=api_key,
+            base_url=settings.get("llm_base_url"),
+        ):
+            collected.append(token)
+    except Exception as e:
+        error = f"{type(e).__name__}: {e}"
 
-    return StreamingResponse(streamer(), media_type="text/html; charset=utf-8")
+    answer = "".join(collected)
+    await chat_repo.append(db, video_id, "assistant", answer or f"[error: {error}]")
+
+    parts = [_msg_html("user", content)]
+    if answer:
+        parts.append(_msg_html("assistant", answer))
+    if error:
+        parts.append(_msg_html("assistant", f"[error: {error}]"))
+    return HTMLResponse("".join(parts))
