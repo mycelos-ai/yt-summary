@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Settings — yt-summary{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<form method="post" action="/settings" class="settings-form">
+  <label>
+    LLM Model
+    <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama/llama3.1">
+  </label>
+  <label>
+    LLM API Key
+    <input name="llm_api_key" type="password" value="{{ settings.get('llm_api_key', '') }}">
+  </label>
+  <label>
+    LLM Base URL (optional, for self-hosted OpenAI-compatible servers)
+    <input name="llm_base_url" value="{{ settings.get('llm_base_url', '') }}">
+  </label>
+  <label>
+    Whisper Model
+    <select name="whisper_model">
+      {% for m in ['tiny', 'base', 'small', 'medium', 'large-v3'] %}
+        <option value="{{ m }}" {% if settings.get('whisper_model', 'small') == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button>Save</button>
+</form>
+
+<h2>YouTube cookies</h2>
+<p>{% if has_cookies %}✓ cookies set <a href="/settings/youtube-curl/clear">clear</a>{% else %}no cookies set{% endif %}</p>
+<form method="post" action="/settings/youtube-curl" class="curl-form">
+  <label>
+    Paste curl from DevTools (Network tab → right click on a youtube.com request → "Copy as cURL")
+    <textarea name="curl" rows="6" placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'"></textarea>
+  </label>
+  <button>Save cookies</button>
+</form>
+{% endblock %}
