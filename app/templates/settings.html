@@ -10,7 +10,7 @@
   </label>
   <label>
     LLM API Key
-    <input name="llm_api_key" type="password" value="{{ settings.get('llm_api_key', '') }}">
+    <input name="llm_api_key" type="password" placeholder="{% if has_api_key %}(set, leave blank to keep){% else %}your API key{% endif %}">
   </label>
   <label>
     LLM Base URL (optional, for self-hosted OpenAI-compatible servers)
@@ -26,6 +26,13 @@
   </label>
   <button>Save</button>
 </form>
+
+<div class="llm-test">
+  <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test-result" hx-swap="innerHTML">
+    Test LLM
+  </button>
+  <div id="llm-test-result"></div>
+</div>
 
 <h2>YouTube cookies</h2>
 <p>{% if has_cookies %}✓ cookies set <a href="/settings/youtube-curl/clear">clear</a>{% else %}no cookies set{% endif %}</p>

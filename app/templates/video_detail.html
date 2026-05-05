@@ -4,8 +4,15 @@
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
-    <p><a href="{{ video.url }}" target="_blank" rel="noopener">Watch on YouTube</a> ·
-       <a href="/v/{{ video.id }}.md">Markdown</a></p>
+    <p>
+      <a href="{{ video.url }}" target="_blank" rel="noopener">Watch on YouTube</a> ·
+      <a href="/v/{{ video.id }}.md">Markdown</a> ·
+      <form method="post" action="/v/{{ video.id }}/reindex" style="display:inline">
+        <button type="submit" class="link-button">
+          {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %}
+        </button>
+      </form>
+    </p>
   </header>
 
   {% if video.thumbnail_path %}

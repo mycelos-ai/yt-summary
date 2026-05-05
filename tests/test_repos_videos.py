@@ -77,3 +77,25 @@ async def test_search_uses_fts(db: aiosqlite.Connection):
 
 async def test_get_returns_none_for_missing(db: aiosqlite.Connection):
     assert await videos_repo.get(db, "nope") is None
+
+
+async def test_search_handles_fts_special_chars(db):
+    await videos_repo.upsert_metadata(
+        db, video_id="s1", url="u",
+        title="Python tutorial", description="learn fastapi",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    # These would all crash a naive FTS5 MATCH
+    for query in ["foo:bar", '"unterminated', "a OR b", "(parens)", "x + y"]:
+        results = await videos_repo.search(db, query)
+        assert isinstance(results, list)
+
+
+async def test_search_phrase_match_still_works(db):
+    await videos_repo.upsert_metadata(
+        db, video_id="p1", url="u",
+        title="Hello world", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    results = await videos_repo.search(db, "Hello")
+    assert [v.id for v in results] == ["p1"]

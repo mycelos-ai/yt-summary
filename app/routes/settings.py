@@ -1,6 +1,7 @@
 import asyncio
 
 import aiosqlite
+import litellm
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -22,10 +23,16 @@ async def settings_page(
 ):
     settings = await settings_repo.get_all(db)
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
+    has_api_key = bool(settings.get("llm_api_key"))
+    safe_settings = {k: v for k, v in settings.items() if k != "llm_api_key"}
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"settings": settings, "has_cookies": has_cookies},
+        {
+            "settings": safe_settings,
+            "has_api_key": has_api_key,
+            "has_cookies": has_cookies,
+        },
     )
 
 
@@ -39,7 +46,6 @@ async def save_settings(
 ):
     for key, value in (
         ("llm_model", llm_model),
-        ("llm_api_key", llm_api_key),
         ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model),
     ):
@@ -47,7 +53,40 @@ async def save_settings(
             await settings_repo.set(db, key, value)
         else:
             await settings_repo.delete(db, key)
+    if llm_api_key:
+        await settings_repo.set(db, "llm_api_key", llm_api_key)
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/test-llm", response_class=HTMLResponse)
+async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
+    settings = await settings_repo.get_all(db)
+    model = settings.get("llm_model")
+    if not model:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Configure a model first.</p>'
+        )
+    api_key = settings.get("llm_api_key")
+    base_url = settings.get("llm_base_url")
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
+        "api_key": api_key or "",
+        "max_tokens": 10,
+    }
+    if base_url:
+        kwargs["api_base"] = base_url
+    try:
+        response = await litellm.acompletion(**kwargs)
+        text = (response.choices[0].message.content or "").strip()
+        return HTMLResponse(
+            f'<p class="status status-done">✓ {model} responded: '
+            f'{text[:50] or "(empty)"}</p>'
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ {type(e).__name__}: {e}</p>'
+        )
 
 
 @router.post("/settings/youtube-curl")

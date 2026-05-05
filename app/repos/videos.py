@@ -93,6 +93,12 @@ async def list_recent(db: aiosqlite.Connection, limit: int = 50) -> list[Video]:
     return [_row_to_video(r) for r in rows]
 
 
+def _quote_fts_query(query: str) -> str:
+    """Wrap user input as an FTS5 phrase query so reserved syntax doesn't crash."""
+    escaped = query.replace('"', '""')
+    return f'"{escaped}"'
+
+
 async def search(db: aiosqlite.Connection, query: str, limit: int = 50) -> list[Video]:
     cursor = await db.execute(
         """
@@ -102,7 +108,7 @@ async def search(db: aiosqlite.Connection, query: str, limit: int = 50) -> list[
         ORDER BY rank
         LIMIT ?
         """,
-        (query, limit),
+        (_quote_fts_query(query), limit),
     )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]

@@ -135,3 +135,45 @@ def test_video_markdown_permalink(tmp_path, monkeypatch):
     assert "## Transcript" in body
     assert "the transcript" in body
     assert "https://youtu.be/md1" in body
+
+
+def test_reindex_enqueues_new_job(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import jobs as jobs_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="ri1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await jobs_repo.enqueue(app.state.db, "ri1")
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post("/v/ri1/reindex", follow_redirects=False)
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import jobs as jobs_repo
+            cursor = await app.state.db.execute(
+                "SELECT COUNT(*) FROM jobs WHERE video_id=?", ("ri1",)
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] >= 2  # Original + reindex
+            latest = await jobs_repo.latest_for_video(app.state.db, "ri1")
+            assert latest is not None
+            assert latest.state.value in ("pending", "running", "done", "failed")
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_reindex_404_unknown_video(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post("/v/nope/reindex", follow_redirects=False)
+    assert resp.status_code == 404

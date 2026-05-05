@@ -29,28 +29,33 @@ async def process_video(
     settings = await settings_repo.get_all(db)
     model = settings.get("llm_model")
     api_key = settings.get("llm_api_key")
-    if not model or not api_key:
-        raise RuntimeError("LLM model or API key not configured. Open Settings.")
     base_url = settings.get("llm_base_url")
     whisper_model = settings.get("whisper_model", "small")
 
     cookies = await asyncio.to_thread(_resolve_cookies, config)
 
-    await set_step("fetching transcript")
-    text, source = await obtain_transcript(
-        url=video.url,
-        video_id=video_id,
-        audio_dir=config.audio_dir,
-        cookies_path=cookies,
-        whisper_model=whisper_model,
-    )
-    await videos_repo.set_transcript(db, video_id, text, source)
+    if not video.transcript:
+        await set_step("fetching transcript")
+        text, source = await obtain_transcript(
+            url=video.url,
+            video_id=video_id,
+            audio_dir=config.audio_dir,
+            cookies_path=cookies,
+            whisper_model=whisper_model,
+        )
+        await videos_repo.set_transcript(db, video_id, text, source)
+    else:
+        text = video.transcript
+
+    if not model:
+        await set_step("transcript only (no LLM model configured)")
+        return
 
     await set_step("summarizing")
     summary = await summarize(
         transcript=text,
         model=model,
-        api_key=api_key,
+        api_key=api_key or "",
         base_url=base_url,
     )
     await videos_repo.set_summary(db, video_id, summary, model)

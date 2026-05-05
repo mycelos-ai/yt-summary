@@ -1,6 +1,6 @@
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 
@@ -81,6 +81,18 @@ async def video_markdown(
     if video.transcript:
         parts += ["## Transcript", "", video.transcript, ""]
     return PlainTextResponse("\n".join(parts), media_type="text/markdown; charset=utf-8")
+
+
+@router.post("/v/{video_id}/reindex")
+async def reindex_video(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    await jobs_repo.enqueue(db, video_id)
+    return RedirectResponse(f"/v/{video_id}", status_code=303)
 
 
 @router.get("/v/{video_id}", response_class=HTMLResponse)
