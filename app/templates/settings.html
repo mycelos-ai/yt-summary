@@ -16,6 +16,7 @@
   <label>
     LLM Base URL (optional, for self-hosted OpenAI-compatible servers)
     <input name="llm_base_url" value="{{ settings.get('llm_base_url', '') }}">
+    <small>If pointing at another machine, use its IP (e.g. <code>http://192.168.1.10:11434/</code>) — Python's resolver doesn't always handle <code>*.local</code> mDNS hostnames.</small>
   </label>
   <label>
     Whisper Model
