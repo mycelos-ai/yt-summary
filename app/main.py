@@ -49,6 +49,8 @@ def create_app() -> FastAPI:
         return FileResponse(path)
 
     app.include_router(home_router)
+    from app.routes.videos import router as videos_router
+    app.include_router(videos_router)
     return app
 
 
