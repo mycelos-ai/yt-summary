@@ -7,6 +7,7 @@
   <label>
     LLM Model
     <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama/llama3.1">
+    <small>Provider prefix is required: <code>openai/...</code>, <code>anthropic/...</code>, <code>gemini/...</code>, <code>ollama/...</code>, <code>groq/...</code>. For Ollama, the tag goes after the slash: <code>ollama/gemma3:latest</code>.</small>
   </label>
   <label>
     LLM API Key

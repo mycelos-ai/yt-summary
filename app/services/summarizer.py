@@ -22,10 +22,16 @@ def _split_into_chunks(transcript: str, model: str, target_tokens: int) -> list[
     approx_words_per_chunk = max(int(target_tokens * 0.6), 100)
     chunks: list[str] = []
     i = 0
+    def _count(text: str) -> int:
+        try:
+            return litellm.token_counter(model=model, text=text)
+        except Exception:
+            return int(len(text.split()) * 1.3)
+
     while i < len(words):
         end = min(i + approx_words_per_chunk, len(words))
         chunk = " ".join(words[i:end])
-        while litellm.token_counter(model=model, text=chunk) > target_tokens and end - i > 1:
+        while _count(chunk) > target_tokens and end - i > 1:
             end = i + max((end - i) // 2, 1)
             chunk = " ".join(words[i:end])
         chunks.append(chunk)
@@ -58,9 +64,18 @@ async def summarize(
     api_key: str,
     base_url: str | None,
 ) -> str:
-    max_tokens = litellm.get_max_tokens(model) or 8000
+    try:
+        max_tokens = litellm.get_max_tokens(model) or 8000
+    except Exception:
+        # Unknown model (e.g. local Ollama tag not in LiteLLM's catalogue).
+        # Assume a conservative 8k window; the actual call will surface real errors.
+        max_tokens = 8000
     budget = int(max_tokens * 0.7)
-    transcript_tokens = litellm.token_counter(model=model, text=transcript)
+    try:
+        transcript_tokens = litellm.token_counter(model=model, text=transcript)
+    except Exception:
+        # Tokenizer unknown — estimate from word count.
+        transcript_tokens = int(len(transcript.split()) * 1.3)
 
     if transcript_tokens <= budget:
         return await _completion(
