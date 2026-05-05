@@ -1,0 +1,15 @@
+<article class="video-card" id="video-{{ video.id }}">
+  <a href="/v/{{ video.id }}">
+    {% if video.thumbnail_path %}
+      <img src="/thumbnails/{{ video.id }}.jpg" alt="">
+    {% endif %}
+    <h3>{{ video.title }}</h3>
+  </a>
+  {% if video.summary %}
+    <p class="status status-done">✓ summary ready</p>
+  {% else %}
+    <p class="status" hx-get="/v/{{ video.id }}/status" hx-trigger="load, every 2s" hx-swap="outerHTML">
+      …
+    </p>
+  {% endif %}
+</article>

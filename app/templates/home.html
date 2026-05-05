@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/videos" class="submit-form">
+  <input type="url" name="url" placeholder="Paste YouTube URL" required>
+  <button type="submit">Summarize</button>
+</form>
+
+<form method="get" action="/" class="search-form">
+  <input type="search" name="q" value="{{ q or '' }}" placeholder="Search past videos">
+  <button type="submit">Search</button>
+</form>
+
+<section id="video-list">
+  {% for video in videos %}
+    {% include "video_card.html" %}
+  {% else %}
+    <p class="empty">No videos yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}
