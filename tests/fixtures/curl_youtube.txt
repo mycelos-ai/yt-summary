@@ -1,0 +1,4 @@
+curl 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' \
+  -H 'accept: text/html' \
+  -H 'cookie: VISITOR_INFO1_LIVE=abc; YSC=def; LOGIN_INFO=xyz' \
+  -H 'user-agent: Mozilla/5.0'
