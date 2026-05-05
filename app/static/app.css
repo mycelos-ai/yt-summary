@@ -473,7 +473,7 @@ p { margin: 0 0 16px 0; }
   margin-bottom: 4px;
 }
 .chat-content { color: var(--charcoal); white-space: pre-wrap; }
-.chat form {
+.chat-form {
   display: flex;
   gap: 8px;
   background: var(--canvas);
@@ -481,7 +481,7 @@ p { margin: 0 0 16px 0; }
   border-radius: var(--rounded-full);
   border: 1px solid var(--hairline);
 }
-.chat form input {
+.chat-form input {
   flex: 1;
   border: none;
   padding: 10px 16px;
@@ -489,16 +489,60 @@ p { margin: 0 0 16px 0; }
   outline: none;
   background: transparent;
 }
-.chat form button {
+.chat-form input:disabled { color: var(--muted); }
+.chat-form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   background: var(--brand-green);
   color: var(--primary);
   font-weight: 500;
   font-size: 14px;
   padding: 10px 20px;
   border-radius: var(--rounded-full);
-  transition: background 150ms ease;
+  transition: background 150ms ease, opacity 150ms ease;
+  border: none;
 }
-.chat form button:hover { background: var(--brand-green-deep); }
+.chat-form button:hover:not(:disabled) { background: var(--brand-green-deep); }
+.chat-form button:disabled {
+  background: var(--brand-green-soft, #7cebcb);
+  color: var(--steel);
+  cursor: progress;
+}
+.chat-form .btn-spinner {
+  display: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(10, 10, 10, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.chat-form button:disabled .btn-spinner { display: inline-block; }
+.chat-form button:disabled .btn-label { opacity: 0.6; }
+
+.chat-hint {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--steel);
+  font-style: italic;
+}
+/* HTMX shows the indicator during a request; the request class is set
+   on the form element, but with hx-target=#chat-history we listen for
+   the global htmx-request state via :has() on the chat section. */
+.chat:has(.htmx-request) .chat-hint {
+  display: inline-flex;
+}
+
+.chat-msg-error {
+  background: rgba(212, 86, 86, 0.06);
+  border: 1px solid rgba(212, 86, 86, 0.24);
+}
+.chat-msg-error strong { color: var(--brand-error); }
+.chat-msg-error .chat-content { color: var(--brand-error); font-family: var(--font-mono); font-size: 13px; }
 
 /* Settings */
 .settings-page {

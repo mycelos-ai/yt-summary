@@ -12,10 +12,14 @@ from app.services.chat import stream_reply
 router = APIRouter()
 
 
-def _msg_html(role: str, content: str) -> str:
+def _msg_html(role: str, content: str, *, is_error: bool = False) -> str:
+    cls = f"chat-msg chat-msg-{role}"
+    if is_error:
+        cls += " chat-msg-error"
+    label = "error" if is_error else role
     return (
-        f'<div class="chat-msg chat-msg-{role}">'
-        f"<strong>{role}</strong>"
+        f'<div class="{cls}">'
+        f"<strong>{label}</strong>"
         f'<div class="chat-content">{escape(content)}</div></div>'
     )
 
@@ -54,11 +58,17 @@ async def post_chat(
         error = f"{type(e).__name__}: {e}"
 
     answer = "".join(collected)
-    await chat_repo.append(db, video_id, "assistant", answer or f"[error: {error}]")
+    await chat_repo.append(
+        db, video_id, "assistant", answer if answer else f"[error: {error}]"
+    )
 
     parts = [_msg_html("user", content)]
     if answer:
         parts.append(_msg_html("assistant", answer))
     if error:
-        parts.append(_msg_html("assistant", f"[error: {error}]"))
+        parts.append(_msg_html("assistant", error, is_error=True))
+    elif not answer:
+        parts.append(
+            _msg_html("assistant", "(empty response from model)", is_error=True)
+        )
     return HTMLResponse("".join(parts))

@@ -44,14 +44,23 @@
         {% endfor %}
       </div>
       <form
+        class="chat-form"
         hx-post="/v/{{ video.id }}/chat"
         hx-target="#chat-history"
         hx-swap="beforeend"
-        hx-on::after-request="this.reset()"
+        hx-disabled-elt="find input, find button"
+        hx-on::after-request="this.reset(); document.querySelector('input[name=content]').focus()"
       >
-        <input name="content" placeholder="Ask about this video…" required>
-        <button>Send</button>
+        <input name="content" placeholder="Ask about this video…" autocomplete="off" required>
+        <button type="submit">
+          <span class="btn-label">Send</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
       </form>
+      <p class="chat-hint htmx-indicator">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Asking the model…</span>
+      </p>
     </section>
   {% endif %}
 </article>
