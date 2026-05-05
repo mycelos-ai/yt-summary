@@ -17,7 +17,7 @@ templates = Jinja2Templates(directory="app/templates")
 _md = MarkdownIt()
 
 
-@router.post("/videos", response_class=HTMLResponse)
+@router.post("/videos")
 async def submit_video(
     request: Request,
     url: str = Form(...),
@@ -46,10 +46,16 @@ async def submit_video(
         duration_seconds=meta.duration_seconds,
     )
     await jobs_repo.enqueue(db, meta.id)
-    video = await videos_repo.get(db, meta.id)
-    return templates.TemplateResponse(
-        request, "video_card.html", {"video": video}
-    )
+
+    # HTMX request -> return the card fragment so it can be slotted into the
+    # list. Plain browser submit -> redirect to the detail page so the user
+    # lands on a full styled view that auto-polls the job status.
+    if request.headers.get("HX-Request"):
+        video = await videos_repo.get(db, meta.id)
+        return templates.TemplateResponse(
+            request, "video_card.html", {"video": video}
+        )
+    return RedirectResponse(f"/v/{meta.id}", status_code=303)
 
 
 @router.get("/v/{video_id}/status", response_class=HTMLResponse)

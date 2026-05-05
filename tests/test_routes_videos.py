@@ -6,7 +6,7 @@ from app.main import create_app
 from app.services.youtube import VideoMetadata
 
 
-def test_post_videos_creates_card_and_enqueues_job(tmp_path, monkeypatch):
+def test_post_videos_htmx_returns_card_fragment(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     fake_meta = VideoMetadata(
         id="abc12345678",
@@ -22,10 +22,39 @@ def test_post_videos_creates_card_and_enqueues_job(tmp_path, monkeypatch):
         patch("app.routes.videos.download_thumbnail", AsyncMock(return_value=None)),
         TestClient(app) as client,
     ):
-        resp = client.post("/videos", data={"url": "https://youtu.be/abc12345678"})
+        resp = client.post(
+            "/videos",
+            data={"url": "https://youtu.be/abc12345678"},
+            headers={"HX-Request": "true"},
+        )
     assert resp.status_code == 200
     assert "A test video" in resp.text
     assert "abc12345678" in resp.text
+
+
+def test_post_videos_browser_redirects_to_detail(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    fake_meta = VideoMetadata(
+        id="xyz98765432",
+        url="https://youtu.be/xyz98765432",
+        title="Another test",
+        description="",
+        duration_seconds=120,
+        thumbnail_url=None,
+    )
+    app = create_app()
+    with (
+        patch("app.routes.videos.fetch_metadata", AsyncMock(return_value=fake_meta)),
+        patch("app.routes.videos.download_thumbnail", AsyncMock(return_value=None)),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/videos",
+            data={"url": "https://youtu.be/xyz98765432"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/v/xyz98765432"
 
 
 def test_post_videos_invalid_url_returns_400(tmp_path, monkeypatch):
