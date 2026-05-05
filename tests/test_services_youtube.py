@@ -114,3 +114,19 @@ async def test_fetch_subtitles_returns_none_when_unavailable():
     with patch("app.services.youtube._extract_info_with_subs", return_value=fake_info):
         result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
     assert result is None
+
+
+async def test_download_audio_calls_yt_dlp_with_correct_opts(tmp_path):
+    from app.services.youtube import download_audio
+    captured: dict = {}
+
+    def fake_download(opts, url):
+        captured["opts"] = opts
+        captured["url"] = url
+        # Simulate file creation by yt-dlp
+        (tmp_path / "vid.m4a").write_bytes(b"fakeaudio")
+
+    with patch("app.services.youtube._run_yt_dlp_download", side_effect=fake_download):
+        path = await download_audio("https://youtu.be/x", "vid", tmp_path, cookies_path=None)
+    assert path == tmp_path / "vid.m4a"
+    assert captured["opts"]["format"].startswith("bestaudio")

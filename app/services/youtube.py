@@ -143,3 +143,35 @@ async def fetch_subtitles(
         text = await _download_text(auto_url)
         return vtt_to_plain_text(text), "auto_subs"
     return None
+
+
+def _run_yt_dlp_download(opts: dict[str, Any], url: str) -> None:
+    with YoutubeDL(opts) as ydl:
+        ydl.download([url])
+
+
+def _find_audio_file(audio_dir: Path, video_id: str) -> Path | None:
+    for path in audio_dir.iterdir():
+        if path.stem == video_id:
+            return path
+    return None
+
+
+async def download_audio(
+    url: str, video_id: str, audio_dir: Path, cookies_path: Path | None
+) -> Path:
+    await asyncio.to_thread(audio_dir.mkdir, parents=True, exist_ok=True)
+    template = str(audio_dir / f"{video_id}.%(ext)s")
+    opts: dict[str, Any] = {
+        "format": "bestaudio/best",
+        "outtmpl": template,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if cookies_path:
+        opts["cookiefile"] = str(cookies_path)
+    await asyncio.to_thread(_run_yt_dlp_download, opts, url)
+    path = await asyncio.to_thread(_find_audio_file, audio_dir, video_id)
+    if path:
+        return path
+    raise RuntimeError(f"Audio download produced no file for {video_id}")
