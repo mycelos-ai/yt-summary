@@ -6,8 +6,8 @@
 <form method="post" action="/settings" class="settings-form">
   <label>
     LLM Model
-    <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama/llama3.1">
-    <small>Provider prefix is required: <code>openai/...</code>, <code>anthropic/...</code>, <code>gemini/...</code>, <code>ollama/...</code>, <code>groq/...</code>. For Ollama, the tag goes after the slash: <code>ollama/gemma3:latest</code>.</small>
+    <input name="llm_model" value="{{ settings.get('llm_model', '') }}" placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama_chat/llama3.1">
+    <small>Provider prefix is required: <code>openai/...</code>, <code>anthropic/...</code>, <code>gemini/...</code>, <code>groq/...</code>, <code>ollama_chat/...</code>. For Ollama, prefer <code>ollama_chat/&lt;tag&gt;</code> over <code>ollama/&lt;tag&gt;</code> — it talks the OpenAI-compatible endpoint and honours the Base URL cleanly.</small>
   </label>
   <label>
     LLM API Key
