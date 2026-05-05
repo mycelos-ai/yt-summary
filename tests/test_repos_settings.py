@@ -1,0 +1,30 @@
+import aiosqlite
+
+from app.repos import settings as settings_repo
+
+
+async def test_get_returns_none_when_unset(db: aiosqlite.Connection):
+    assert await settings_repo.get(db, "llm_model") is None
+
+
+async def test_set_then_get(db: aiosqlite.Connection):
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    assert await settings_repo.get(db, "llm_model") == "openai/gpt-4o"
+
+
+async def test_set_overwrites(db: aiosqlite.Connection):
+    await settings_repo.set(db, "llm_model", "a")
+    await settings_repo.set(db, "llm_model", "b")
+    assert await settings_repo.get(db, "llm_model") == "b"
+
+
+async def test_get_all_returns_dict(db: aiosqlite.Connection):
+    await settings_repo.set(db, "k1", "v1")
+    await settings_repo.set(db, "k2", "v2")
+    assert await settings_repo.get_all(db) == {"k1": "v1", "k2": "v2"}
+
+
+async def test_delete(db: aiosqlite.Connection):
+    await settings_repo.set(db, "k", "v")
+    await settings_repo.delete(db, "k")
+    assert await settings_repo.get(db, "k") is None
