@@ -62,6 +62,8 @@ def create_app() -> FastAPI:
     app.include_router(home_router)
     from app.routes.videos import router as videos_router
     app.include_router(videos_router)
+    from app.routes.chat import router as chat_router
+    app.include_router(chat_router)
     return app
 
 
