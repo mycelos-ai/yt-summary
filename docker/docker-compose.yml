@@ -6,7 +6,9 @@ services:
       dockerfile: docker/Dockerfile
     container_name: yt-summary
     ports:
-      - "8000:8000"
+      # Host port 8200 → container's uvicorn on 8000.
+      # Open http://<host>:8200 in your browser.
+      - "8200:8000"
     volumes:
       - ./data:/data
     restart: unless-stopped
