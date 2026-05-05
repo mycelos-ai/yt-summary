@@ -42,6 +42,15 @@ button { padding: 0.5rem 1rem; cursor: pointer; }
 }
 .llm-test { margin: 1rem 0; }
 .llm-test #llm-test-result { margin-top: 0.5rem; }
+.startup-probe {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  background: #f7f7f7;
+  font-size: 0.9em;
+}
+.startup-probe.status-failed { background: #fee; }
+.startup-probe.status-done { background: #efe; }
 .video-detail img { max-width: 100%; }
 .transcript pre {
   white-space: pre-wrap;

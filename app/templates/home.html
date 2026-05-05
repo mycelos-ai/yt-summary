@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
+{% if startup_probe %}
+  <p class="startup-probe {% if 'FAIL' in startup_probe %}status-failed{% elif 'OK' in startup_probe %}status-done{% else %}status{% endif %}">
+    {{ startup_probe }}
+  </p>
+{% endif %}
 <form method="post" action="/videos" class="submit-form">
   <input type="url" name="url" placeholder="Paste YouTube URL" required>
   <button type="submit">Summarize</button>
