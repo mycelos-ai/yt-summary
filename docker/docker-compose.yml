@@ -1,0 +1,12 @@
+services:
+  yt-summary:
+    image: ghcr.io/stefan-kp/yt-summary:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: yt-summary
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
