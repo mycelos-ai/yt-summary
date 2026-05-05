@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import litellm
@@ -14,6 +15,19 @@ REDUCE_SYSTEM_PROMPT = (
     "points, notable quotes."
 )
 
+ProgressCb = Callable[[str], Awaitable[None]]
+
+
+async def _noop(_: str) -> None:
+    return None
+
+
+def _safe_token_count(model: str, text: str) -> int:
+    try:
+        return litellm.token_counter(model=model, text=text)
+    except Exception:
+        return int(len(text.split()) * 1.3)
+
 
 def _split_into_chunks(transcript: str, model: str, target_tokens: int) -> list[str]:
     words = transcript.split()
@@ -22,16 +36,10 @@ def _split_into_chunks(transcript: str, model: str, target_tokens: int) -> list[
     approx_words_per_chunk = max(int(target_tokens * 0.6), 100)
     chunks: list[str] = []
     i = 0
-    def _count(text: str) -> int:
-        try:
-            return litellm.token_counter(model=model, text=text)
-        except Exception:
-            return int(len(text.split()) * 1.3)
-
     while i < len(words):
         end = min(i + approx_words_per_chunk, len(words))
         chunk = " ".join(words[i:end])
-        while _count(chunk) > target_tokens and end - i > 1:
+        while _safe_token_count(model, chunk) > target_tokens and end - i > 1:
             end = i + max((end - i) // 2, 1)
             chunk = " ".join(words[i:end])
         chunks.append(chunk)
@@ -63,21 +71,20 @@ async def summarize(
     model: str,
     api_key: str,
     base_url: str | None,
+    progress: ProgressCb | None = None,
 ) -> str:
+    progress = progress or _noop
     try:
         max_tokens = litellm.get_max_tokens(model) or 8000
     except Exception:
-        # Unknown model (e.g. local Ollama tag not in LiteLLM's catalogue).
-        # Assume a conservative 8k window; the actual call will surface real errors.
         max_tokens = 8000
     budget = int(max_tokens * 0.7)
-    try:
-        transcript_tokens = litellm.token_counter(model=model, text=transcript)
-    except Exception:
-        # Tokenizer unknown — estimate from word count.
-        transcript_tokens = int(len(transcript.split()) * 1.3)
+    transcript_tokens = _safe_token_count(model, transcript)
 
     if transcript_tokens <= budget:
+        await progress(
+            f"summarizing (single-shot, ~{transcript_tokens} tokens, model context {max_tokens})"
+        )
         return await _completion(
             model=model,
             messages=[
@@ -91,6 +98,7 @@ async def summarize(
     chunks = _split_into_chunks(transcript, model, target_tokens=budget // 2)
     partials: list[str] = []
     for idx, chunk in enumerate(chunks, start=1):
+        await progress(f"summarizing chunk {idx}/{len(chunks)}")
         part = await _completion(
             model=model,
             messages=[
@@ -105,6 +113,7 @@ async def summarize(
         )
         partials.append(part)
 
+    await progress(f"merging {len(chunks)} partial summaries")
     return await _completion(
         model=model,
         messages=[

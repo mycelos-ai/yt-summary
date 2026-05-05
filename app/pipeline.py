@@ -57,5 +57,6 @@ async def process_video(
         model=model,
         api_key=api_key or "",
         base_url=base_url,
+        progress=set_step,
     )
     await videos_repo.set_summary(db, video_id, summary, model)

@@ -58,12 +58,22 @@ async def video_status(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
 ):
+    from datetime import UTC, datetime
+
     video = await videos_repo.get(db, video_id)
     if video is None:
         raise HTTPException(404)
     job = await jobs_repo.latest_for_video(db, video_id)
+    elapsed_s: int | None = None
+    if job and job.state.value == "running":
+        # job.updated_at is naive UTC (SQLite datetime('now'))
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
+        delta = now_utc - job.updated_at
+        elapsed_s = max(0, int(delta.total_seconds()))
     return templates.TemplateResponse(
-        request, "video_status.html", {"video": video, "job": job}
+        request,
+        "video_status.html",
+        {"video": video, "job": job, "elapsed_s": elapsed_s},
     )
 
 
