@@ -118,58 +118,6 @@ def create_app() -> FastAPI:
             raise HTTPException(404)
         return FileResponse(path)
 
-    @app.get("/__diag-net")
-    async def diag_net(host: str = "192.168.0.27", port: int = 11434) -> dict:
-        """Per-layer connectivity probe from inside this process.
-
-        Each step is independent and records its own success/error so we can
-        see exactly which layer fails (DNS, TCP, urllib, httpx, aiohttp).
-        """
-        import socket
-        import urllib.request
-
-        out: dict = {"target": f"{host}:{port}"}
-
-        try:
-            out["dns"] = socket.gethostbyname(host)
-        except Exception as e:
-            out["dns"] = f"FAIL {type(e).__name__}: {e}"
-
-        try:
-            s = socket.create_connection((host, port), timeout=3)
-            local = s.getsockname()
-            s.close()
-            out["raw_tcp"] = f"OK (local {local[0]}:{local[1]})"
-        except Exception as e:
-            out["raw_tcp"] = f"FAIL {type(e).__name__}: {e}"
-
-        url = f"http://{host}:{port}/api/tags"
-        try:
-            with urllib.request.urlopen(url, timeout=3) as r:  # noqa: ASYNC210
-                out["urllib"] = f"OK status={r.status}"
-        except Exception as e:
-            out["urllib"] = f"FAIL {type(e).__name__}: {e}"
-
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as c:
-                r = await c.get(url)
-            out["httpx"] = f"OK status={r.status_code}"
-        except Exception as e:
-            out["httpx"] = f"FAIL {type(e).__name__}: {e}"
-
-        try:
-            import aiohttp
-
-            async with (
-                aiohttp.ClientSession() as s2,
-                s2.get(url, timeout=aiohttp.ClientTimeout(total=3)) as r,
-            ):
-                out["aiohttp"] = f"OK status={r.status}"
-        except Exception as e:
-            out["aiohttp"] = f"FAIL {type(e).__name__}: {e}"
-
-        return out
-
     app.include_router(home_router)
     from app.routes.videos import router as videos_router
     app.include_router(videos_router)
