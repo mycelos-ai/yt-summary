@@ -1,8 +1,19 @@
+import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import aiosqlite
 
 from app.config import Config
+from app.repos import settings as settings_repo
+from app.repos import videos as videos_repo
+from app.services.summarizer import summarize
+from app.services.transcript import obtain_transcript
+
+
+def _resolve_cookies(config: Config) -> Path | None:
+    p = config.cookies_path
+    return p if p.exists() else None
 
 
 async def process_video(
@@ -11,5 +22,35 @@ async def process_video(
     video_id: str,
     set_step: Callable[[str], Awaitable[None]],
 ) -> None:
-    """Pipeline stub. Real implementation lands in Phase 5+."""
-    await set_step("done (stub)")
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise RuntimeError(f"Video {video_id} not found")
+
+    settings = await settings_repo.get_all(db)
+    model = settings.get("llm_model")
+    api_key = settings.get("llm_api_key")
+    if not model or not api_key:
+        raise RuntimeError("LLM model or API key not configured. Open Settings.")
+    base_url = settings.get("llm_base_url")
+    whisper_model = settings.get("whisper_model", "small")
+
+    cookies = await asyncio.to_thread(_resolve_cookies, config)
+
+    await set_step("fetching transcript")
+    text, source = await obtain_transcript(
+        url=video.url,
+        video_id=video_id,
+        audio_dir=config.audio_dir,
+        cookies_path=cookies,
+        whisper_model=whisper_model,
+    )
+    await videos_repo.set_transcript(db, video_id, text, source)
+
+    await set_step("summarizing")
+    summary = await summarize(
+        transcript=text,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    await videos_repo.set_summary(db, video_id, summary, model)
