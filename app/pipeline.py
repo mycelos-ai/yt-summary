@@ -52,11 +52,19 @@ async def process_video(
         return
 
     await set_step("summarizing")
+
+    async def _persist_partial(partial: str) -> None:
+        # Map-reduce: surface progress to the UI by writing the working
+        # summary back to the videos row. The detail page polls this
+        # while the job is running.
+        await videos_repo.set_summary(db, video_id, partial, model)
+
     summary = await summarize(
         transcript=text,
         model=model,
         api_key=api_key or "",
         base_url=base_url,
         progress=set_step,
+        on_partial=_persist_partial,
     )
     await videos_repo.set_summary(db, video_id, summary, model)

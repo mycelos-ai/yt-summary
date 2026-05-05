@@ -19,14 +19,7 @@
     <img src="/thumbnails/{{ video.id }}.jpg" alt="">
   {% endif %}
 
-  <section class="summary">
-    <h2>Summary</h2>
-    {% if video.summary %}
-      {{ summary_html | safe }}
-    {% else %}
-      {% include "video_status.html" %}
-    {% endif %}
-  </section>
+  {% include "video_summary_section.html" %}
 
   {% if video.transcript %}
     <details class="transcript">

@@ -3,6 +3,8 @@ from typing import Any
 
 import litellm
 
+from app.services.model_info import get_context_window
+
 SYSTEM_PROMPT = (
     "You are a careful summarizer. Produce a clear, structured summary of the "
     "following YouTube transcript. Use Markdown. Start with a one-paragraph "
@@ -72,12 +74,17 @@ async def summarize(
     api_key: str,
     base_url: str | None,
     progress: ProgressCb | None = None,
+    on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
+    """Summarize a transcript.
+
+    on_partial: optional async callback invoked after each completed chunk
+    in the map-reduce path. Receives a Markdown-formatted "live" summary
+    that combines the partial summaries produced so far. Not called in
+    the single-shot path (single-shot has no intermediate state).
+    """
     progress = progress or _noop
-    try:
-        max_tokens = litellm.get_max_tokens(model) or 8000
-    except Exception:
-        max_tokens = 8000
+    max_tokens = await get_context_window(model, base_url)
     budget = int(max_tokens * 0.7)
     transcript_tokens = _safe_token_count(model, transcript)
 
@@ -112,6 +119,8 @@ async def summarize(
             base_url=base_url,
         )
         partials.append(part)
+        if on_partial is not None:
+            await on_partial(_render_live_summary(partials, total=len(chunks)))
 
     await progress(f"merging {len(chunks)} partial summaries")
     return await _completion(
@@ -123,3 +132,15 @@ async def summarize(
         api_key=api_key,
         base_url=base_url,
     )
+
+
+def _render_live_summary(partials: list[str], *, total: int) -> str:
+    done = len(partials)
+    header = (
+        f"_Working summary — {done} of {total} parts done. The final "
+        "summary will replace this when ready._\n\n"
+    )
+    body_blocks = []
+    for idx, part in enumerate(partials, start=1):
+        body_blocks.append(f"### Part {idx} of {total}\n\n{part}")
+    return header + "\n\n".join(body_blocks)

@@ -58,28 +58,54 @@ async def submit_video(
     return RedirectResponse(f"/v/{meta.id}", status_code=303)
 
 
+def _elapsed_seconds(job) -> int | None:
+    if job is None or job.state.value != "running":
+        return None
+    from datetime import UTC, datetime
+
+    # job.updated_at is naive UTC (SQLite datetime('now'))
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    delta = now_utc - job.updated_at
+    return max(0, int(delta.total_seconds()))
+
+
 @router.get("/v/{video_id}/status", response_class=HTMLResponse)
 async def video_status(
     video_id: str,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    from datetime import UTC, datetime
-
     video = await videos_repo.get(db, video_id)
     if video is None:
         raise HTTPException(404)
     job = await jobs_repo.latest_for_video(db, video_id)
-    elapsed_s: int | None = None
-    if job and job.state.value == "running":
-        # job.updated_at is naive UTC (SQLite datetime('now'))
-        now_utc = datetime.now(UTC).replace(tzinfo=None)
-        delta = now_utc - job.updated_at
-        elapsed_s = max(0, int(delta.total_seconds()))
     return templates.TemplateResponse(
         request,
         "video_status.html",
-        {"video": video, "job": job, "elapsed_s": elapsed_s},
+        {"video": video, "job": job, "elapsed_s": _elapsed_seconds(job)},
+    )
+
+
+@router.get("/v/{video_id}/summary-fragment", response_class=HTMLResponse)
+async def video_summary_fragment(
+    video_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    job = await jobs_repo.latest_for_video(db, video_id)
+    summary_html = _md.render(video.summary) if video.summary else ""
+    return templates.TemplateResponse(
+        request,
+        "video_summary_section.html",
+        {
+            "video": video,
+            "job": job,
+            "summary_html": summary_html,
+            "elapsed_s": _elapsed_seconds(job),
+        },
     )
 
 
@@ -131,5 +157,6 @@ async def video_detail(
             "summary_html": summary_html,
             "chat_history": history,
             "job": job,
+            "elapsed_s": _elapsed_seconds(job),
         },
     )

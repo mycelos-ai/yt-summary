@@ -206,3 +206,51 @@ def test_reindex_404_unknown_video(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.post("/v/nope/reindex", follow_redirects=False)
     assert resp.status_code == 404
+
+
+def test_summary_fragment_polls_when_job_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import jobs as jobs_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="sf1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await jobs_repo.enqueue(app.state.db, "sf1")
+            # mark job running so polling kicks in
+            claimed = await jobs_repo.claim_next(app.state.db)
+            assert claimed is not None
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/sf1/summary-fragment")
+    assert resp.status_code == 200
+    assert "every 2s" in resp.text
+    assert "summary-fragment" in resp.text
+
+
+def test_summary_fragment_stops_polling_when_done(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="sf2", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "sf2", "## Final\nDone.", "openai/gpt-4o"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/sf2/summary-fragment")
+    assert resp.status_code == 200
+    assert "every 2s" not in resp.text
+    assert "Done." in resp.text

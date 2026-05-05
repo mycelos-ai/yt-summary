@@ -1,0 +1,24 @@
+{# Self-refreshing summary block. Polls every 2s while the latest job is
+   running or pending; stops once the job is done or failed. #}
+<section
+  class="summary"
+  id="video-summary-{{ video.id }}"
+  {% if job and job.state.value in ('running', 'pending') %}
+    hx-get="/v/{{ video.id }}/summary-fragment"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+  {% endif %}
+>
+  <h2>Summary</h2>
+  {% if video.summary %}
+    {% if job and job.state.value in ('running', 'pending') %}
+      <p class="status status-running">
+        <span class="spinner" aria-hidden="true"></span>
+        {{ job.step or 'working' }}{% if elapsed_s is not none %} · {{ elapsed_s }}s{% endif %}…
+      </p>
+    {% endif %}
+    {{ summary_html | safe }}
+  {% else %}
+    {% include "video_status.html" %}
+  {% endif %}
+</section>
