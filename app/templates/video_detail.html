@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ video.title }} — yt-summary{% endblock %}
+{% block content %}
+<article class="video-detail">
+  <header>
+    <h1>{{ video.title }}</h1>
+    <p><a href="{{ video.url }}" target="_blank" rel="noopener">Watch on YouTube</a> ·
+       <a href="/v/{{ video.id }}.md">Markdown</a></p>
+  </header>
+
+  {% if video.thumbnail_path %}
+    <img src="/thumbnails/{{ video.id }}.jpg" alt="">
+  {% endif %}
+
+  <section class="summary">
+    <h2>Summary</h2>
+    {% if video.summary %}
+      {{ summary_html | safe }}
+    {% else %}
+      {% include "video_status.html" %}
+    {% endif %}
+  </section>
+
+  {% if video.transcript %}
+    <details class="transcript">
+      <summary>Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})</summary>
+      <pre>{{ video.transcript }}</pre>
+    </details>
+  {% endif %}
+
+  {% if video.summary %}
+    <section class="chat">
+      <h2>Chat</h2>
+      <div id="chat-history">
+        {% for msg in chat_history %}
+          {% include "_chat_message.html" %}
+        {% endfor %}
+      </div>
+      <form
+        hx-post="/v/{{ video.id }}/chat"
+        hx-target="#chat-history"
+        hx-swap="beforeend"
+        hx-on::after-request="this.reset()"
+      >
+        <input name="content" placeholder="Ask about this video…" required>
+        <button>Send</button>
+      </form>
+    </section>
+  {% endif %}
+</article>
+{% endblock %}

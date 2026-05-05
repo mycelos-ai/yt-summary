@@ -76,3 +76,62 @@ def test_status_done_summary_ready(tmp_path, monkeypatch):
         resp = client.get("/v/v1/status")
     assert "summary ready" in resp.text.lower()
     assert "every 2s" not in resp.text
+
+
+def test_video_detail_renders(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vd1", url="u", title="MyTitle",
+                description="d", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(app.state.db, "vd1", "## TL;DR\nshort", "model")
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/vd1")
+    assert resp.status_code == 200
+    assert "MyTitle" in resp.text
+    assert "TL;DR" in resp.text
+
+
+def test_video_detail_404_unknown(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/v/nope")
+    assert resp.status_code == 404
+
+
+def test_video_markdown_permalink(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="md1", url="https://youtu.be/md1",
+                title="MyTitle", description="d",
+                thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "md1", "the transcript", TranscriptSource.MANUAL_SUBS,
+            )
+            await videos_repo.set_summary(app.state.db, "md1", "## TL;DR\nshort", "model")
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/md1.md")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    body = resp.text
+    assert "# MyTitle" in body
+    assert "## Summary" in body
+    assert "## TL;DR" in body
+    assert "## Transcript" in body
+    assert "the transcript" in body
+    assert "https://youtu.be/md1" in body

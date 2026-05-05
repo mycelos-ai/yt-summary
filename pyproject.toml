@@ -13,6 +13,7 @@ dependencies = [
     "faster-whisper>=1.1.0",
     "litellm>=1.55",
     "httpx>=0.28",
+    "markdown-it-py>=3.0",
 ]
 
 [project.optional-dependencies]

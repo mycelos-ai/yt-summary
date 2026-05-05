@@ -1,16 +1,20 @@
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
 
 from app.config import Config
 from app.main import get_config, get_db
+from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
 from app.repos import videos as videos_repo
 from app.services.youtube import download_thumbnail, fetch_metadata, parse_video_id
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+_md = MarkdownIt()
 
 
 @router.post("/videos", response_class=HTMLResponse)
@@ -60,4 +64,44 @@ async def video_status(
     job = await jobs_repo.latest_for_video(db, video_id)
     return templates.TemplateResponse(
         request, "video_status.html", {"video": video, "job": job}
+    )
+
+
+@router.get("/v/{video_id}.md")
+async def video_markdown(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    parts: list[str] = [f"# {video.title}", "", f"Source: {video.url}", ""]
+    if video.summary:
+        parts += ["## Summary", "", video.summary, ""]
+    if video.transcript:
+        parts += ["## Transcript", "", video.transcript, ""]
+    return PlainTextResponse("\n".join(parts), media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/v/{video_id}", response_class=HTMLResponse)
+async def video_detail(
+    video_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    summary_html = _md.render(video.summary) if video.summary else ""
+    history = await chat_repo.history(db, video_id)
+    job = await jobs_repo.latest_for_video(db, video_id)
+    return templates.TemplateResponse(
+        request,
+        "video_detail.html",
+        {
+            "video": video,
+            "summary_html": summary_html,
+            "chat_history": history,
+            "job": job,
+        },
     )
