@@ -9,3 +9,4 @@ data/
 .venv/
 .env
 .env.local
+*.egg-info/
