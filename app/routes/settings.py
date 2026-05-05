@@ -44,8 +44,11 @@ async def save_settings(
     whisper_model: str = Form("small"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
+    # LiteLLM appends paths to api_base; a trailing "/" produces "//api/chat"
+    # which some providers reject with 405.
+    llm_base_url = llm_base_url.strip().rstrip("/")
     for key, value in (
-        ("llm_model", llm_model),
+        ("llm_model", llm_model.strip()),
         ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model),
     ):

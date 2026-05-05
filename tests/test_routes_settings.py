@@ -131,3 +131,28 @@ def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     assert "supersecret" not in resp.text
+
+
+def test_save_settings_strips_trailing_slash_from_base_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post(
+            "/settings",
+            data={
+                "llm_model": "ollama_chat/gemma4:latest",
+                "llm_api_key": "",
+                "llm_base_url": "http://192.168.0.27:11434/",
+                "whisper_model": "small",
+            },
+            follow_redirects=False,
+        )
+
+        import asyncio
+
+        async def check():
+            from app.repos import settings as settings_repo
+            value = await settings_repo.get(app.state.db, "llm_base_url")
+            assert value == "http://192.168.0.27:11434"
+
+        asyncio.get_event_loop().run_until_complete(check())
