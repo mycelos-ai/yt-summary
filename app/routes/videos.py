@@ -46,3 +46,18 @@ async def submit_video(
     return templates.TemplateResponse(
         request, "video_card.html", {"video": video}
     )
+
+
+@router.get("/v/{video_id}/status", response_class=HTMLResponse)
+async def video_status(
+    video_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    job = await jobs_repo.latest_for_video(db, video_id)
+    return templates.TemplateResponse(
+        request, "video_status.html", {"video": video, "job": job}
+    )

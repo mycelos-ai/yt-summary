@@ -1,0 +1,13 @@
+{% if video.summary %}
+  <p class="status status-done">✓ summary ready</p>
+{% elif job and job.state.value == 'failed' %}
+  <p class="status status-failed">⚠ {{ job.error_message or 'failed' }}</p>
+{% elif job and job.state.value == 'running' %}
+  <p class="status status-running" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
+    {{ job.step or 'running' }}…
+  </p>
+{% else %}
+  <p class="status status-pending" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
+    queued…
+  </p>
+{% endif %}
