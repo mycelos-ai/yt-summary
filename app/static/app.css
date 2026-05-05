@@ -245,28 +245,6 @@ p { margin: 0 0 16px 0; }
 }
 .search-form input { font-size: 14px; padding: 8px 12px; }
 
-/* Startup probe banner */
-.startup-probe {
-  padding: 12px 16px;
-  margin-bottom: 24px;
-  border-radius: var(--rounded-md);
-  background: var(--surface);
-  border: 1px solid var(--hairline-soft);
-  font-size: 13px;
-  color: var(--steel);
-  font-family: var(--font-mono);
-}
-.startup-probe.status-failed {
-  background: rgba(212, 86, 86, 0.08);
-  border-color: rgba(212, 86, 86, 0.24);
-  color: var(--brand-error);
-}
-.startup-probe.status-done {
-  background: rgba(0, 212, 164, 0.08);
-  border-color: rgba(0, 212, 164, 0.24);
-  color: var(--brand-green-deep);
-}
-
 /* Video list / cards */
 #video-list {
   display: grid;

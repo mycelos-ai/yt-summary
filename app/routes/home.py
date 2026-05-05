@@ -20,9 +20,6 @@ async def home(
         videos = await videos_repo.search(db, q)
     else:
         videos = await videos_repo.list_recent(db)
-    startup_probe = getattr(request.app.state, "startup_probe", "")
     return templates.TemplateResponse(
-        request,
-        "home.html",
-        {"videos": videos, "q": q, "startup_probe": startup_probe},
+        request, "home.html", {"videos": videos, "q": q}
     )

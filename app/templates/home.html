@@ -10,12 +10,6 @@
   </form>
 </section>
 
-{% if startup_probe %}
-  <p class="startup-probe {% if 'FAIL' in startup_probe %}status-failed{% elif 'OK' in startup_probe %}status-done{% else %}status{% endif %}">
-    {{ startup_probe }}
-  </p>
-{% endif %}
-
 <form method="get" action="/" class="search-form">
   <input type="search" name="q" value="{{ q or '' }}" placeholder="Search past videos">
   <button type="submit">Search</button>
