@@ -1,0 +1,216 @@
+"""Shared service layer for the REST API and MCP server.
+
+Each function takes the db connection + parameters, returns a plain
+Python value (dict / list / str). No HTTP, no MCP. Both surface
+adapters serialize from these returns.
+"""
+
+import asyncio
+from typing import TypedDict
+
+import aiosqlite
+
+from app.config import Config
+from app.models import VideoKind
+from app.repos import jobs as jobs_repo
+from app.repos import playlists as playlists_repo
+from app.repos import tags as tags_repo
+from app.repos import videos as videos_repo
+from app.services.reader import fetch_article
+from app.services.url_classify import classify_url, web_id_from_url
+from app.services.youtube import download_thumbnail, fetch_metadata
+
+
+class VideoResource(TypedDict, total=False):
+    id: str
+    kind: str
+    url: str
+    title: str
+    description: str
+    thumbnail_url: str | None
+    duration_seconds: int | None
+    transcript_source: str | None
+    summary_model: str | None
+    summary_ready: bool
+    tags: list[str]
+    playlists: list[dict]
+    job: dict | None
+    created_at: str
+    updated_at: str
+
+
+def _video_to_resource(
+    video,
+    *,
+    tag_names: list[str] | None = None,
+    playlist_links: list[tuple[str, str]] | None = None,
+    job=None,
+    elapsed_s: int | None = None,
+) -> VideoResource:
+    return {
+        "id": video.id,
+        "kind": video.kind.value,
+        "url": video.url,
+        "title": video.title,
+        "description": video.description,
+        "thumbnail_url": (
+            f"/thumbnails/{video.id}.jpg" if video.thumbnail_path else None
+        ),
+        "duration_seconds": video.duration_seconds,
+        "transcript_source": (
+            video.transcript_source.value if video.transcript_source else None
+        ),
+        "summary_model": video.summary_model,
+        "summary_ready": bool(video.summary),
+        "tags": tag_names or [],
+        "playlists": [
+            {"id": pid, "title": ptitle}
+            for pid, ptitle in (playlist_links or [])
+        ],
+        "job": (
+            {
+                "state": job.state.value,
+                "step": job.step,
+                "error_message": job.error_message,
+                "elapsed_seconds": elapsed_s,
+            }
+            if job
+            else None
+        ),
+        "created_at": video.created_at.isoformat(),
+        "updated_at": video.updated_at.isoformat(),
+    }
+
+
+async def get_video_resource(
+    db: aiosqlite.Connection, video_id: str
+) -> VideoResource | None:
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        return None
+    tags = await tags_repo.tags_for_video(db, video_id)
+    plinks_map = await playlists_repo.playlists_for_videos(db, [video_id])
+    plinks = plinks_map.get(video_id, [])
+    job = await jobs_repo.latest_for_video(db, video_id)
+    return _video_to_resource(
+        video, tag_names=tags, playlist_links=plinks, job=job
+    )
+
+
+async def list_videos(
+    db: aiosqlite.Connection,
+    limit: int = 50,
+    offset: int = 0,
+    *,
+    tag: str | None = None,
+    playlist_id: str | None = None,
+) -> list[VideoResource]:
+    if playlist_id:
+        videos = await playlists_repo.videos_for_playlist(db, playlist_id)
+        videos = videos[offset : offset + limit]
+    else:
+        videos = await videos_repo.list_recent(db, limit=limit + offset, tag=tag)
+        videos = videos[offset : offset + limit]
+    if not videos:
+        return []
+    ids = [v.id for v in videos]
+    tags_map = await tags_repo.tags_for_videos(db, ids)
+    plinks_map = await playlists_repo.playlists_for_videos(db, ids)
+    return [
+        _video_to_resource(
+            v,
+            tag_names=tags_map.get(v.id, []),
+            playlist_links=plinks_map.get(v.id, []),
+        )
+        for v in videos
+    ]
+
+
+async def submit_video(
+    db: aiosqlite.Connection,
+    config: Config,
+    *,
+    url: str,
+    user_id: int,
+    wait: bool = False,
+    wait_timeout: int = 60,
+) -> VideoResource:
+    """Submit a URL. Async by default; sync waits up to `wait_timeout` seconds
+    for the summary to finish."""
+    from app.models import TranscriptSource as TranscriptSrc
+    from app.repos import tags as _tags_repo
+
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Not an http(s) URL: {url!r}")
+
+    cookies = config.cookies_path if config.cookies_path.exists() else None
+
+    if classify_url(url) == "youtube":
+        meta = await fetch_metadata(url, cookies_path=cookies)
+        thumb_target = config.thumbnails_dir / f"{meta.id}.jpg"
+        await download_thumbnail(meta.thumbnail_url, thumb_target)
+        thumb_db_path = str(thumb_target) if thumb_target.exists() else None
+        await videos_repo.upsert_metadata(
+            db,
+            video_id=meta.id,
+            url=meta.url,
+            title=meta.title,
+            description=meta.description,
+            thumbnail_path=thumb_db_path,
+            duration_seconds=meta.duration_seconds,
+            user_id=user_id,
+            kind=VideoKind.YOUTUBE,
+        )
+        if meta.tags:
+            await _tags_repo.set_tags_for_video(db, meta.id, list(meta.tags))
+        await jobs_repo.enqueue(db, meta.id)
+        item_id = meta.id
+    else:
+        article = await fetch_article(url)
+        item_id = web_id_from_url(article.url)
+        thumb_target = config.thumbnails_dir / f"{item_id}.jpg"
+        thumb_db_path: str | None = None
+        if article.thumbnail_url:
+            try:
+                await download_thumbnail(article.thumbnail_url, thumb_target)
+                if thumb_target.exists():
+                    thumb_db_path = str(thumb_target)
+            except Exception:
+                pass
+        await videos_repo.upsert_metadata(
+            db,
+            video_id=item_id,
+            url=article.url,
+            title=article.title,
+            description=article.description,
+            thumbnail_path=thumb_db_path,
+            duration_seconds=None,
+            user_id=user_id,
+            kind=VideoKind.WEB,
+        )
+        await videos_repo.set_transcript(db, item_id, article.body, TranscriptSrc.WEB)
+        await jobs_repo.enqueue(db, item_id)
+
+    if wait and wait_timeout > 0:
+        await _wait_for_summary(db, item_id, wait_timeout)
+
+    resource = await get_video_resource(db, item_id)
+    assert resource is not None
+    return resource
+
+
+async def _wait_for_summary(
+    db: aiosqlite.Connection, video_id: str, max_seconds: int
+) -> None:
+    """Poll videos.summary every second up to `max_seconds` seconds."""
+    deadline_iters = max(1, min(max_seconds, 300))
+    for _ in range(deadline_iters):
+        video = await videos_repo.get(db, video_id)
+        if video and video.summary:
+            return
+        # also stop early if the latest job failed
+        job = await jobs_repo.latest_for_video(db, video_id)
+        if job and job.state.value == "failed":
+            return
+        await asyncio.sleep(1.0)
