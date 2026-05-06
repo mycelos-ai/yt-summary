@@ -21,4 +21,6 @@ pytest
 
 When running locally without Docker, uvicorn defaults to port 8000.
 
-See [design spec](docs/superpowers/specs/2026-05-05-yt-summary-design.md) for architecture.
+See the [core design spec](docs/superpowers/specs/2026-05-05-yt-summary-design.md)
+and the [playlists spec](docs/superpowers/specs/2026-05-06-playlists-design.md)
+for architecture.
