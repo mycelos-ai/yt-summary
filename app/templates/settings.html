@@ -104,5 +104,38 @@
     </label>
     <button type="submit">Save cookies</button>
   </form>
+
+  <p class="section-title" style="margin-top: 48px;">API access</p>
+
+  <div class="api-access-block" style="background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); padding: 24px;">
+    {% if api_key_prefix %}
+      <p>
+        <strong>Status:</strong> ● Active &mdash;
+        <code>{{ api_key_prefix }}...</code>
+        {% if api_key_created_at %}
+          <span style="color: var(--steel);">created {{ api_key_created_at.strftime('%Y-%m-%d') }}</span>
+        {% endif %}
+      </p>
+      <form method="post" action="/settings/api-key/generate" style="display:inline">
+        <button type="submit" class="btn btn-secondary">Regenerate</button>
+      </form>
+      <form method="post" action="/settings/api-key/revoke" style="display:inline"
+            onsubmit="return confirm('Revoke the current API key? Any tools using it will stop working.')">
+        <button type="submit" class="btn btn-secondary">Revoke</button>
+      </form>
+    {% else %}
+      <p>
+        <strong>Status:</strong> ⚠ No API key — anyone on the LAN can call the API.
+      </p>
+      <form method="post" action="/settings/api-key/generate" style="display:inline">
+        <button type="submit" class="btn btn-primary">Generate API Key</button>
+      </form>
+    {% endif %}
+
+    <ul style="margin-top: 24px; color: var(--steel); font-size: 13px; padding-left: 20px;">
+      <li>REST API: <code>/api/v1/</code> &middot; <a href="/api/v1/docs" target="_blank">OpenAPI docs</a></li>
+      <li>MCP server: <code>/mcp/sse</code></li>
+    </ul>
+  </div>
 </div>
 {% endblock %}

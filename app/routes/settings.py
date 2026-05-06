@@ -10,6 +10,8 @@ from fastapi.templating import Jinja2Templates
 from app.config import Config
 from app.main import get_config, get_db
 from app.repos import settings as settings_repo
+from app.repos import users as users_repo
+from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 
 router = APIRouter()
@@ -26,6 +28,7 @@ async def settings_page(
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
     has_api_key = bool(settings.get("llm_api_key"))
     safe_settings = {k: v for k, v in settings.items() if k != "llm_api_key"}
+    user = await users_repo.get_default_user(db)
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -33,6 +36,8 @@ async def settings_page(
             "settings": safe_settings,
             "has_api_key": has_api_key,
             "has_cookies": has_cookies,
+            "api_key_prefix": user.api_key_prefix if user else None,
+            "api_key_created_at": user.api_key_created_at if user else None,
         },
     )
 
@@ -147,4 +152,28 @@ async def save_curl(
 async def clear_curl(config: Config = Depends(get_config)):
     if await asyncio.to_thread(config.cookies_path.exists):
         await asyncio.to_thread(config.cookies_path.unlink)
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/api-key/generate", response_class=HTMLResponse)
+async def generate_api_key_route(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    plaintext, key_hash, prefix = _gen_key()
+    await users_repo.set_api_key(
+        db, user_id=1, key_hash=key_hash, key_prefix=prefix
+    )
+    return templates.TemplateResponse(
+        request,
+        "api_key_reveal.html",
+        {"plaintext": plaintext, "prefix": prefix},
+    )
+
+
+@router.post("/settings/api-key/revoke")
+async def revoke_api_key_route(
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    await users_repo.clear_api_key(db, user_id=1)
     return RedirectResponse("/settings", status_code=303)

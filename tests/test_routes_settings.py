@@ -223,3 +223,52 @@ def test_settings_form_renders_playlist_fields(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert "playlist_refresh_interval_hours" in resp.text
     assert "playlist_initial_import_limit" in resp.text
+
+
+def test_generate_api_key_creates_key_and_shows_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/api-key/generate", follow_redirects=False
+        )
+    assert resp.status_code == 200
+    assert "yts_" in resp.text
+    # The reveal page warns the user it's shown once.
+    text_lower = resp.text.lower()
+    assert (
+        "shown only once" in text_lower
+        or "show only once" in text_lower
+        or "copy it now" in text_lower
+    )
+
+
+def test_settings_page_shows_api_key_prefix_when_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings/api-key/generate", follow_redirects=False)
+        resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "yts_" in resp.text
+    assert "..." in resp.text
+
+
+def test_revoke_api_key_clears_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings/api-key/generate", follow_redirects=False)
+        resp = client.post(
+            "/settings/api-key/revoke", follow_redirects=False
+        )
+        assert resp.status_code in (200, 303)
+
+        import asyncio
+        async def check():
+            from app.repos import users as users_repo
+            user = await users_repo.get_default_user(app.state.db)
+            assert user is not None
+            assert user.api_key_hash is None
+
+        asyncio.get_event_loop().run_until_complete(check())

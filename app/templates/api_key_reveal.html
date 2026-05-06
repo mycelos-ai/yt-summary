@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}API key generated — yt-summary{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <h1>Your new API key</h1>
+  <p style="color: var(--brand-error); font-weight: 500;">
+    This key is shown only once. Copy it now — we only store its hash.
+  </p>
+  <pre style="background: var(--surface); padding: 16px; border-radius: var(--rounded-md); user-select: all; word-break: break-all;">{{ plaintext }}</pre>
+  <p>
+    <a href="/settings" class="btn btn-primary">I've copied it</a>
+  </p>
+</div>
+{% endblock %}
