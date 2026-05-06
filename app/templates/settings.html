@@ -29,6 +29,18 @@
         {% endfor %}
       </select>
     </label>
+    <label>
+      Playlist refresh interval (hours)
+      <input name="playlist_refresh_interval_hours" type="number" min="1" max="168"
+             value="{{ settings.get('playlist_refresh_interval_hours', '6') }}">
+      <small>How often the scheduler re-checks every saved playlist for new videos. Default 6.</small>
+    </label>
+    <label>
+      Playlist initial import limit
+      <input name="playlist_initial_import_limit" type="number" min="0" max="500"
+             value="{{ settings.get('playlist_initial_import_limit', '20') }}">
+      <small>Number of newest videos to enqueue when a playlist is first added, or when "Load older" is clicked. Set to 0 to import all entries on first add (the Pi will be busy for a while).</small>
+    </label>
     <button type="submit">Save</button>
   </form>
 

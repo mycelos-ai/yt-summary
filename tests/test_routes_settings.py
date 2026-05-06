@@ -187,3 +187,39 @@ def test_save_settings_strips_trailing_slash_from_base_url(tmp_path, monkeypatch
             assert value == "http://192.168.0.27:11434"
 
         asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_save_settings_persists_playlist_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post(
+            "/settings",
+            data={
+                "llm_model": "openai/gpt-4o",
+                "llm_api_key": "",
+                "llm_base_url": "",
+                "whisper_model": "small",
+                "playlist_refresh_interval_hours": "12",
+                "playlist_initial_import_limit": "30",
+            },
+            follow_redirects=False,
+        )
+        import asyncio
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert s["playlist_refresh_interval_hours"] == "12"
+            assert s["playlist_initial_import_limit"] == "30"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_settings_form_renders_playlist_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert "playlist_refresh_interval_hours" in resp.text
+    assert "playlist_initial_import_limit" in resp.text

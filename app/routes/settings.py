@@ -43,6 +43,8 @@ async def save_settings(
     llm_api_key: str = Form(""),
     llm_base_url: str = Form(""),
     whisper_model: str = Form("small"),
+    playlist_refresh_interval_hours: str = Form("6"),
+    playlist_initial_import_limit: str = Form("20"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM appends paths to api_base; a trailing "/" produces "//api/chat"
@@ -52,6 +54,8 @@ async def save_settings(
         ("llm_model", llm_model.strip()),
         ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model),
+        ("playlist_refresh_interval_hours", playlist_refresh_interval_hours.strip()),
+        ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
     ):
         if value:
             await settings_repo.set(db, key, value)
