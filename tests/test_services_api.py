@@ -67,3 +67,37 @@ async def test_submit_video_async_returns_pending(db, tmp_path):
     assert result["id"] == "newvid12345"
     assert result["summary_ready"] is False
     assert result["kind"] == "youtube"
+
+
+async def test_list_tags_returns_counts(db, tmp_path):
+    from app.repos import tags as tags_repo
+    await videos_repo.upsert_metadata(
+        db, video_id="t1", url="u", title="t1",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="t2", url="u", title="t2",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await tags_repo.set_tags_for_video(db, "t1", ["python"])
+    await tags_repo.set_tags_for_video(db, "t2", ["python", "fastapi"])
+
+    from app.services.api import list_tags
+    result = await list_tags(db)
+    by_name = {t["name"]: t["count"] for t in result}
+    assert by_name["python"] == 2
+    assert by_name["fastapi"] == 1
+
+
+async def test_list_playlists_resource_shape(db, tmp_path):
+    from app.repos import playlists as playlists_repo
+    await playlists_repo.create(
+        db, playlist_id="PLapi1", user_id=1, url="u",
+        title="Show", description="", thumbnail_path=None,
+    )
+    from app.services.api import list_playlists
+    rows = await list_playlists(db, user_id=1)
+    assert len(rows) == 1
+    assert rows[0]["id"] == "PLapi1"
+    assert rows[0]["title"] == "Show"
+    assert rows[0]["video_count"] == 0

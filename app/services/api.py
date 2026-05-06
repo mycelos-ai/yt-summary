@@ -6,7 +6,7 @@ adapters serialize from these returns.
 """
 
 import asyncio
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import aiosqlite
 
@@ -214,3 +214,115 @@ async def _wait_for_summary(
         if job and job.state.value == "failed":
             return
         await asyncio.sleep(1.0)
+
+
+async def search_videos(
+    db: aiosqlite.Connection,
+    query: str,
+    limit: int = 20,
+    *,
+    tag: str | None = None,
+) -> list[VideoResource]:
+    """FTS-only search (the route layer is responsible for fusing in
+    embeddings if it has the embedding service available, see
+    routes/home.py for the pattern)."""
+    videos = await videos_repo.search(db, query, limit=limit, tag=tag)
+    if not videos:
+        return []
+    ids = [v.id for v in videos]
+    tags_map = await tags_repo.tags_for_videos(db, ids)
+    plinks_map = await playlists_repo.playlists_for_videos(db, ids)
+    return [
+        _video_to_resource(
+            v,
+            tag_names=tags_map.get(v.id, []),
+            playlist_links=plinks_map.get(v.id, []),
+        )
+        for v in videos
+    ]
+
+
+async def chat_about_video(
+    db: aiosqlite.Connection,
+    video_id: str,
+    content: str,
+    *,
+    user_id: int,
+) -> dict[str, Any]:
+    """Append a user turn, run the LLM, persist the assistant turn,
+    return both as a dict."""
+    from app.repos import chat as chat_repo
+    from app.repos import settings as settings_repo
+    from app.services.chat import stream_reply
+
+    video = await videos_repo.get(db, video_id)
+    if video is None or video.transcript is None:
+        raise ValueError("Video or transcript not found")
+    settings = await settings_repo.get_all(db)
+    model = settings.get("llm_model")
+    if not model:
+        raise ValueError("LLM not configured")
+    api_key = settings.get("llm_api_key") or ""
+    base_url = settings.get("llm_base_url")
+
+    history = await chat_repo.history(db, video_id)
+    await chat_repo.append(db, video_id, "user", content, user_id=user_id)
+
+    collected: list[str] = []
+    async for token in stream_reply(
+        transcript=video.transcript,
+        history=history,
+        user_message=content,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+    ):
+        collected.append(token)
+    answer = "".join(collected)
+    await chat_repo.append(db, video_id, "assistant", answer, user_id=user_id)
+    return {"answer": answer, "history_length": len(history) + 2}
+
+
+async def list_playlists(
+    db: aiosqlite.Connection, *, user_id: int
+) -> list[dict[str, Any]]:
+    playlists = await playlists_repo.list_for_user(db, user_id)
+    out: list[dict[str, Any]] = []
+    for p in playlists:
+        videos = await playlists_repo.videos_for_playlist(db, p.id)
+        out.append(
+            {
+                "id": p.id,
+                "url": p.url,
+                "title": p.title,
+                "description": p.description,
+                "video_count": len(videos),
+                "last_refreshed_at": (
+                    p.last_refreshed_at.isoformat()
+                    if p.last_refreshed_at else None
+                ),
+                "created_at": p.created_at.isoformat(),
+            }
+        )
+    return out
+
+
+async def list_tags(db: aiosqlite.Connection) -> list[dict[str, Any]]:
+    cursor = await db.execute(
+        """
+        SELECT t.name, COUNT(vt.video_id) AS n
+        FROM tags t
+        LEFT JOIN video_tags vt ON vt.tag_id = t.id
+        GROUP BY t.id
+        HAVING n > 0
+        ORDER BY n DESC, t.name COLLATE NOCASE
+        """
+    )
+    rows = await cursor.fetchall()
+    return [{"name": row[0], "count": row[1]} for row in rows]
+
+
+async def reindex_video(db: aiosqlite.Connection, video_id: str) -> None:
+    if await videos_repo.get(db, video_id) is None:
+        raise ValueError(f"Unknown video: {video_id}")
+    await jobs_repo.enqueue(db, video_id)
