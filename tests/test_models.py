@@ -54,3 +54,20 @@ def test_job_dataclass():
         updated_at=datetime(2026, 5, 5),
     )
     assert j.state is JobState.PENDING
+
+
+def test_playlist_dataclass():
+    from app.models import Playlist
+    p = Playlist(
+        id="PLh9GXHYeT6w",
+        user_id=1,
+        url="https://www.youtube.com/playlist?list=PLh9GXHYeT6w",
+        title="My playlist",
+        description="",
+        thumbnail_path=None,
+        last_refreshed_at=None,
+        created_at=datetime(2026, 5, 6),
+    )
+    assert p.id == "PLh9GXHYeT6w"
+    assert p.user_id == 1
+    assert p.last_refreshed_at is None

@@ -54,3 +54,15 @@ class ChatMessage:
     role: ChatRole
     content: str
     created_at: datetime
+
+
+@dataclass
+class Playlist:
+    id: str
+    user_id: int
+    url: str
+    title: str
+    description: str
+    thumbnail_path: str | None
+    last_refreshed_at: datetime | None
+    created_at: datetime
