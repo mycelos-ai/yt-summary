@@ -5,19 +5,95 @@ import litellm
 
 from app.services.model_info import get_context_window
 
-SYSTEM_PROMPT = (
-    "You are a careful summarizer. Produce a clear, structured summary of the "
-    "following YouTube transcript. Use Markdown. Start with a one-paragraph "
-    "TL;DR, then key points as bullets, then notable quotes if any."
-)
-
-REDUCE_SYSTEM_PROMPT = (
-    "You are merging several partial summaries of a single YouTube transcript "
-    "into one cohesive Markdown summary. Preserve the structure: TL;DR, key "
-    "points, notable quotes."
-)
-
 ProgressCb = Callable[[str], Awaitable[None]]
+
+# Language code → human label used in the prompt. "auto" means: don't
+# fix a language; let the model match the transcript's language.
+LANGUAGE_LABELS: dict[str, str] = {
+    "auto": "match the transcript's language",
+    "de": "German",
+    "en": "English",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "nl": "Dutch",
+    "pt": "Portuguese",
+}
+
+
+def _language_directive(code: str | None) -> str:
+    code = (code or "auto").strip().lower()
+    label = LANGUAGE_LABELS.get(code, LANGUAGE_LABELS["auto"])
+    if code == "auto":
+        return "OUTPUT LANGUAGE: match the transcript's language."
+    return f"OUTPUT LANGUAGE: {label}."
+
+
+def build_system_prompt(
+    *, language: str | None, extra_instructions: str | None
+) -> str:
+    extra = (extra_instructions or "").strip()
+    extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    return (
+        "You analyze YouTube videos and extract their substance for someone "
+        "who doesn't have time to watch.\n\n"
+        f"{_language_directive(language)}\n"
+        "OUTPUT FORMAT: Markdown.\n\n"
+        "STRUCTURE:\n"
+        "1. **TL;DR** — one paragraph, 2-4 sentences. The single most "
+        "important takeaway, not a description of the video.\n"
+        "2. **Key points** — the main arguments, claims, or findings the "
+        "speaker makes. Each as a bullet of prose density (a sentence or "
+        "two), not a one-word phrase. Order by importance, not by "
+        "appearance.\n"
+        "3. **Notable quotes** (if any) — verbatim quotes that carry "
+        "weight. Omit the section if none.\n"
+        "4. **Mentioned resources** (if any) — links, tools, products, "
+        "papers, or projects referenced. Use the description below as the "
+        "primary source for exact URLs; transcript references can fill in "
+        "names when the description doesn't have them. Omit the section "
+        "if nothing was mentioned.\n\n"
+        "WHAT TO IGNORE:\n"
+        "- Sponsor reads and ad segments — skip them entirely.\n"
+        "- Self-promotion (\"subscribe\", \"like the video\", merch, "
+        "Patreon plugs).\n"
+        "- Filler words and repeated transitions.\n"
+    ) + extra_block
+
+
+def build_reduce_prompt(
+    *, language: str | None, extra_instructions: str | None
+) -> str:
+    extra = (extra_instructions or "").strip()
+    extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    return (
+        "You merge several partial summaries of a single YouTube video into "
+        "one cohesive Markdown summary.\n\n"
+        f"{_language_directive(language)}\n"
+        "OUTPUT FORMAT: Markdown.\n\n"
+        "Preserve this structure in the merged result:\n"
+        "1. **TL;DR** — one paragraph.\n"
+        "2. **Key points** — deduplicated, ordered by importance.\n"
+        "3. **Notable quotes** (if any).\n"
+        "4. **Mentioned resources** (if any) — use the description (given "
+        "below) as the primary source for exact URLs.\n\n"
+        "Drop sponsor reads, self-promotion, and filler. If a partial "
+        "summary mentions sponsors, do not surface them in the final "
+        "result."
+    ) + extra_block
+
+
+def _build_user_message(
+    *, title: str, description: str, body: str
+) -> str:
+    """Body is either the full transcript (single-shot) or one chunk
+    (map step) or the joined partials (reduce step)."""
+    return (
+        f"VIDEO TITLE: {title}\n\n"
+        f"VIDEO DESCRIPTION:\n{description or '(empty)'}\n\n"
+        f"---\n\n"
+        f"{body}"
+    )
 
 
 async def _noop(_: str) -> None:
@@ -73,30 +149,56 @@ async def summarize(
     model: str,
     api_key: str,
     base_url: str | None,
+    title: str = "",
+    description: str = "",
+    language: str | None = None,
+    extra_instructions: str | None = None,
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Summarize a transcript.
 
+    title, description: video metadata; surfaced to the model for context
+        (especially valuable for extracting "Mentioned resources" from the
+        description).
+    language: BCP-47-ish code ("auto", "de", "en", ...). "auto" means
+        match the transcript's language.
+    extra_instructions: free-form addendum appended to the system prompt
+        (user preference for tone, length, style, etc.).
     on_partial: optional async callback invoked after each completed chunk
-    in the map-reduce path. Receives a Markdown-formatted "live" summary
-    that combines the partial summaries produced so far. Not called in
-    the single-shot path (single-shot has no intermediate state).
+        in the map-reduce path. Receives a Markdown-formatted "live"
+        summary that combines the partial summaries produced so far.
+        Not called in the single-shot path (no intermediate state).
     """
     progress = progress or _noop
+    system_prompt = build_system_prompt(
+        language=language, extra_instructions=extra_instructions
+    )
+    reduce_prompt = build_reduce_prompt(
+        language=language, extra_instructions=extra_instructions
+    )
+
     max_tokens = await get_context_window(model, base_url)
     budget = int(max_tokens * 0.7)
     transcript_tokens = _safe_token_count(model, transcript)
 
     if transcript_tokens <= budget:
         await progress(
-            f"summarizing (single-shot, ~{transcript_tokens} tokens, model context {max_tokens})"
+            f"summarizing (single-shot, ~{transcript_tokens} tokens, "
+            f"model context {max_tokens})"
         )
         return await _completion(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": transcript},
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": _build_user_message(
+                        title=title,
+                        description=description,
+                        body=f"TRANSCRIPT:\n{transcript}",
+                    ),
+                },
             ],
             api_key=api_key,
             base_url=base_url,
@@ -109,10 +211,17 @@ async def summarize(
         part = await _completion(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": f"Part {idx} of {len(chunks)}:\n\n{chunk}",
+                    "content": _build_user_message(
+                        title=title,
+                        description=description,
+                        body=(
+                            f"TRANSCRIPT (part {idx} of {len(chunks)}):\n\n"
+                            f"{chunk}"
+                        ),
+                    ),
                 },
             ],
             api_key=api_key,
@@ -126,8 +235,18 @@ async def summarize(
     return await _completion(
         model=model,
         messages=[
-            {"role": "system", "content": REDUCE_SYSTEM_PROMPT},
-            {"role": "user", "content": "\n\n---\n\n".join(partials)},
+            {"role": "system", "content": reduce_prompt},
+            {
+                "role": "user",
+                "content": _build_user_message(
+                    title=title,
+                    description=description,
+                    body=(
+                        "PARTIAL SUMMARIES:\n\n"
+                        + "\n\n---\n\n".join(partials)
+                    ),
+                ),
+            },
         ],
         api_key=api_key,
         base_url=base_url,

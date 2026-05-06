@@ -64,6 +64,10 @@ async def process_video(
         model=model,
         api_key=api_key or "",
         base_url=base_url,
+        title=video.title,
+        description=video.description,
+        language=settings.get("summary_language"),
+        extra_instructions=settings.get("summary_extra_instructions"),
         progress=set_step,
         on_partial=_persist_partial,
     )

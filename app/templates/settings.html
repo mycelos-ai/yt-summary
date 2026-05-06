@@ -30,6 +30,31 @@
       </select>
     </label>
     <label>
+      Summary language
+      <select name="summary_language">
+        {% set langs = [
+            ('auto', 'Auto (match transcript)'),
+            ('de', 'German'),
+            ('en', 'English'),
+            ('fr', 'French'),
+            ('es', 'Spanish'),
+            ('it', 'Italian'),
+            ('nl', 'Dutch'),
+            ('pt', 'Portuguese'),
+        ] %}
+        {% set current_lang = settings.get('summary_language', 'auto') %}
+        {% for code, label in langs %}
+          <option value="{{ code }}" {% if current_lang == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <small>Output language of the summary. "Auto" mirrors whatever language the transcript is in.</small>
+    </label>
+    <label>
+      Extra summary instructions
+      <textarea name="summary_extra_instructions" rows="3" placeholder="e.g. 'Keep it under 200 words.' or 'Be skeptical of unsourced claims.'">{{ settings.get('summary_extra_instructions', '') }}</textarea>
+      <small>Free-form instructions appended to the summarizer system prompt. Empty for the default behavior.</small>
+    </label>
+    <label>
       Playlist refresh interval (hours)
       <input name="playlist_refresh_interval_hours" type="number" min="1" max="168"
              value="{{ settings.get('playlist_refresh_interval_hours', '6') }}">

@@ -43,6 +43,8 @@ async def save_settings(
     llm_api_key: str = Form(""),
     llm_base_url: str = Form(""),
     whisper_model: str = Form("small"),
+    summary_language: str = Form("auto"),
+    summary_extra_instructions: str = Form(""),
     playlist_refresh_interval_hours: str = Form("6"),
     playlist_initial_import_limit: str = Form("20"),
     db: aiosqlite.Connection = Depends(get_db),
@@ -54,6 +56,8 @@ async def save_settings(
         ("llm_model", llm_model.strip()),
         ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model),
+        ("summary_language", summary_language.strip() or "auto"),
+        ("summary_extra_instructions", summary_extra_instructions.strip()),
         ("playlist_refresh_interval_hours", playlist_refresh_interval_hours.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
     ):

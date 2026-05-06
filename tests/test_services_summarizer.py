@@ -148,3 +148,72 @@ async def test_summarize_does_not_call_on_partial_in_single_shot():
             on_partial=collect_partial,
         )
     assert partials_seen == []
+
+
+def test_build_system_prompt_with_auto_language():
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language="auto", extra_instructions=None)
+    assert "match the transcript" in p
+    assert "TL;DR" in p
+    assert "Mentioned resources" in p
+    assert "Sponsor" in p
+
+
+def test_build_system_prompt_with_explicit_language():
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language="de", extra_instructions=None)
+    assert "German" in p
+
+
+def test_build_system_prompt_with_extra_instructions():
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(
+        language=None, extra_instructions="Keep it under 200 words."
+    )
+    assert "ADDITIONAL USER INSTRUCTIONS" in p
+    assert "Keep it under 200 words." in p
+
+
+def test_build_system_prompt_omits_extra_block_when_empty():
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language=None, extra_instructions="   ")
+    assert "ADDITIONAL USER INSTRUCTIONS" not in p
+
+
+def test_build_reduce_prompt_includes_language_and_resources():
+    from app.services.summarizer import build_reduce_prompt
+    p = build_reduce_prompt(language="en", extra_instructions=None)
+    assert "English" in p
+    assert "Mentioned resources" in p
+
+
+async def test_summarize_passes_title_and_description_to_user_message():
+    from unittest.mock import AsyncMock, patch
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("ok")
+
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="t",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            title="My Cool Video",
+            description="Sponsored by ACME. Tools: https://example.com/foo",
+            language="de",
+        )
+
+    user_msg = captured["messages"][1]["content"]
+    sys_msg = captured["messages"][0]["content"]
+    assert "My Cool Video" in user_msg
+    assert "https://example.com/foo" in user_msg
+    assert "German" in sys_msg
