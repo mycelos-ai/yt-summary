@@ -28,3 +28,17 @@ async def test_delete(db: aiosqlite.Connection):
     await settings_repo.set(db, "k", "v")
     await settings_repo.delete(db, "k")
     assert await settings_repo.get(db, "k") is None
+
+
+async def test_settings_isolated_per_user(db: aiosqlite.Connection):
+    # Default user is 1
+    await settings_repo.set(db, "model", "user1-value")
+    # Insert a row for user 2 directly
+    await db.execute(
+        "INSERT INTO settings (user_id, key, value) VALUES (2, 'model', 'user2-value')"
+    )
+    await db.commit()
+    # The repo's get/set/get_all is implicitly user 1.
+    assert await settings_repo.get(db, "model") == "user1-value"
+    all_settings = await settings_repo.get_all(db)
+    assert all_settings.get("model") == "user1-value"
