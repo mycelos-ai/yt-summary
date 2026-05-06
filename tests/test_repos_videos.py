@@ -99,3 +99,26 @@ async def test_search_phrase_match_still_works(db):
     )
     results = await videos_repo.search(db, "Hello")
     assert [v.id for v in results] == ["p1"]
+
+
+async def test_upsert_metadata_uses_default_user_when_not_passed(db):
+    await videos_repo.upsert_metadata(
+        db, video_id="u1", url="u", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    cursor = await db.execute("SELECT user_id FROM videos WHERE id='u1'")
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+async def test_upsert_metadata_accepts_explicit_user_id(db):
+    await videos_repo.upsert_metadata(
+        db, video_id="u2", url="u", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+        user_id=42,
+    )
+    cursor = await db.execute("SELECT user_id FROM videos WHERE id='u2'")
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 42

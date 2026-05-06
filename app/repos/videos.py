@@ -32,11 +32,12 @@ async def upsert_metadata(
     description: str,
     thumbnail_path: str | None,
     duration_seconds: int | None,
+    user_id: int = 1,
 ) -> None:
     await db.execute(
         """
-        INSERT INTO videos (id, url, title, description, thumbnail_path, duration_seconds)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO videos (id, user_id, url, title, description, thumbnail_path, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url=excluded.url,
             title=excluded.title,
@@ -45,7 +46,7 @@ async def upsert_metadata(
             duration_seconds=COALESCE(excluded.duration_seconds, videos.duration_seconds),
             updated_at=datetime('now')
         """,
-        (video_id, url, title, description, thumbnail_path, duration_seconds),
+        (video_id, user_id, url, title, description, thumbnail_path, duration_seconds),
     )
     await db.commit()
 

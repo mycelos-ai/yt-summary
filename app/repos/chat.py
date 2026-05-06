@@ -16,11 +16,16 @@ def _row_to_msg(row: aiosqlite.Row) -> ChatMessage:
 
 
 async def append(
-    db: aiosqlite.Connection, video_id: str, role: ChatRole, content: str
+    db: aiosqlite.Connection,
+    video_id: str,
+    role: ChatRole,
+    content: str,
+    *,
+    user_id: int = 1,
 ) -> ChatMessage:
     cursor = await db.execute(
-        "INSERT INTO chat_messages (video_id, role, content) VALUES (?, ?, ?)",
-        (video_id, role, content),
+        "INSERT INTO chat_messages (user_id, video_id, role, content) VALUES (?, ?, ?, ?)",
+        (user_id, video_id, role, content),
     )
     await db.commit()
     assert cursor.lastrowid is not None

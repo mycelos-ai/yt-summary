@@ -22,3 +22,25 @@ async def test_append_and_history(db: aiosqlite.Connection):
 
 async def test_history_empty_for_unknown_video(db: aiosqlite.Connection):
     assert await chat_repo.history(db, "nope") == []
+
+
+async def test_append_uses_default_user(db: aiosqlite.Connection):
+    await _video(db)
+    msg = await chat_repo.append(db, "v1", "user", "hi")
+    cursor = await db.execute(
+        "SELECT user_id FROM chat_messages WHERE id=?", (msg.id,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+async def test_append_accepts_explicit_user(db: aiosqlite.Connection):
+    await _video(db)
+    msg = await chat_repo.append(db, "v1", "user", "hi", user_id=7)
+    cursor = await db.execute(
+        "SELECT user_id FROM chat_messages WHERE id=?", (msg.id,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 7
