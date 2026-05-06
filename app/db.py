@@ -1,6 +1,15 @@
+import logging
+
 import aiosqlite
+import sqlite_vec
 
 from app.config import Config
+
+log = logging.getLogger(__name__)
+
+# Default vector dimension. Auto-detected on first successful embedding
+# (the table is recreated if a different model is configured later).
+DEFAULT_EMBEDDING_DIM = 768
 
 # Base schema for a fresh install. Existing databases are upgraded by
 # _run_migrations() below.
@@ -19,6 +28,7 @@ CREATE TABLE IF NOT EXISTS videos (
     transcript_source TEXT,
     summary TEXT,
     summary_model TEXT,
+    summary_embedded_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -82,6 +92,11 @@ CREATE TABLE IF NOT EXISTS video_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_video_tags_tag ON video_tags(tag_id);
 
+CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
+    video_id TEXT PRIMARY KEY,
+    summary_vec FLOAT[768]
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
     id UNINDEXED,
     title,
@@ -144,6 +159,10 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             await conn.execute(
                 "ALTER TABLE videos ADD COLUMN kind TEXT NOT NULL DEFAULT 'youtube'"
             )
+        if "summary_embedded_at" not in video_cols:
+            await conn.execute(
+                "ALTER TABLE videos ADD COLUMN summary_embedded_at TEXT"
+            )
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
@@ -185,6 +204,16 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
 async def connect(config: Config) -> aiosqlite.Connection:
     conn = await aiosqlite.connect(config.db_path)
     conn.row_factory = aiosqlite.Row
+    # sqlite-vec ships its compiled extension as a loadable .dylib/.so;
+    # we load it on every connection so vec0 / vec_* functions are
+    # available everywhere queries run.
+    await conn.enable_load_extension(True)
+    try:
+        await conn.load_extension(sqlite_vec.loadable_path())
+    except Exception:
+        log.exception("Failed to load sqlite-vec extension")
+    finally:
+        await conn.enable_load_extension(False)
     await conn.execute("PRAGMA foreign_keys = ON")
     await conn.execute("PRAGMA journal_mode = WAL")
     return conn

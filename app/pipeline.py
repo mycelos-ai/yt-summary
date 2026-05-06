@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -6,13 +7,17 @@ import aiosqlite
 
 from app.config import Config
 from app.models import TranscriptSource, VideoKind
+from app.repos import embeddings as embeddings_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
+from app.services.embeddings import embed_text
 from app.services.reader import fetch_article
 from app.services.summarizer import summarize
 from app.services.transcript import obtain_transcript
 from app.services.youtube import fetch_metadata
+
+log = logging.getLogger(__name__)
 
 
 def _resolve_cookies(config: Config) -> Path | None:
@@ -99,3 +104,41 @@ async def process_video(
         on_partial=_persist_partial,
     )
     await videos_repo.set_summary(db, video_id, summary, model)
+    await _try_embed_summary(db, video_id, summary, settings, set_step)
+
+
+async def _try_embed_summary(
+    db: aiosqlite.Connection,
+    video_id: str,
+    summary: str,
+    settings: dict[str, str],
+    set_step: Callable[[str], Awaitable[None]],
+) -> None:
+    """Best-effort: embed the new summary so semantic search picks it up.
+
+    A failure here is logged but does NOT fail the job — the user
+    still has their summary, only semantic search is degraded.
+    """
+    embedding_model = settings.get("embedding_model", "").strip() or None
+    embedding_base_url = (
+        settings.get("embedding_base_url", "").strip()
+        or settings.get("llm_base_url", "").strip()
+        or None
+    )
+    api_key = settings.get("llm_api_key", "")
+    try:
+        await set_step("embedding summary")
+        vector = await embed_text(
+            summary,
+            model=embedding_model,
+            api_key=api_key,
+            base_url=embedding_base_url,
+        )
+        await embeddings_repo.upsert_summary_embedding(db, video_id, vector)
+    except Exception as e:
+        log.warning(
+            "summary embedding failed for %s: %s: %s",
+            video_id,
+            type(e).__name__,
+            e,
+        )

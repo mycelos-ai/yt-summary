@@ -122,3 +122,40 @@ async def test_upsert_metadata_accepts_explicit_user_id(db):
     row = await cursor.fetchone()
     assert row is not None
     assert row[0] == 42
+
+
+def test_reciprocal_rank_fuse_scores_first_higher():
+    from app.repos.videos import reciprocal_rank_fuse
+    fused = reciprocal_rank_fuse(["a", "b", "c"], ["c", "a", "b"])
+    # 'a' is rank 1 in list1 + rank 2 in list2 → top
+    assert fused[0] == "a"
+
+
+def test_reciprocal_rank_fuse_handles_disjoint():
+    from app.repos.videos import reciprocal_rank_fuse
+    fused = reciprocal_rank_fuse(["a", "b"], ["c", "d"])
+    # All four appear, ordered by their reciprocal-rank score.
+    assert sorted(fused) == ["a", "b", "c", "d"]
+
+
+def test_reciprocal_rank_fuse_empty_inputs():
+    from app.repos.videos import reciprocal_rank_fuse
+    assert reciprocal_rank_fuse([], []) == []
+
+
+async def test_search_with_vector_ids_fuses_results(db: aiosqlite.Connection):
+    """Vector-only hits also surface even when FTS has no match."""
+    await videos_repo.upsert_metadata(
+        db, video_id="vfts", url="u", title="Has Python in title",
+        description="learn fastapi", thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="vvec", url="u", title="Different Title",
+        description="not in fts hit", thumbnail_path=None, duration_seconds=None,
+    )
+    rows = await videos_repo.search(
+        db, "Python", vector_ids=["vvec"]
+    )
+    ids = {r.id for r in rows}
+    assert "vfts" in ids  # FTS hit
+    assert "vvec" in ids  # vector hit, even though FTS missed it

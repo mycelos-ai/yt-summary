@@ -55,6 +55,16 @@
       <small>Free-form instructions appended to the summarizer system prompt. Empty for the default behavior.</small>
     </label>
     <label>
+      Embedding model
+      <input name="embedding_model" value="{{ settings.get('embedding_model', '') }}" placeholder="ollama/nomic-embed-text">
+      <small>Used for semantic search across summaries. Empty falls back to <code>ollama/nomic-embed-text</code>. Other Ollama embedders work too: <code>ollama/mxbai-embed-large</code>.</small>
+    </label>
+    <label>
+      Embedding base URL <small style="display:inline; color: var(--steel); font-weight: 400;">— optional, falls back to LLM Base URL</small>
+      <input name="embedding_base_url" value="{{ settings.get('embedding_base_url', '') }}">
+      <small>Where to reach the embedding model. Leave blank to reuse the LLM Base URL above.</small>
+    </label>
+    <label>
       Playlist refresh interval (hours)
       <input name="playlist_refresh_interval_hours" type="number" min="1" max="168"
              value="{{ settings.get('playlist_refresh_interval_hours', '6') }}">

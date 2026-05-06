@@ -79,8 +79,13 @@ def test_init_schema_migrates_legacy_database(tmp_path):
     legacy.close()
 
     async def run():
+        # init_schema needs the sqlite-vec extension for vec0 tables.
+        import sqlite_vec
         conn = await aiosqlite.connect(db_path)
         conn.row_factory = aiosqlite.Row
+        await conn.enable_load_extension(True)
+        await conn.load_extension(sqlite_vec.loadable_path())
+        await conn.enable_load_extension(False)
         await conn.execute("PRAGMA foreign_keys = ON")
         await init_schema(conn)
         # videos.user_id default 1
@@ -179,8 +184,12 @@ def test_init_schema_migrates_v2_database_to_v3(tmp_path):
     import asyncio
 
     async def run():
+        import sqlite_vec
         conn = await aiosqlite.connect(db_path)
         conn.row_factory = aiosqlite.Row
+        await conn.enable_load_extension(True)
+        await conn.load_extension(sqlite_vec.loadable_path())
+        await conn.enable_load_extension(False)
         await conn.execute("PRAGMA foreign_keys = ON")
         from app.db import init_schema
         await init_schema(conn)
