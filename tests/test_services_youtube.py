@@ -154,3 +154,38 @@ async def test_fetch_metadata_filters_non_string_tags():
     with patch("app.services.youtube._extract_info", return_value=fixture):
         meta = await fetch_metadata("https://youtu.be/x", cookies_path=None)
     assert meta.tags == ("good", "fine")
+
+
+def test_pick_best_thumbnail_picks_highest_width():
+    from app.services.youtube import _pick_best_thumbnail
+    info = {
+        "thumbnail": "https://example.com/hqdefault.jpg",
+        "thumbnails": [
+            {"url": "https://example.com/sddefault.jpg", "width": 640, "height": 480},
+            {"url": "https://example.com/maxres.jpg", "width": 1280, "height": 720},
+            {"url": "https://example.com/hqdefault.jpg", "width": 480, "height": 360},
+        ],
+    }
+    assert _pick_best_thumbnail(info) == "https://example.com/maxres.jpg"
+
+
+def test_pick_best_thumbnail_falls_back_to_top_level_when_no_thumbnails_list():
+    from app.services.youtube import _pick_best_thumbnail
+    info = {"thumbnail": "https://example.com/hq.jpg"}
+    assert _pick_best_thumbnail(info) == "https://example.com/hq.jpg"
+
+
+def test_pick_best_thumbnail_returns_none_when_empty():
+    from app.services.youtube import _pick_best_thumbnail
+    assert _pick_best_thumbnail({}) is None
+
+
+def test_pick_best_thumbnail_takes_last_when_no_width_info():
+    from app.services.youtube import _pick_best_thumbnail
+    info = {
+        "thumbnails": [
+            {"url": "https://example.com/a.jpg"},
+            {"url": "https://example.com/b.jpg"},
+        ],
+    }
+    assert _pick_best_thumbnail(info) == "https://example.com/b.jpg"

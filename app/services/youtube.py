@@ -39,6 +39,32 @@ def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
 
+def _pick_best_thumbnail(info: dict[str, Any]) -> str | None:
+    """Pick the highest-resolution thumbnail yt-dlp surfaced.
+
+    yt-dlp's top-level info["thumbnail"] is often hqdefault (480x360),
+    which looks soft when scaled to the card width. The thumbnails list
+    typically also has maxresdefault (1280x720) and sddefault (640x480).
+    We pick the largest by width; fall back to any URL if width is
+    missing; final fallback is info["thumbnail"].
+    """
+    thumbs = info.get("thumbnails") or []
+    if isinstance(thumbs, list) and thumbs:
+        with_width = [
+            t for t in thumbs
+            if isinstance(t, dict) and t.get("url") and isinstance(t.get("width"), int)
+        ]
+        if with_width:
+            best = max(with_width, key=lambda t: t["width"])
+            return best["url"]
+        # No width info → take the last entry (yt-dlp orders ascending in
+        # most extractors, so the last is usually the largest).
+        for t in reversed(thumbs):
+            if isinstance(t, dict) and t.get("url"):
+                return t["url"]
+    return info.get("thumbnail")
+
+
 async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
     info = await asyncio.to_thread(_extract_info, url, cookies_path)
     raw_tags = info.get("tags") or []
@@ -49,7 +75,7 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
         title=info.get("title", ""),
         description=info.get("description") or "",
         duration_seconds=info.get("duration"),
-        thumbnail_url=info.get("thumbnail"),
+        thumbnail_url=_pick_best_thumbnail(info),
         tags=tags,
     )
 

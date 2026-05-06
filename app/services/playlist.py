@@ -39,9 +39,18 @@ def _extract_playlist_info(url: str, cookies_path: Path | None) -> dict[str, Any
 
 
 def _pick_thumbnail(item: dict[str, Any]) -> str | None:
+    """Pick the highest-resolution thumbnail. See app/services/youtube.py
+    for the same logic — duplicated to avoid a cross-service import."""
     thumbs = item.get("thumbnails") or []
-    if thumbs and isinstance(thumbs, list):
-        for t in thumbs:
+    if isinstance(thumbs, list) and thumbs:
+        with_width = [
+            t for t in thumbs
+            if isinstance(t, dict) and t.get("url") and isinstance(t.get("width"), int)
+        ]
+        if with_width:
+            best = max(with_width, key=lambda t: t["width"])
+            return best["url"]
+        for t in reversed(thumbs):
             if isinstance(t, dict) and t.get("url"):
                 return t["url"]
     return item.get("thumbnail")
