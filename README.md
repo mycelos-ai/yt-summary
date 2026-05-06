@@ -32,7 +32,7 @@ Once the app is running, generate an API key in Settings (`/settings`,
 
 ### REST API
 
-OpenAPI docs: `http://localhost:8200/api/v1/docs`
+OpenAPI docs: `http://localhost:8200/docs` (Swagger UI for the whole app, including `/api/v1/*`)
 
 Quick example:
 ```bash
