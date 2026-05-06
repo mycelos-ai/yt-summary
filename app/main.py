@@ -78,6 +78,9 @@ def create_app() -> FastAPI:
     app.include_router(playlists_router)
     from app.routes.api import router as api_router
     app.include_router(api_router)
+    from app.routes.mcp import build_mcp_server
+    mcp_server = build_mcp_server(app.state)
+    app.mount("/mcp", mcp_server.sse_app())
     return app
 
 
