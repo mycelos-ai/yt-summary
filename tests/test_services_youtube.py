@@ -130,3 +130,27 @@ async def test_download_audio_calls_yt_dlp_with_correct_opts(tmp_path):
         path = await download_audio("https://youtu.be/x", "vid", tmp_path, cookies_path=None)
     assert path == tmp_path / "vid.m4a"
     assert captured["opts"]["format"].startswith("bestaudio")
+
+
+async def test_fetch_metadata_includes_tags():
+    fixture = json.loads((FIXTURES / "yt_dlp_metadata.json").read_text())
+    fixture["tags"] = ["alpha", "beta"]
+    with patch("app.services.youtube._extract_info", return_value=fixture):
+        meta = await fetch_metadata("https://youtu.be/x", cookies_path=None)
+    assert meta.tags == ("alpha", "beta")
+
+
+async def test_fetch_metadata_handles_missing_tags():
+    fixture = json.loads((FIXTURES / "yt_dlp_metadata.json").read_text())
+    fixture.pop("tags", None)
+    with patch("app.services.youtube._extract_info", return_value=fixture):
+        meta = await fetch_metadata("https://youtu.be/x", cookies_path=None)
+    assert meta.tags == ()
+
+
+async def test_fetch_metadata_filters_non_string_tags():
+    fixture = json.loads((FIXTURES / "yt_dlp_metadata.json").read_text())
+    fixture["tags"] = ["good", "", None, 42, "  ", "fine"]
+    with patch("app.services.youtube._extract_info", return_value=fixture):
+        meta = await fetch_metadata("https://youtu.be/x", cookies_path=None)
+    assert meta.tags == ("good", "fine")

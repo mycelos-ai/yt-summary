@@ -28,6 +28,7 @@ class VideoMetadata:
     description: str
     duration_seconds: int | None
     thumbnail_url: str | None
+    tags: tuple[str, ...] = ()
 
 
 def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
@@ -40,6 +41,8 @@ def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
 
 async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
     info = await asyncio.to_thread(_extract_info, url, cookies_path)
+    raw_tags = info.get("tags") or []
+    tags = tuple(t for t in raw_tags if isinstance(t, str) and t.strip())
     return VideoMetadata(
         id=info["id"],
         url=info.get("webpage_url", url),
@@ -47,6 +50,7 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
         description=info.get("description") or "",
         duration_seconds=info.get("duration"),
         thumbnail_url=info.get("thumbnail"),
+        tags=tags,
     )
 
 

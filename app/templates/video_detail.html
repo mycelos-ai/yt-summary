@@ -13,6 +13,13 @@
         </button>
       </form>
     </p>
+    {% if video_tags %}
+      <div class="tag-pills">
+        {% for tag_name in video_tags %}
+          <a href="/?tag={{ tag_name|urlencode }}" class="tag-pill">{{ tag_name }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
   </header>
 
   {% if video.thumbnail_path %}

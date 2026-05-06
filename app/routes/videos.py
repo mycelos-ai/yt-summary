@@ -8,6 +8,7 @@ from app.config import Config
 from app.main import get_config, get_db
 from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
+from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
 from app.services.youtube import download_thumbnail, fetch_metadata, parse_video_id
 
@@ -45,6 +46,8 @@ async def submit_video(
         thumbnail_path=thumb_db_path,
         duration_seconds=meta.duration_seconds,
     )
+    if meta.tags:
+        await tags_repo.set_tags_for_video(db, meta.id, list(meta.tags))
     await jobs_repo.enqueue(db, meta.id)
 
     # HTMX request -> return the card fragment so it can be slotted into the
@@ -158,6 +161,7 @@ async def video_detail(
     summary_html = _md.render(video.summary) if video.summary else ""
     history = await chat_repo.history(db, video_id)
     job = await jobs_repo.latest_for_video(db, video_id)
+    video_tags = await tags_repo.tags_for_video(db, video_id)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -166,6 +170,7 @@ async def video_detail(
             "summary_html": summary_html,
             "chat_history": history,
             "job": job,
+            "video_tags": video_tags,
             "elapsed_s": _elapsed_seconds(job),
         },
     )

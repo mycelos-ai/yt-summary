@@ -86,10 +86,32 @@ async def get(db: aiosqlite.Connection, video_id: str) -> Video | None:
     return _row_to_video(row) if row else None
 
 
-async def list_recent(db: aiosqlite.Connection, limit: int = 50) -> list[Video]:
-    cursor = await db.execute(
-        "SELECT * FROM videos ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
-    )
+_TAG_FILTER_SQL = (
+    " AND EXISTS ("
+    "SELECT 1 FROM video_tags vt JOIN tags t ON t.id = vt.tag_id "
+    "WHERE vt.video_id = videos.id AND t.name = ? COLLATE NOCASE"
+    ")"
+)
+
+
+async def list_recent(
+    db: aiosqlite.Connection,
+    limit: int = 50,
+    *,
+    tag: str | None = None,
+) -> list[Video]:
+    if tag:
+        cursor = await db.execute(
+            "SELECT * FROM videos WHERE 1=1"
+            + _TAG_FILTER_SQL
+            + " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (tag, limit),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT * FROM videos ORDER BY created_at DESC, id DESC LIMIT ?",
+            (limit,),
+        )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]
 
@@ -100,16 +122,39 @@ def _quote_fts_query(query: str) -> str:
     return f'"{escaped}"'
 
 
-async def search(db: aiosqlite.Connection, query: str, limit: int = 50) -> list[Video]:
-    cursor = await db.execute(
-        """
-        SELECT v.* FROM videos v
-        JOIN videos_fts f ON v.rowid = f.rowid
-        WHERE videos_fts MATCH ?
-        ORDER BY rank
-        LIMIT ?
-        """,
-        (_quote_fts_query(query), limit),
-    )
+async def search(
+    db: aiosqlite.Connection,
+    query: str,
+    limit: int = 50,
+    *,
+    tag: str | None = None,
+) -> list[Video]:
+    if tag:
+        cursor = await db.execute(
+            """
+            SELECT v.* FROM videos v
+            JOIN videos_fts f ON v.rowid = f.rowid
+            WHERE videos_fts MATCH ?
+              AND EXISTS (
+                SELECT 1 FROM video_tags vt
+                JOIN tags t ON t.id = vt.tag_id
+                WHERE vt.video_id = v.id AND t.name = ? COLLATE NOCASE
+              )
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (_quote_fts_query(query), tag, limit),
+        )
+    else:
+        cursor = await db.execute(
+            """
+            SELECT v.* FROM videos v
+            JOIN videos_fts f ON v.rowid = f.rowid
+            WHERE videos_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (_quote_fts_query(query), limit),
+        )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]

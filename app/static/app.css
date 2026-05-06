@@ -773,3 +773,65 @@ p { margin: 0 0 16px 0; }
   color: var(--brand-green-deep);
   text-decoration: none;
 }
+
+/* Tag pills (YouTube uploader-set keywords) */
+.tag-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+.video-detail .tag-pills {
+  padding: 8px 0 0;
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--steel);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  padding: 3px 10px;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.tag-pill::before {
+  content: "#";
+  opacity: 0.5;
+  margin-right: 2px;
+}
+.tag-pill:hover {
+  background: rgba(0, 212, 164, 0.08);
+  border-color: var(--brand-green);
+  color: var(--brand-green-deep);
+  text-decoration: none;
+}
+.tag-pill-more {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 6px;
+}
+
+/* Filter banner above the library when ?tag= is active */
+.filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0, 212, 164, 0.06);
+  border: 1px solid rgba(0, 212, 164, 0.2);
+  border-radius: var(--rounded-md);
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+.filter-banner .clear {
+  color: var(--steel);
+  margin-left: auto;
+  text-decoration: none;
+  font-size: 13px;
+}
+.filter-banner .clear:hover { color: var(--ink); text-decoration: underline; }

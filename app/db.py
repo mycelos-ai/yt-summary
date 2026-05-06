@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS playlist_videos (
 );
 CREATE INDEX IF NOT EXISTS idx_playlist_videos_video ON playlist_videos(video_id);
 
+CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
+CREATE TABLE IF NOT EXISTS video_tags (
+    video_id TEXT NOT NULL REFERENCES videos(id),
+    tag_id   INTEGER NOT NULL REFERENCES tags(id),
+    PRIMARY KEY (video_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_video_tags_tag ON video_tags(tag_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
     id UNINDEXED,
     title,

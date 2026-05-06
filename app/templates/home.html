@@ -37,11 +37,22 @@
 
 <p class="section-title">Library</p>
 
+{% if active_tag %}
+  <div class="filter-banner">
+    <span>🏷️ <strong>{{ active_tag }}</strong> — showing {{ videos|length }} video{{ '' if videos|length == 1 else 's' }}</span>
+    <a href="/" class="clear">✕ Clear filter</a>
+  </div>
+{% endif %}
+
 <section id="video-list">
   {% for video in videos %}
     {% include "video_card.html" %}
   {% else %}
-    <p class="empty">No videos yet — paste a URL above to get started.</p>
+    {% if active_tag %}
+      <p class="empty">No videos with tag "{{ active_tag }}".</p>
+    {% else %}
+      <p class="empty">No videos yet — paste a URL above to get started.</p>
+    {% endif %}
   {% endfor %}
 </section>
 {% endblock %}

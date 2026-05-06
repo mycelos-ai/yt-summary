@@ -13,6 +13,17 @@
       {% endfor %}
     </div>
   {% endif %}
+  {% set tags = (video_tags or {}).get(video.id, []) %}
+  {% if tags %}
+    <div class="tag-pills">
+      {% for tag_name in tags[:6] %}
+        <a href="/?tag={{ tag_name|urlencode }}" class="tag-pill">{{ tag_name }}</a>
+      {% endfor %}
+      {% if tags|length > 6 %}
+        <span class="tag-pill-more">+{{ tags|length - 6 }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
   {% if video.summary %}
     <p class="status status-done">✓ summary ready</p>
   {% else %}

@@ -6,9 +6,11 @@ import aiosqlite
 
 from app.config import Config
 from app.repos import settings as settings_repo
+from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
 from app.services.summarizer import summarize
 from app.services.transcript import obtain_transcript
+from app.services.youtube import fetch_metadata
 
 
 def _resolve_cookies(config: Config) -> Path | None:
@@ -46,6 +48,21 @@ async def process_video(
         await videos_repo.set_transcript(db, video_id, text, source)
     else:
         text = video.transcript
+
+    # Backfill tags if missing. Cheap because yt-dlp's metadata call is
+    # already small. Skip if the video already has tag links — first
+    # submitter wrote them via the route, no need to redo.
+    existing_tags = await tags_repo.tags_for_video(db, video_id)
+    if not existing_tags:
+        try:
+            meta = await fetch_metadata(video.url, cookies_path=cookies)
+            if meta.tags:
+                await tags_repo.set_tags_for_video(
+                    db, video_id, list(meta.tags)
+                )
+        except Exception:
+            # Tag backfill is a nice-to-have; don't fail the whole job.
+            pass
 
     if not model:
         await set_step("transcript only (no LLM model configured)")

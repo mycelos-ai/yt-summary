@@ -307,3 +307,64 @@ def test_summary_fragment_initial_load_when_done_no_reload(tmp_path, monkeypatch
     assert resp.status_code == 200
     assert "HX-Refresh" not in resp.headers
     assert "Final." in resp.text
+
+
+def test_post_videos_persists_tags(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    fake_meta = VideoMetadata(
+        id="taggedvid01",
+        url="https://youtu.be/taggedvid01",
+        title="T",
+        description="d",
+        duration_seconds=300,
+        thumbnail_url=None,
+        tags=("python", "fastapi", "tutorial"),
+    )
+    app = create_app()
+    with (
+        patch("app.routes.videos.fetch_metadata", AsyncMock(return_value=fake_meta)),
+        patch("app.routes.videos.download_thumbnail", AsyncMock(return_value=None)),
+        TestClient(app) as client,
+    ):
+        client.post(
+            "/videos",
+            data={"url": "https://youtu.be/taggedvid01"},
+            follow_redirects=False,
+        )
+
+        import asyncio
+
+        async def check():
+            from app.repos import tags as tags_repo
+            tags = await tags_repo.tags_for_video(app.state.db, "taggedvid01")
+            assert sorted(tags) == ["fastapi", "python", "tutorial"]
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_video_detail_renders_tag_pills(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import tags as tags_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vd_tags", url="u", title="T",
+                description="d", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "vd_tags", "Body.", "model"
+            )
+            await tags_repo.set_tags_for_video(
+                app.state.db, "vd_tags", ["alpha", "beta"]
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/vd_tags")
+    assert resp.status_code == 200
+    assert "alpha" in resp.text
+    assert "beta" in resp.text
+    assert 'href="/?tag=alpha"' in resp.text

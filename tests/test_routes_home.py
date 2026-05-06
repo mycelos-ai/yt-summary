@@ -129,3 +129,57 @@ def test_home_no_playlist_tags_when_video_unlinked(tmp_path, monkeypatch):
     # (the class is global, but for this video specifically there should
     # be no entry to render)
     assert 'class="playlist-tag"' not in resp.text
+
+
+def test_home_with_tag_filter_shows_banner_and_filtered_videos(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import tags as tags_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vpy", url="u", title="PythonVid",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vcook", url="u", title="CookingVid",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await tags_repo.set_tags_for_video(app.state.db, "vpy", ["python"])
+            await tags_repo.set_tags_for_video(app.state.db, "vcook", ["cooking"])
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/?tag=python")
+    assert resp.status_code == 200
+    assert "PythonVid" in resp.text
+    assert "CookingVid" not in resp.text
+    assert "filter-banner" in resp.text
+    # Clear-link present
+    assert 'href="/"' in resp.text
+
+
+def test_home_card_renders_tag_pills(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import tags as tags_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vpills", url="u", title="HasTags",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await tags_repo.set_tags_for_video(
+                app.state.db, "vpills", ["python", "fastapi"]
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert "python" in resp.text
+    assert "fastapi" in resp.text
+    assert 'href="/?tag=python"' in resp.text
