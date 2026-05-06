@@ -57,11 +57,24 @@ def test_post_videos_browser_redirects_to_detail(tmp_path, monkeypatch):
     assert resp.headers["location"] == "/v/xyz98765432"
 
 
-def test_post_videos_invalid_url_returns_400(tmp_path, monkeypatch):
+def test_post_videos_invalid_url_renders_error_page(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         resp = client.post("/videos", data={"url": "not a url"})
+    # Plain browser submit → 200 with the rendered error page so the
+    # user can fix the URL without losing context.
+    assert resp.status_code == 200
+    assert "look like a URL" in resp.text
+    assert "not a url" in resp.text  # value preserved in the input
+
+    # HTMX submit → 400 so HTMX surfaces the error.
+    with TestClient(app) as client:
+        resp = client.post(
+            "/videos",
+            data={"url": "not a url"},
+            headers={"HX-Request": "true"},
+        )
     assert resp.status_code == 400
 
 
@@ -410,12 +423,12 @@ def test_post_videos_with_web_url_creates_web_kind(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(check())
 
 
-def test_post_videos_with_unfetchable_url_returns_400(tmp_path, monkeypatch):
+def test_post_videos_with_unfetchable_url_renders_error_page(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
 
     async def boom(url):
-        raise ValueError("Could not fetch https://example.com/dead")
+        raise ValueError("The page does not exist (404 Not Found).")
 
     with (
         patch("app.routes.videos.fetch_article", side_effect=boom),
@@ -426,7 +439,12 @@ def test_post_videos_with_unfetchable_url_returns_400(tmp_path, monkeypatch):
             data={"url": "https://example.com/dead"},
             follow_redirects=False,
         )
-    assert resp.status_code == 400
+    # Plain browser submit → 200 with rendered error page.
+    assert resp.status_code == 200
+    assert "404" in resp.text
+    assert "add that" in resp.text  # 'Couldn&#39;t add that' after Jinja escape
+    # The submitted URL is preserved so the user can edit it.
+    assert "https://example.com/dead" in resp.text
 
 
 def test_post_videos_rejects_non_http_string(tmp_path, monkeypatch):
@@ -437,7 +455,9 @@ def test_post_videos_rejects_non_http_string(tmp_path, monkeypatch):
             "/videos", data={"url": "ftp://example.com/x"},
             follow_redirects=False,
         )
-    assert resp.status_code == 400
+    # Plain browser submit returns the rendered error page.
+    assert resp.status_code == 200
+    assert "look like a URL" in resp.text
 
 
 def test_video_detail_for_web_uses_open_original_label(tmp_path, monkeypatch):

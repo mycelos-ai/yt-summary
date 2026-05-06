@@ -1,5 +1,6 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 SAMPLE_HTML = """
@@ -21,38 +22,93 @@ SAMPLE_HTML = """
 """
 
 
+def _fake_response(*, status_code: int = 200, html: str = "", url: str | None = None):
+    """Build a MagicMock-shaped object that quacks like httpx.Response."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = html
+    resp.headers = {"content-type": "text/html; charset=utf-8"}
+    resp.url = url or "https://example.com/post"
+    return resp
+
+
+def _patch_httpx_get(response):
+    """Patch httpx.Client so its .get(url) returns the supplied response."""
+    client_cm = MagicMock()
+    client_cm.__enter__ = MagicMock(return_value=client_cm)
+    client_cm.__exit__ = MagicMock(return_value=False)
+    client_cm.get = MagicMock(return_value=response)
+    return patch("app.services.reader.httpx.Client", return_value=client_cm)
+
+
 async def test_fetch_article_extracts_body_and_metadata():
     from app.services.reader import fetch_article
 
-    with patch("app.services.reader.trafilatura.fetch_url", return_value=SAMPLE_HTML):
+    resp = _fake_response(html=SAMPLE_HTML, url="https://example.com/post")
+    with _patch_httpx_get(resp):
         article = await fetch_article("https://example.com/post")
 
     assert article.title == "Sample Article"
     assert "first paragraph" in article.body
-    assert "Footer noise" not in article.body  # trafilatura strips boilerplate
+    assert "Footer noise" not in article.body
     assert article.thumbnail_url == "https://example.com/cover.jpg"
     assert article.description == "A sample article for testing."
 
 
-async def test_fetch_article_raises_when_fetch_fails():
+async def test_fetch_article_raises_on_403():
     from app.services.reader import fetch_article
 
-    with (
-        patch("app.services.reader.trafilatura.fetch_url", return_value=None),
-        pytest.raises(ValueError, match="Could not fetch"),
-    ):
+    resp = _fake_response(status_code=403, html="")
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="403"):
+        await fetch_article("https://example.com/blocked")
+
+
+async def test_fetch_article_raises_on_404():
+    from app.services.reader import fetch_article
+
+    resp = _fake_response(status_code=404, html="")
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="404"):
         await fetch_article("https://example.com/dead")
+
+
+async def test_fetch_article_raises_on_429():
+    from app.services.reader import fetch_article
+
+    resp = _fake_response(status_code=429, html="")
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="rate-limit"):
+        await fetch_article("https://example.com/limited")
+
+
+async def test_fetch_article_raises_on_network_error():
+    from app.services.reader import fetch_article
+
+    client_cm = MagicMock()
+    client_cm.__enter__ = MagicMock(return_value=client_cm)
+    client_cm.__exit__ = MagicMock(return_value=False)
+    client_cm.get = MagicMock(side_effect=httpx.ConnectError("nope"))
+
+    with (
+        patch("app.services.reader.httpx.Client", return_value=client_cm),
+        pytest.raises(ValueError, match="reach the page"),
+    ):
+        await fetch_article("https://no-such.invalid/post")
+
+
+async def test_fetch_article_rejects_non_html_content_type():
+    from app.services.reader import fetch_article
+
+    resp = _fake_response(html="%PDF-1.4")
+    resp.headers = {"content-type": "application/pdf"}
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="HTML"):
+        await fetch_article("https://example.com/file.pdf")
 
 
 async def test_fetch_article_raises_when_extraction_empty():
     from app.services.reader import fetch_article
 
-    # HTML that trafilatura considers content-less
     blank = "<html><head></head><body></body></html>"
-    with (
-        patch("app.services.reader.trafilatura.fetch_url", return_value=blank),
-        pytest.raises(ValueError, match="Could not extract"),
-    ):
+    resp = _fake_response(html=blank)
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="couldn't pull"):
         await fetch_article("https://example.com/empty")
 
 
@@ -63,20 +119,20 @@ async def test_fetch_article_handles_no_og_image():
         '<meta property="og:image" content="https://example.com/cover.jpg">',
         ""
     )
-    with patch("app.services.reader.trafilatura.fetch_url", return_value=html):
+    resp = _fake_response(html=html)
+    with _patch_httpx_get(resp):
         article = await fetch_article("https://example.com/post")
 
     assert article.thumbnail_url is None
 
 
-async def test_fetch_article_falls_back_to_url_when_no_title():
+async def test_fetch_article_uses_canonical_url_after_redirect():
     from app.services.reader import fetch_article
 
-    html_no_title = "<html><body><article><p>" + ("word " * 100) + "</p></article></body></html>"
-    with patch("app.services.reader.trafilatura.fetch_url", return_value=html_no_title):
-        # extract_metadata may return a metadata object with empty title;
-        # fetch_article falls back to the URL.
-        article = await fetch_article("https://example.com/notitle")
+    resp = _fake_response(
+        html=SAMPLE_HTML, url="https://example.com/canonical-after-redirect"
+    )
+    with _patch_httpx_get(resp):
+        article = await fetch_article("https://example.com/short")
 
-    assert article.title in ("https://example.com/notitle", "")  # empty or url
-    # If empty, the route would still display the URL — accept either.
+    assert article.url == "https://example.com/canonical-after-redirect"

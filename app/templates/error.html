@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title or "Couldn't add that" }} — yt-summary{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>{{ error_title or "Couldn't add that" }}</h1>
+  <p>{{ error_message }}</p>
+  <form method="post" action="/videos" class="submit-form">
+    <input type="url" name="url" value="{{ submitted_url or '' }}" placeholder="Paste a YouTube or article URL" required>
+    <button type="submit">Try again</button>
+  </form>
+  <p style="margin-top: 24px;">
+    <a href="/" class="btn btn-secondary">← Back to library</a>
+  </p>
+</section>
+{% endblock %}

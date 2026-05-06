@@ -21,6 +21,28 @@ templates = Jinja2Templates(directory="app/templates")
 _md = MarkdownIt()
 
 
+def _import_error_response(
+    request: Request, *, submitted_url: str, error_message: str, error_title: str
+) -> HTMLResponse:
+    """Render a friendly error page instead of returning JSON.
+
+    For HTMX requests we still send 400 so HTMX surfaces it; for plain
+    browser submits we send 200 with the rendered page so the user
+    sees the form again with their URL preserved.
+    """
+    status = 400 if request.headers.get("HX-Request") else 200
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "submitted_url": submitted_url,
+            "error_message": error_message,
+            "error_title": error_title,
+        },
+        status_code=status,
+    )
+
+
 @router.post("/videos")
 async def submit_video(
     request: Request,
@@ -28,18 +50,38 @@ async def submit_video(
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
 ):
-    url = url.strip()
+    submitted = url
+    url = url.strip().strip("'\"")
     if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail=f"Not a URL: {url!r}")
+        return _import_error_response(
+            request,
+            submitted_url=submitted,
+            error_title="That doesn't look like a URL",
+            error_message=(
+                "Paste a full URL starting with http:// or https://."
+            ),
+        )
 
     kind = classify_url(url)
-    if kind == "youtube":
-        item_id = await _import_youtube(url, db, config)
-    else:
-        try:
+    try:
+        if kind == "youtube":
+            item_id = await _import_youtube(url, db, config)
+        else:
             item_id = await _import_web(url, db, config)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        return _import_error_response(
+            request,
+            submitted_url=submitted,
+            error_title="Couldn't add that",
+            error_message=str(e),
+        )
+    except Exception as e:
+        return _import_error_response(
+            request,
+            submitted_url=submitted,
+            error_title="Something went wrong",
+            error_message=f"{type(e).__name__}: {e}",
+        )
 
     # HTMX request -> return the card fragment so it can be slotted into the
     # list. Plain browser submit -> redirect to the detail page so the user
