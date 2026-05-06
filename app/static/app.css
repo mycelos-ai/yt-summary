@@ -759,10 +759,12 @@ p { margin: 0 0 16px 0; }
   padding: 8px 0 0;
 }
 
-/* ===== TAG PILLS (YouTube keywords) ===== */
-.tag-pills .tag-pill,
-a.tag-pill {
-  display: inline-flex !important;
+/* ===== TAG PILLS (YouTube keywords) =====
+ * Selector specificity (.tag-pills .tag-pill = 0,2,0) beats the
+ * sibling .video-card a { display: block } rule (0,1,1) so we don't
+ * need !important. */
+.tag-pills .tag-pill {
+  display: inline-flex;
   align-items: center;
   font-size: 11px;
   font-weight: 500;
@@ -777,23 +779,21 @@ a.tag-pill {
   transition: background 150ms ease, color 150ms ease;
 }
 
-.tag-pills .tag-pill::before,
-a.tag-pill::before {
+.tag-pills .tag-pill::before {
   content: "#";
   opacity: 0.4;
   margin-right: 2px;
   font-size: 10px;
 }
 
-.tag-pills .tag-pill:hover,
-a.tag-pill:hover {
+.tag-pills .tag-pill:hover {
   background: rgba(0, 212, 164, 0.12);
   color: var(--brand-green-deep);
   text-decoration: none;
 }
 
 .tag-pills .tag-pill-more {
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: center;
   font-size: 11px;
   color: var(--muted);
@@ -804,9 +804,8 @@ a.tag-pill:hover {
 }
 
 /* ===== PLAYLIST TAGS (Finance, AI) ===== */
-.playlist-tags .playlist-tag,
-a.playlist-tag {
-  display: inline-flex !important;
+.playlist-tags .playlist-tag {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 10px;
@@ -823,8 +822,7 @@ a.playlist-tag {
   transition: background 150ms ease, border-color 150ms ease;
 }
 
-.playlist-tags .playlist-tag:hover,
-a.playlist-tag:hover {
+.playlist-tags .playlist-tag:hover {
   background: rgba(0, 212, 164, 0.16);
   border-color: rgba(0, 212, 164, 0.4);
   text-decoration: none;
