@@ -24,3 +24,46 @@ When running locally without Docker, uvicorn defaults to port 8000.
 See the [core design spec](docs/superpowers/specs/2026-05-05-yt-summary-design.md)
 and the [playlists spec](docs/superpowers/specs/2026-05-06-playlists-design.md)
 for architecture.
+
+## Programmatic access
+
+Once the app is running, generate an API key in Settings (`/settings`,
+"API access" section). The same key gates both surfaces:
+
+### REST API
+
+OpenAPI docs: `http://localhost:8200/api/v1/docs`
+
+Quick example:
+```bash
+curl -X POST http://localhost:8200/api/v1/videos \
+  -H "Authorization: Bearer yts_..." \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://youtu.be/dQw4w9WgXcQ"}'
+```
+
+### MCP server
+
+Endpoint: `http://localhost:8200/mcp/sse`
+
+For Claude Desktop, add to your MCP config:
+```json
+{
+  "mcpServers": {
+    "yt-summary": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "http://your-host:8200/mcp/sse",
+        "--header", "Authorization: Bearer yts_..."
+      ]
+    }
+  }
+}
+```
+
+Claude Code (CLI) and other MCP-over-HTTP-capable hosts can connect
+directly without `mcp-remote`.
+
+The server exposes these tools: `submit_url`, `search`, `get_summary`,
+`get_transcript`, `ask_video`, `list_recent`.
