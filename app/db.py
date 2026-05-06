@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS video_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_video_tags_tag ON video_tags(tag_id);
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT 'admin',
+    api_key_hash TEXT,
+    api_key_prefix TEXT,
+    api_key_created_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
     video_id TEXT PRIMARY KEY,
     summary_vec FLOAT[768]
@@ -222,4 +231,12 @@ async def connect(config: Config) -> aiosqlite.Connection:
 async def init_schema(conn: aiosqlite.Connection) -> None:
     await _run_migrations(conn)
     await conn.executescript(SCHEMA)
+    # Seed the single default user (id=1) if the table is empty. Every
+    # existing user_id=1 reference now points at a real row.
+    cursor = await conn.execute("SELECT COUNT(*) FROM users")
+    row = await cursor.fetchone()
+    if row is not None and row[0] == 0:
+        await conn.execute(
+            "INSERT INTO users (id, name) VALUES (1, 'admin')"
+        )
     await conn.commit()

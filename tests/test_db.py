@@ -200,3 +200,28 @@ def test_init_schema_migrates_v2_database_to_v3(tmp_path):
         await conn.close()
 
     asyncio.new_event_loop().run_until_complete(run())
+
+
+async def test_init_schema_creates_users_table(db: aiosqlite.Connection):
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+    )
+    assert await cursor.fetchone() is not None
+
+
+async def test_init_schema_seeds_default_user(db: aiosqlite.Connection):
+    cursor = await db.execute("SELECT id, name FROM users WHERE id = 1")
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 1
+    assert row[1] == "admin"
+
+
+async def test_init_schema_default_user_has_no_key(db: aiosqlite.Connection):
+    cursor = await db.execute(
+        "SELECT api_key_hash, api_key_prefix FROM users WHERE id = 1"
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] is None
+    assert row[1] is None
