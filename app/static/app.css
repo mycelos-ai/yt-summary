@@ -746,74 +746,88 @@ p { margin: 0 0 16px 0; }
   font-size: 32px;
 }
 
-/* Playlist tags on video cards */
-.playlist-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 16px 8px;
-}
-.playlist-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--steel);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-full);
-  padding: 3px 10px;
-  text-decoration: none;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
-}
-.playlist-tag:hover {
-  background: rgba(0, 212, 164, 0.08);
-  border-color: var(--brand-green);
-  color: var(--brand-green-deep);
-  text-decoration: none;
-}
-
-/* Tag pills (YouTube uploader-set keywords) */
+/* Playlist + tag pill containers (shared layout) */
+.playlist-tags,
 .tag-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 16px 8px;
 }
-.video-detail .tag-pills {
+.video-detail .tag-pills,
+.video-detail .playlist-tags {
   padding: 8px 0 0;
 }
-.tag-pill {
-  display: inline-flex;
+
+/* ===== TAG PILLS (YouTube keywords) ===== */
+.tag-pills .tag-pill,
+a.tag-pill {
+  display: inline-flex !important;
   align-items: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--steel);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-full);
-  padding: 3px 10px;
+  background: #f0f0f1;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 8px;
   text-decoration: none;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  transition: background 150ms ease, color 150ms ease;
 }
-.tag-pill::before {
+
+.tag-pills .tag-pill::before,
+a.tag-pill::before {
   content: "#";
-  opacity: 0.5;
+  opacity: 0.4;
   margin-right: 2px;
+  font-size: 10px;
 }
-.tag-pill:hover {
-  background: rgba(0, 212, 164, 0.08);
-  border-color: var(--brand-green);
+
+.tag-pills .tag-pill:hover,
+a.tag-pill:hover {
+  background: rgba(0, 212, 164, 0.12);
   color: var(--brand-green-deep);
   text-decoration: none;
 }
-.tag-pill-more {
-  display: inline-flex;
+
+.tag-pills .tag-pill-more {
+  display: inline-flex !important;
   align-items: center;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  padding: 3px 6px;
+  padding: 2px 6px;
+  background: #f0f0f1;
+  border-radius: 5px;
+  line-height: 1.6;
+}
+
+/* ===== PLAYLIST TAGS (Finance, AI) ===== */
+.playlist-tags .playlist-tag,
+a.playlist-tag {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--brand-green-deep);
+  background: rgba(0, 212, 164, 0.08);
+  border: 1px solid rgba(0, 212, 164, 0.22);
+  border-radius: 5px;
+  padding: 2px 8px;
+  line-height: 1.6;
+  text-decoration: none;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.playlist-tags .playlist-tag:hover,
+a.playlist-tag:hover {
+  background: rgba(0, 212, 164, 0.16);
+  border-color: rgba(0, 212, 164, 0.4);
+  text-decoration: none;
 }
 
 /* Filter banner above the library when ?tag= is active */
