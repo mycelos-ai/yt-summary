@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 jobs:
@@ -26,8 +27,13 @@ jobs:
         id: meta
         run: |
           REPO_LC=${GITHUB_REPOSITORY,,}
-          VERSION=${GITHUB_REF_NAME}
-          echo "tags=ghcr.io/${REPO_LC}:${VERSION},ghcr.io/${REPO_LC}:latest" >> "$GITHUB_OUTPUT"
+          SHORT_SHA=${GITHUB_SHA:0:7}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF_NAME}
+            echo "tags=ghcr.io/${REPO_LC}:${VERSION},ghcr.io/${REPO_LC}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=ghcr.io/${REPO_LC}:latest,ghcr.io/${REPO_LC}:main-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
         with:
