@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.main import get_db
+from app.repos import playlists as playlists_repo
 from app.repos import videos as videos_repo
 
 router = APIRouter()
@@ -20,6 +21,9 @@ async def home(
         videos = await videos_repo.search(db, q)
     else:
         videos = await videos_repo.list_recent(db)
+    playlists = await playlists_repo.list_for_user(db, 1)
     return templates.TemplateResponse(
-        request, "home.html", {"videos": videos, "q": q}
+        request,
+        "home.html",
+        {"videos": videos, "q": q, "playlists": playlists},
     )

@@ -1,0 +1,17 @@
+<a href="/p/{{ playlist.id }}" class="playlist-card">
+  {% if playlist.thumbnail_path %}
+    <img src="/thumbnails/playlist_{{ playlist.id }}.jpg" alt="">
+  {% else %}
+    <div class="playlist-card-placeholder">▣</div>
+  {% endif %}
+  <div class="playlist-card-body">
+    <h4>{{ playlist.title }}</h4>
+    <p class="caption">
+      {% if playlist.last_refreshed_at %}
+        Last refreshed {{ playlist.last_refreshed_at.strftime('%Y-%m-%d') }}
+      {% else %}
+        New
+      {% endif %}
+    </p>
+  </div>
+</a>

@@ -45,3 +45,37 @@ def test_home_search(tmp_path, monkeypatch):
         resp = client.get("/?q=fastapi")
     assert "Python tutorial" in resp.text
     assert "Cooking" not in resp.text
+
+
+def test_home_lists_playlists(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            await playlists_repo.create(
+                app.state.db, playlist_id="PLhome", user_id=1, url="u",
+                title="On home", description="",
+                thumbnail_path=None,
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "On home" in resp.text
+    assert "/p/PLhome" in resp.text
+    assert "/playlists/new" in resp.text
+
+
+def test_home_no_playlists_strip_when_none(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/")
+    assert resp.status_code == 200
+    # Without playlists, the strip with the cards isn't shown,
+    # but the fallback "Add a playlist" link still appears.
+    assert "Add a playlist" in resp.text
+    assert 'class="playlist-strip"' not in resp.text

@@ -10,6 +10,26 @@
   </form>
 </section>
 
+{% if playlists %}
+  <p class="section-title">Playlists</p>
+  <section class="playlist-strip">
+    {% for playlist in playlists %}
+      {% include "playlist_card.html" %}
+    {% endfor %}
+    <a href="/playlists/new" class="playlist-card playlist-card-add">
+      <div class="playlist-card-placeholder">+</div>
+      <div class="playlist-card-body">
+        <h4>Add playlist</h4>
+        <p class="caption">Subscribe to a YouTube playlist</p>
+      </div>
+    </a>
+  </section>
+{% else %}
+  <p style="margin: 24px 0;">
+    <a href="/playlists/new" class="btn btn-secondary">+ Add a playlist</a>
+  </p>
+{% endif %}
+
 <form method="get" action="/" class="search-form">
   <input type="search" name="q" value="{{ q or '' }}" placeholder="Search past videos">
   <button type="submit">Search</button>

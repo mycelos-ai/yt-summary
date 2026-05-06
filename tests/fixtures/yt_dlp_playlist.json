@@ -1,0 +1,29 @@
+{
+  "id": "PLh9GXHYeT6wWS05I-U_3f1RtJKa58M9Lr",
+  "title": "Sample Playlist",
+  "description": "A demo playlist",
+  "webpage_url": "https://www.youtube.com/playlist?list=PLh9GXHYeT6wWS05I-U_3f1RtJKa58M9Lr",
+  "thumbnails": [
+    {"url": "https://i.ytimg.com/vi/abc/hqdefault.jpg", "width": 480, "height": 360}
+  ],
+  "entries": [
+    {
+      "id": "vid-aaa-1234",
+      "title": "First entry",
+      "description": "",
+      "duration": 600,
+      "thumbnails": [
+        {"url": "https://i.ytimg.com/vi/vid-aaa-1234/hqdefault.jpg"}
+      ]
+    },
+    {
+      "id": "vid-bbb-5678",
+      "title": "Second entry",
+      "description": "",
+      "duration": 1200,
+      "thumbnails": [
+        {"url": "https://i.ytimg.com/vi/vid-bbb-5678/hqdefault.jpg"}
+      ]
+    }
+  ]
+}
