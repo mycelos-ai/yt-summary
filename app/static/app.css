@@ -745,3 +745,31 @@ p { margin: 0 0 16px 0; }
   color: var(--brand-green-deep);
   font-size: 32px;
 }
+
+/* Playlist tags on video cards */
+.playlist-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+.playlist-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--steel);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  padding: 3px 10px;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.playlist-tag:hover {
+  background: rgba(0, 212, 164, 0.08);
+  border-color: var(--brand-green);
+  color: var(--brand-green-deep);
+  text-decoration: none;
+}

@@ -5,6 +5,14 @@
     {% endif %}
     <h3>{{ video.title }}</h3>
   </a>
+  {% set links = (playlist_links or {}).get(video.id, []) %}
+  {% if links %}
+    <div class="playlist-tags">
+      {% for pid, ptitle in links %}
+        <a href="/p/{{ pid }}" class="playlist-tag">📋 {{ ptitle }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
   {% if video.summary %}
     <p class="status status-done">✓ summary ready</p>
   {% else %}

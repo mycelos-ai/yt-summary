@@ -105,3 +105,25 @@ async def test_set_last_refreshed(db: aiosqlite.Connection):
     p = await playlists_repo.get(db, "p1")
     assert p is not None
     assert p.last_refreshed_at is not None
+
+
+async def test_playlists_for_videos_returns_links_per_video(db: aiosqlite.Connection):
+    await _make_playlist(db, "p1")
+    await _make_playlist(db, "p2")
+    await _make_video(db, "v1")
+    await _make_video(db, "v2")
+    await _make_video(db, "v3")
+    await playlists_repo.link_video(db, "p1", "v1")
+    await playlists_repo.link_video(db, "p1", "v2")
+    await playlists_repo.link_video(db, "p2", "v2")
+
+    result = await playlists_repo.playlists_for_videos(db, ["v1", "v2", "v3"])
+    assert result["v1"] == [("p1", "My PL")]
+    # v2 has both — order is by playlist title (both "My PL"), tiebreak undefined
+    assert {p[0] for p in result["v2"]} == {"p1", "p2"}
+    assert "v3" not in result
+
+
+async def test_playlists_for_videos_returns_empty_for_empty_input(db):
+    result = await playlists_repo.playlists_for_videos(db, [])
+    assert result == {}

@@ -22,8 +22,16 @@ async def home(
     else:
         videos = await videos_repo.list_recent(db)
     playlists = await playlists_repo.list_for_user(db, 1)
+    playlist_links = await playlists_repo.playlists_for_videos(
+        db, [v.id for v in videos]
+    )
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"videos": videos, "q": q, "playlists": playlists},
+        {
+            "videos": videos,
+            "q": q,
+            "playlists": playlists,
+            "playlist_links": playlist_links,
+        },
     )

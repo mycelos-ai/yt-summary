@@ -113,3 +113,32 @@ async def videos_for_playlist(
     )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]
+
+
+async def playlists_for_videos(
+    db: aiosqlite.Connection, video_ids: list[str]
+) -> dict[str, list[tuple[str, str]]]:
+    """For a batch of video ids, return the playlists each is linked to.
+
+    Returns: {video_id: [(playlist_id, playlist_title), ...]}.
+    Videos without playlist links are absent from the result dict.
+    Single query, scales for the home page video grid.
+    """
+    if not video_ids:
+        return {}
+    placeholders = ",".join("?" * len(video_ids))
+    cursor = await db.execute(
+        f"""
+        SELECT pv.video_id, p.id, p.title
+        FROM playlist_videos pv
+        JOIN playlists p ON p.id = pv.playlist_id
+        WHERE pv.video_id IN ({placeholders})
+        ORDER BY p.title
+        """,
+        tuple(video_ids),
+    )
+    rows = await cursor.fetchall()
+    out: dict[str, list[tuple[str, str]]] = {}
+    for video_id, playlist_id, title in rows:
+        out.setdefault(video_id, []).append((playlist_id, title))
+    return out
