@@ -1,8 +1,13 @@
-<article class="video-card" id="video-{{ video.id }}">
+<article class="video-card video-card-{{ video.kind.value }}" id="video-{{ video.id }}">
   <a href="/v/{{ video.id }}">
     {% if video.thumbnail_path %}
       <img src="/thumbnails/{{ video.id }}.jpg" alt="">
+    {% else %}
+      <div class="video-card-placeholder">
+        {% if video.kind.value == 'web' %}🌐{% else %}▶{% endif %}
+      </div>
     {% endif %}
+    <span class="video-card-kind">{{ video.kind.value }}</span>
     <h3>{{ video.title }}</h3>
   </a>
   {% set links = (playlist_links or {}).get(video.id, []) %}

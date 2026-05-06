@@ -8,6 +8,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL DEFAULT 1,
+    kind TEXT NOT NULL DEFAULT 'youtube'
+        CHECK(kind IN ('youtube','web')),
     url TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -129,12 +131,19 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     columns referenced by CREATE INDEX statements already exist.
     """
     # Only migrate tables that actually exist (no-op on a blank database).
-    if await _table_exists(conn, "videos") and "user_id" not in await _table_columns(
-        conn, "videos"
-    ):
-        await conn.execute(
-            "ALTER TABLE videos ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"
-        )
+    if await _table_exists(conn, "videos"):
+        video_cols = await _table_columns(conn, "videos")
+        if "user_id" not in video_cols:
+            await conn.execute(
+                "ALTER TABLE videos ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"
+            )
+        if "kind" not in video_cols:
+            # ALTER ADD COLUMN with a CHECK constraint isn't allowed in
+            # SQLite, so we add the column without CHECK; the SCHEMA's
+            # CREATE TABLE has the CHECK for fresh installs.
+            await conn.execute(
+                "ALTER TABLE videos ADD COLUMN kind TEXT NOT NULL DEFAULT 'youtube'"
+            )
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both

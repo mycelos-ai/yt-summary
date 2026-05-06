@@ -2,11 +2,16 @@ from datetime import datetime
 
 import aiosqlite
 
-from app.models import TranscriptSource, Video
+from app.models import TranscriptSource, Video, VideoKind
 
 
 def _row_to_video(row: aiosqlite.Row) -> Video:
     src = row["transcript_source"]
+    # `kind` was added in V3; older rows / older fixtures may not have it.
+    try:
+        kind_raw = row["kind"]
+    except (IndexError, KeyError):
+        kind_raw = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -20,6 +25,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         summary_model=row["summary_model"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
+        kind=VideoKind(kind_raw) if kind_raw else VideoKind.YOUTUBE,
     )
 
 
@@ -33,11 +39,15 @@ async def upsert_metadata(
     thumbnail_path: str | None,
     duration_seconds: int | None,
     user_id: int = 1,
+    kind: VideoKind = VideoKind.YOUTUBE,
 ) -> None:
     await db.execute(
         """
-        INSERT INTO videos (id, user_id, url, title, description, thumbnail_path, duration_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO videos (
+            id, user_id, kind, url, title, description,
+            thumbnail_path, duration_seconds
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url=excluded.url,
             title=excluded.title,
@@ -46,7 +56,10 @@ async def upsert_metadata(
             duration_seconds=COALESCE(excluded.duration_seconds, videos.duration_seconds),
             updated_at=datetime('now')
         """,
-        (video_id, user_id, url, title, description, thumbnail_path, duration_seconds),
+        (
+            video_id, user_id, kind.value, url, title, description,
+            thumbnail_path, duration_seconds,
+        ),
     )
     await db.commit()
 

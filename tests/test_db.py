@@ -131,3 +131,63 @@ async def test_init_schema_idempotent_on_v2(db):
     row = await cursor.fetchone()
     assert row is not None
     assert row[0] == 0
+
+
+async def test_init_schema_adds_kind_column_to_existing_videos(db: aiosqlite.Connection):
+    """Fresh V3 schema includes 'kind' on videos with default 'youtube'."""
+    cursor = await db.execute("PRAGMA table_info(videos)")
+    cols = {row[1] for row in await cursor.fetchall()}
+    assert "kind" in cols
+
+
+def test_init_schema_migrates_v2_database_to_v3(tmp_path):
+    """A V2 DB (with user_id but no kind) gains the kind column with
+    'youtube' as the default for existing rows."""
+    import sqlite3
+
+    db_path = tmp_path / "v2.db"
+    legacy = sqlite3.connect(db_path)
+    legacy.executescript(
+        """
+        CREATE TABLE videos (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL DEFAULT 1,
+            url TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            thumbnail_path TEXT,
+            duration_seconds INTEGER,
+            transcript TEXT,
+            transcript_source TEXT,
+            summary TEXT,
+            summary_model TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE settings (
+            user_id INTEGER NOT NULL DEFAULT 1,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (user_id, key)
+        );
+        INSERT INTO videos (id, url, title) VALUES ('legacy', 'u', 't');
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    import asyncio
+
+    async def run():
+        conn = await aiosqlite.connect(db_path)
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys = ON")
+        from app.db import init_schema
+        await init_schema(conn)
+        cursor = await conn.execute("SELECT kind FROM videos WHERE id='legacy'")
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == "youtube"
+        await conn.close()
+
+    asyncio.new_event_loop().run_until_complete(run())

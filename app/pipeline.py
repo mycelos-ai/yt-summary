@@ -5,9 +5,11 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import Config
+from app.models import TranscriptSource, VideoKind
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
+from app.services.reader import fetch_article
 from app.services.summarizer import summarize
 from app.services.transcript import obtain_transcript
 from app.services.youtube import fetch_metadata
@@ -37,32 +39,40 @@ async def process_video(
     cookies = await asyncio.to_thread(_resolve_cookies, config)
 
     if not video.transcript:
-        await set_step("fetching transcript")
-        text, source = await obtain_transcript(
-            url=video.url,
-            video_id=video_id,
-            audio_dir=config.audio_dir,
-            cookies_path=cookies,
-            whisper_model=whisper_model,
-        )
-        await videos_repo.set_transcript(db, video_id, text, source)
+        if video.kind == VideoKind.WEB:
+            await set_step("fetching article")
+            article = await fetch_article(video.url)
+            await videos_repo.set_transcript(
+                db, video_id, article.body, TranscriptSource.WEB
+            )
+            text = article.body
+        else:
+            await set_step("fetching transcript")
+            text, source = await obtain_transcript(
+                url=video.url,
+                video_id=video_id,
+                audio_dir=config.audio_dir,
+                cookies_path=cookies,
+                whisper_model=whisper_model,
+            )
+            await videos_repo.set_transcript(db, video_id, text, source)
     else:
         text = video.transcript
 
-    # Backfill tags if missing. Cheap because yt-dlp's metadata call is
-    # already small. Skip if the video already has tag links — first
-    # submitter wrote them via the route, no need to redo.
-    existing_tags = await tags_repo.tags_for_video(db, video_id)
-    if not existing_tags:
-        try:
-            meta = await fetch_metadata(video.url, cookies_path=cookies)
-            if meta.tags:
-                await tags_repo.set_tags_for_video(
-                    db, video_id, list(meta.tags)
-                )
-        except Exception:
-            # Tag backfill is a nice-to-have; don't fail the whole job.
-            pass
+    # Backfill tags only for YouTube videos (yt-dlp surfaces them).
+    # Web pages have no equivalent metadata field worth chasing.
+    if video.kind == VideoKind.YOUTUBE:
+        existing_tags = await tags_repo.tags_for_video(db, video_id)
+        if not existing_tags:
+            try:
+                meta = await fetch_metadata(video.url, cookies_path=cookies)
+                if meta.tags:
+                    await tags_repo.set_tags_for_video(
+                        db, video_id, list(meta.tags)
+                    )
+            except Exception:
+                # Tag backfill is a nice-to-have; don't fail the whole job.
+                pass
 
     if not model:
         await set_step("transcript only (no LLM model configured)")

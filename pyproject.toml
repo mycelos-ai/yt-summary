@@ -14,6 +14,7 @@ dependencies = [
     "litellm>=1.55",
     "httpx>=0.28",
     "markdown-it-py>=3.0",
+    "trafilatura>=2.0",
 ]
 
 [project.optional-dependencies]

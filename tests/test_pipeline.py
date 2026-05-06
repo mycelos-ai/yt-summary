@@ -100,3 +100,47 @@ async def test_pipeline_skips_transcript_when_already_present(db, tmp_path):
     v = await videos_repo.get(db, "v1")
     assert v is not None
     assert v.summary == "NEW SUMMARY"
+
+
+async def test_pipeline_uses_reader_for_web_kind(db, tmp_path):
+    from app.services.reader import ArticleMetadata
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    from app.models import VideoKind
+    await videos_repo.upsert_metadata(
+        db, video_id="web-cafe1234567",
+        url="https://example.com/post",
+        title="Web post", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.WEB,
+    )
+
+    fake_article = ArticleMetadata(
+        url="https://example.com/post",
+        title="Web post",
+        description="",
+        body="The article body.",
+        thumbnail_url=None,
+    )
+
+    async def set_step(s: str) -> None:
+        pass
+
+    with (
+        patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
+        patch("app.pipeline.obtain_transcript") as obtain_mock,
+        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+    ):
+        from app.pipeline import process_video
+        await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+        await settings_repo.set(db, "llm_api_key", "k")
+        await process_video(db, config, "web-cafe1234567", set_step)
+
+    obtain_mock.assert_not_called()
+    v = await videos_repo.get(db, "web-cafe1234567")
+    assert v is not None
+    assert v.transcript == "The article body."
+    assert v.transcript_source is not None
+    assert v.transcript_source.value == "web"
+    assert v.summary == "THE SUMMARY"

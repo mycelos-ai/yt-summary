@@ -368,3 +368,99 @@ def test_video_detail_renders_tag_pills(tmp_path, monkeypatch):
     assert "alpha" in resp.text
     assert "beta" in resp.text
     assert 'href="/?tag=alpha"' in resp.text
+
+
+def test_post_videos_with_web_url_creates_web_kind(tmp_path, monkeypatch):
+    from app.services.reader import ArticleMetadata
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    fake_article = ArticleMetadata(
+        url="https://example.com/post-1",
+        title="Some Article",
+        description="A short description.",
+        body="The body text of the article. " * 5,
+        thumbnail_url=None,
+    )
+    app = create_app()
+    with (
+        patch("app.routes.videos.fetch_article", AsyncMock(return_value=fake_article)),
+        patch("app.routes.videos.download_thumbnail", AsyncMock(return_value=None)),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/videos",
+            data={"url": "https://example.com/post-1"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        location = resp.headers["location"]
+        assert location.startswith("/v/web-")
+
+        import asyncio
+        async def check():
+            from app.models import VideoKind
+            from app.repos import videos as videos_repo
+            item_id = location.split("/v/")[1]
+            v = await videos_repo.get(app.state.db, item_id)
+            assert v is not None
+            assert v.kind == VideoKind.WEB
+            assert v.title == "Some Article"
+            assert v.transcript is not None
+            assert "body text" in v.transcript
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_post_videos_with_unfetchable_url_returns_400(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    async def boom(url):
+        raise ValueError("Could not fetch https://example.com/dead")
+
+    with (
+        patch("app.routes.videos.fetch_article", side_effect=boom),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/videos",
+            data={"url": "https://example.com/dead"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 400
+
+
+def test_post_videos_rejects_non_http_string(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/videos", data={"url": "ftp://example.com/x"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 400
+
+
+def test_video_detail_for_web_uses_open_original_label(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        from app.models import VideoKind
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="web-deadbeef123", url="https://example.com/x",
+                title="WebThing", description="", thumbnail_path=None,
+                duration_seconds=None, kind=VideoKind.WEB,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "web-deadbeef123", "Body.", "model"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/web-deadbeef123")
+    assert resp.status_code == 200
+    assert "Open original" in resp.text
+    assert "Watch on YouTube" not in resp.text

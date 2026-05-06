@@ -8,6 +8,12 @@ class TranscriptSource(StrEnum):
     MANUAL_SUBS = "manual_subs"
     AUTO_SUBS = "auto_subs"
     WHISPER = "whisper"
+    WEB = "web"
+
+
+class VideoKind(StrEnum):
+    YOUTUBE = "youtube"
+    WEB = "web"
 
 
 class JobState(StrEnum):
@@ -34,6 +40,7 @@ class Video:
     summary_model: str | None
     created_at: datetime
     updated_at: datetime
+    kind: VideoKind = VideoKind.YOUTUBE
 
 
 @dataclass

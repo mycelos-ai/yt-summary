@@ -5,7 +5,9 @@
   <header>
     <h1>{{ video.title }}</h1>
     <p>
-      <a href="{{ video.url }}" target="_blank" rel="noopener">↗ Watch on YouTube</a>
+      <a href="{{ video.url }}" target="_blank" rel="noopener">
+        {% if video.kind.value == 'web' %}↗ Open original{% else %}↗ Watch on YouTube{% endif %}
+      </a>
       <a href="/v/{{ video.id }}.md">Markdown</a>
       <form method="post" action="/v/{{ video.id }}/reindex">
         <button type="submit" class="link-button">
@@ -30,7 +32,13 @@
 
   {% if video.transcript %}
     <details class="transcript">
-      <summary>Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})</summary>
+      <summary>
+        {% if video.kind.value == 'web' %}
+          Article body
+        {% else %}
+          Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
+        {% endif %}
+      </summary>
       <pre>{{ video.transcript }}</pre>
     </details>
   {% endif %}
@@ -51,7 +59,7 @@
         hx-disabled-elt="find input, find button"
         hx-on::after-request="this.reset(); document.querySelector('input[name=content]').focus()"
       >
-        <input name="content" placeholder="Ask about this video…" autocomplete="off" required>
+        <input name="content" placeholder="{% if video.kind.value == 'web' %}Ask about this article…{% else %}Ask about this video…{% endif %}" autocomplete="off" required>
         <button type="submit">
           <span class="btn-label">Send</span>
           <span class="btn-spinner" aria-hidden="true"></span>

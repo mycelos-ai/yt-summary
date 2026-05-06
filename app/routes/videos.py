@@ -6,11 +6,14 @@ from markdown_it import MarkdownIt
 
 from app.config import Config
 from app.main import get_config, get_db
+from app.models import VideoKind
 from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
-from app.services.youtube import download_thumbnail, fetch_metadata, parse_video_id
+from app.services.reader import fetch_article
+from app.services.url_classify import classify_url, web_id_from_url
+from app.services.youtube import download_thumbnail, fetch_metadata
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -25,11 +28,33 @@ async def submit_video(
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
 ):
-    try:
-        parse_video_id(url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail=f"Not a URL: {url!r}")
 
+    kind = classify_url(url)
+    if kind == "youtube":
+        item_id = await _import_youtube(url, db, config)
+    else:
+        try:
+            item_id = await _import_web(url, db, config)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # HTMX request -> return the card fragment so it can be slotted into the
+    # list. Plain browser submit -> redirect to the detail page so the user
+    # lands on a full styled view that auto-polls the job status.
+    if request.headers.get("HX-Request"):
+        video = await videos_repo.get(db, item_id)
+        return templates.TemplateResponse(
+            request, "video_card.html", {"video": video}
+        )
+    return RedirectResponse(f"/v/{item_id}", status_code=303)
+
+
+async def _import_youtube(
+    url: str, db: aiosqlite.Connection, config: Config
+) -> str:
     cookies = config.cookies_path if config.cookies_path.exists() else None
     meta = await fetch_metadata(url, cookies_path=cookies)
 
@@ -45,20 +70,53 @@ async def submit_video(
         description=meta.description,
         thumbnail_path=thumb_db_path,
         duration_seconds=meta.duration_seconds,
+        kind=VideoKind.YOUTUBE,
     )
     if meta.tags:
         await tags_repo.set_tags_for_video(db, meta.id, list(meta.tags))
     await jobs_repo.enqueue(db, meta.id)
+    return meta.id
 
-    # HTMX request -> return the card fragment so it can be slotted into the
-    # list. Plain browser submit -> redirect to the detail page so the user
-    # lands on a full styled view that auto-polls the job status.
-    if request.headers.get("HX-Request"):
-        video = await videos_repo.get(db, meta.id)
-        return templates.TemplateResponse(
-            request, "video_card.html", {"video": video}
-        )
-    return RedirectResponse(f"/v/{meta.id}", status_code=303)
+
+async def _import_web(
+    url: str, db: aiosqlite.Connection, config: Config
+) -> str:
+    """Fetch the article body up-front so the user gets a fast 400 if
+    extraction fails, rather than a confusing 'queued' state followed
+    by a failed job."""
+    article = await fetch_article(url)
+    item_id = web_id_from_url(article.url)
+
+    thumb_db_path: str | None = None
+    if article.thumbnail_url:
+        thumb_target = config.thumbnails_dir / f"{item_id}.jpg"
+        try:
+            await download_thumbnail(article.thumbnail_url, thumb_target)
+            if thumb_target.exists():
+                thumb_db_path = str(thumb_target)
+        except Exception:
+            # Thumbnail is cosmetic; never block import on it.
+            pass
+
+    await videos_repo.upsert_metadata(
+        db,
+        video_id=item_id,
+        url=article.url,
+        title=article.title,
+        description=article.description,
+        thumbnail_path=thumb_db_path,
+        duration_seconds=None,
+        kind=VideoKind.WEB,
+    )
+    # Persist the body now so the pipeline doesn't refetch (article
+    # text is stable; refetch is only useful when the user clicks
+    # "Re-summarize" with no transcript yet — handled in pipeline).
+    from app.models import TranscriptSource
+    await videos_repo.set_transcript(
+        db, item_id, article.body, TranscriptSource.WEB
+    )
+    await jobs_repo.enqueue(db, item_id)
+    return item_id
 
 
 def _elapsed_seconds(job) -> int | None:
