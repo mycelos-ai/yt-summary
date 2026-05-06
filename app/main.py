@@ -74,6 +74,8 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     from app.routes.settings import router as settings_router
     app.include_router(settings_router)
+    from app.routes.playlists import router as playlists_router
+    app.include_router(playlists_router)
     return app
 
 

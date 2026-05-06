@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist.title }} — yt-summary{% endblock %}
+{% block content %}
+<article class="video-detail">
+  <header>
+    <h1>{{ playlist.title }}</h1>
+    <p>
+      <a href="{{ playlist.url }}" target="_blank" rel="noopener">↗ Open on YouTube</a>
+      {% if playlist.last_refreshed_at %}
+        · Last refreshed {{ playlist.last_refreshed_at.strftime('%Y-%m-%d %H:%M') }}
+      {% else %}
+        · Never refreshed
+      {% endif %}
+      <form method="post" action="/p/{{ playlist.id }}/refresh" style="display:inline">
+        <button type="submit" class="link-button">Refresh</button>
+      </form>
+      <form method="post" action="/p/{{ playlist.id }}/load-older" style="display:inline">
+        <button type="submit" class="link-button">Load older</button>
+      </form>
+      <form method="post" action="/p/{{ playlist.id }}/remove" style="display:inline"
+            onsubmit="return confirm('Remove this playlist? Videos already in your library will stay.')">
+        <button type="submit" class="link-button">Remove</button>
+      </form>
+    </p>
+  </header>
+
+  <p class="section-title">Videos in this playlist ({{ videos|length }})</p>
+
+  <section id="video-list">
+    {% for video in videos %}
+      {% include "video_card.html" %}
+    {% else %}
+      <p class="empty">No videos linked yet.</p>
+    {% endfor %}
+  </section>
+</article>
+{% endblock %}

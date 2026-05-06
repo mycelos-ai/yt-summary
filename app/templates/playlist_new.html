@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Add a playlist — yt-summary{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <h1>Add a playlist</h1>
+  <form method="post" action="/playlists" class="curl-form">
+    <label>
+      Playlist URL
+      <input name="url" type="url" placeholder="https://www.youtube.com/playlist?list=..." required>
+      <small>The latest videos will be imported and summarized. Older entries can be loaded later from the playlist page.</small>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}
