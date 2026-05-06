@@ -42,9 +42,9 @@ class PlaylistScheduler:
     async def _interval_seconds(self) -> float:
         raw = await settings_repo.get(self._db, "playlist_refresh_interval_hours")
         try:
-            hours = float(raw) if raw is not None else 6.0
+            hours = float(raw) if raw is not None else 1.0
         except ValueError:
-            hours = 6.0
+            hours = 1.0
         return max(self._min_sleep_seconds, hours * 3600)
 
     async def _sleep_or_stop(self, seconds: float) -> None:

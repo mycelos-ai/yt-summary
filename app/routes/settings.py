@@ -52,7 +52,7 @@ async def save_settings(
     summary_extra_instructions: str = Form(""),
     embedding_model: str = Form(""),
     embedding_base_url: str = Form(""),
-    playlist_refresh_interval_hours: str = Form("6"),
+    playlist_refresh_interval_hours: str = Form("1"),
     playlist_initial_import_limit: str = Form("20"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
