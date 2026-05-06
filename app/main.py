@@ -15,6 +15,8 @@ from app.repos import jobs as jobs_repo
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.pipeline import process_video
+    from app.scheduler import PlaylistScheduler
+    from app.services.playlist_sync import sync_playlist
     from app.worker import Worker
 
     config = Config.from_env()
@@ -26,13 +28,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     worker = Worker(db=db, config=config, process_video=process_video)
     worker_task = asyncio.create_task(worker.run())
 
+    scheduler = PlaylistScheduler(db=db, config=config, sync_fn=sync_playlist)
+    scheduler_task = asyncio.create_task(scheduler.run())
+
     app.state.config = config
     app.state.db = db
     app.state.worker = worker
+    app.state.scheduler = scheduler
     try:
         yield
     finally:
+        scheduler.stop()
         worker.stop()
+        await scheduler_task
         await worker_task
         await db.close()
 
