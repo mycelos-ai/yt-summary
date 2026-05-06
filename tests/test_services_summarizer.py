@@ -188,7 +188,6 @@ def test_build_reduce_prompt_includes_language_and_resources():
 
 
 async def test_summarize_passes_title_and_description_to_user_message():
-    from unittest.mock import AsyncMock, patch
     from app.services.summarizer import summarize
 
     captured: dict = {}
