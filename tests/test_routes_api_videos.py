@@ -143,3 +143,34 @@ def test_reindex_returns_202(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(setup())
         resp = client.post("/api/v1/videos/rev/reindex")
     assert resp.status_code == 202
+
+
+def test_api_requires_key_when_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Generate a key
+        client.post("/settings/api-key/generate", follow_redirects=False)
+        # Without auth header, GET /api/v1/videos should 401
+        resp = client.get("/api/v1/videos")
+        assert resp.status_code == 401
+        # Health stays open
+        resp_h = client.get("/api/v1/health")
+        assert resp_h.status_code == 200
+
+
+def test_api_accepts_valid_bearer_after_key_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        gen = client.post("/settings/api-key/generate", follow_redirects=False)
+        # Extract plaintext from the reveal page (yts_…)
+        import re
+        m = re.search(r"(yts_[a-z0-9]+)", gen.text)
+        assert m is not None
+        plaintext = m.group(1)
+        resp = client.get(
+            "/api/v1/videos",
+            headers={"Authorization": f"Bearer {plaintext}"},
+        )
+    assert resp.status_code == 200
