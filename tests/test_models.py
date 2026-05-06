@@ -71,3 +71,18 @@ def test_playlist_dataclass():
     assert p.id == "PLh9GXHYeT6w"
     assert p.user_id == 1
     assert p.last_refreshed_at is None
+
+
+def test_user_dataclass():
+    from app.models import User
+    u = User(
+        id=1,
+        name="admin",
+        api_key_hash=None,
+        api_key_prefix=None,
+        api_key_created_at=None,
+        created_at=datetime(2026, 5, 6),
+    )
+    assert u.id == 1
+    assert u.name == "admin"
+    assert u.api_key_hash is None

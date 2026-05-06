@@ -73,3 +73,13 @@ class Playlist:
     thumbnail_path: str | None
     last_refreshed_at: datetime | None
     created_at: datetime
+
+
+@dataclass
+class User:
+    id: int
+    name: str
+    api_key_hash: str | None
+    api_key_prefix: str | None
+    api_key_created_at: datetime | None
+    created_at: datetime
