@@ -14,9 +14,11 @@ from app.repos import videos as videos_repo
 from app.services.reader import fetch_article
 from app.services.url_classify import classify_url, web_id_from_url
 from app.services.youtube import download_thumbnail, fetch_metadata
+from app.template_filters import register_filters
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 
 _md = MarkdownIt()
 

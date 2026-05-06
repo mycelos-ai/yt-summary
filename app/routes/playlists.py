@@ -13,9 +13,11 @@ from app.repos import settings as settings_repo
 from app.services.playlist import fetch_playlist
 from app.services.playlist_sync import load_older_videos, sync_playlist
 from app.services.youtube import download_thumbnail
+from app.template_filters import register_filters
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 
 _PLAYLIST_ID_RE = re.compile(r"[?&]list=([A-Za-z0-9_-]+)")
 

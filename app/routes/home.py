@@ -12,11 +12,13 @@ from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
+from app.template_filters import register_filters
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 
 
 async def _vector_ids_for_query(

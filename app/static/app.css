@@ -746,6 +746,51 @@ p { margin: 0 0 16px 0; }
   font-size: 32px;
 }
 
+/* Wrapper around .playlist-card so the refresh button can float in the
+   corner without becoming a child of the <a> (avoids nested
+   interactive elements). */
+.playlist-card-wrap {
+  position: relative;
+  display: flex;
+}
+.playlist-card-wrap > .playlist-card {
+  flex: 1;
+  min-width: 0;
+}
+.playlist-card-refresh {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+}
+.playlist-card-refresh button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms ease, color 150ms ease,
+              border-color 150ms ease, transform 250ms ease;
+}
+.playlist-card-refresh button:hover {
+  background: var(--canvas);
+  color: var(--brand-green-deep);
+  border-color: var(--brand-green-deep);
+}
+.playlist-card-refresh button:active {
+  transform: rotate(180deg);
+}
+
 /* Playlist + tag pill containers (shared layout) */
 .playlist-tags,
 .tag-pills {

@@ -7,7 +7,7 @@
     <p>
       <a href="{{ playlist.url }}" target="_blank" rel="noopener">↗ Open on YouTube</a>
       {% if playlist.last_refreshed_at %}
-        · Last refreshed {{ playlist.last_refreshed_at.strftime('%Y-%m-%d %H:%M') }}
+        · Refreshed {{ playlist.last_refreshed_at | relative_time }}
       {% else %}
         · Never refreshed
       {% endif %}
