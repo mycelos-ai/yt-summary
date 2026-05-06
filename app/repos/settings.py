@@ -10,8 +10,8 @@ async def get(db: aiosqlite.Connection, key: str) -> str | None:
 async def set(db: aiosqlite.Connection, key: str, value: str) -> None:
     await db.execute(
         """
-        INSERT INTO settings (key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        INSERT INTO settings (user_id, key, value) VALUES (1, ?, ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value
         """,
         (key, value),
     )
