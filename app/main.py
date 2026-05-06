@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -24,6 +25,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = await connect(config)
     await init_schema(db)
     await jobs_repo.reset_orphaned_running(db)
+
+    # Warn loudly if no API key is set — anyone on the LAN can call
+    # the API. Useful default for first run, but the user should
+    # generate one before exposing the box.
+    from app.repos import users as _users_repo
+    _user = await _users_repo.get_default_user(db)
+    if _user is None or _user.api_key_hash is None:
+        logging.getLogger("yt_summary.boot").warning(
+            "No API key configured — /api/v1 and /mcp/sse are open to "
+            "anyone on the LAN. Generate one at /settings."
+        )
 
     worker = Worker(db=db, config=config, process_video=process_video)
     worker_task = asyncio.create_task(worker.run())
