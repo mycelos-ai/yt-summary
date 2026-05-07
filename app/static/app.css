@@ -558,29 +558,26 @@ p { margin: 0 0 16px 0; }
   margin: -4px 0 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--hairline-soft);
-  display: grid;
-  grid-template-columns: 40px 1fr;
-  column-gap: 8px;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
 }
 .settings-card-icon {
-  width: 40px;
-  height: 40px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  grid-row: 1 / span 2;
-  /* The rendered PNGs have ~15% internal whitespace around the motif,
-     which makes the visual gap to the title look bigger than it is.
-     A small negative margin pulls the icon block back so the *inked
-     part* of the icon lines up roughly with the card's left padding. */
-  margin-left: -4px;
+  /* Optical alignment: bumps the icon down a hair so its visual
+     centre lines up with the H2's cap height instead of its top edge. */
+  margin-top: 2px;
 }
 .settings-card-icon img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  /* PNGs are monochrome line-art on white; sit directly on the card surface. */
+  display: block;
 }
 .settings-card-head h2 {
   font-size: 18px;
@@ -588,6 +585,12 @@ p { margin: 0 0 16px 0; }
   margin: 0 0 4px;
   border: none;
   padding: 0;
+  line-height: 1.25;
+}
+.settings-card-head-text {
+  /* Wrapper around h2 + sub so they stack as one column next to icon. */
+  flex: 1;
+  min-width: 0;
 }
 .settings-card-sub {
   margin: 0;
@@ -698,15 +701,20 @@ p { margin: 0 0 16px 0; }
   color: var(--steel);
 }
 
-/* Single Save row at the bottom of the main form. */
+/* Save row sits directly under the last card — non-sticky, plain
+   right-aligned button. Settings pages aren't long enough to warrant
+   sticky-bottom UX, and sticky kept colliding with the page chrome. */
 .settings-save-row {
-  position: sticky;
-  bottom: 0;
-  margin: 24px 0;
-  padding: 16px 0;
-  background: linear-gradient(to bottom, transparent, var(--surface) 30%);
+  margin: 24px 0 8px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 12px;
+}
+.settings-card .settings-save-row {
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--hairline-soft);
 }
 .settings-page button[type="submit"],
 .settings-page .btn-primary {
