@@ -559,21 +559,26 @@ p { margin: 0 0 16px 0; }
   padding-bottom: 16px;
   border-bottom: 1px solid var(--hairline-soft);
   display: grid;
-  grid-template-columns: 44px 1fr;
-  column-gap: 16px;
+  grid-template-columns: 40px 1fr;
+  column-gap: 8px;
   align-items: center;
 }
 .settings-card-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   grid-row: 1 / span 2;
+  /* The rendered PNGs have ~15% internal whitespace around the motif,
+     which makes the visual gap to the title look bigger than it is.
+     A small negative margin pulls the icon block back so the *inked
+     part* of the icon lines up roughly with the card's left padding. */
+  margin-left: -4px;
 }
 .settings-card-icon img {
-  width: 36px;
-  height: 36px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   /* PNGs are monochrome line-art on white; sit directly on the card surface. */
 }

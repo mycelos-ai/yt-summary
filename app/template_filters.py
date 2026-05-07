@@ -8,9 +8,9 @@ if TYPE_CHECKING:
     from fastapi.templating import Jinja2Templates
 
 
-# mtime of app.css, computed once at import time. Cheap, stable per
-# process, and changes whenever we redeploy a new build — exactly the
-# semantics we want for cache-busting <link>/<img> tags.
+# mtime of app.css, re-checked on every render so dev edits invalidate
+# browser caches without restarting the server. One stat() call per
+# template render is negligible compared to the surrounding I/O.
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
@@ -22,9 +22,6 @@ def _asset_version() -> str:
         return "0"
 
 
-_ASSET_VERSION = _asset_version()
-
-
 def register_filters(templates: "Jinja2Templates") -> None:
     """Wire our custom filters onto a Jinja2Templates instance.
 
@@ -32,7 +29,8 @@ def register_filters(templates: "Jinja2Templates") -> None:
     helper exists to keep them in sync without sharing global state.
     """
     templates.env.filters["relative_time"] = relative_time
-    templates.env.globals["asset_version"] = _ASSET_VERSION
+    # Expose as a callable so each render reads the current mtime.
+    templates.env.globals["asset_version"] = _asset_version
 
 
 def relative_time(dt: datetime | None, *, now: datetime | None = None) -> str:
