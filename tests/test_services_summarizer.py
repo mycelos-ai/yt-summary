@@ -216,3 +216,36 @@ async def test_summarize_passes_title_and_description_to_user_message():
     assert "My Cool Video" in user_msg
     assert "https://example.com/foo" in user_msg
     assert "German" in sys_msg
+
+
+def test_system_prompt_demands_specificity():
+    """Generic LinkedIn-style summaries are the failure mode. The
+    prompt must explicitly demand concrete names / numbers / quotes."""
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language="auto", extra_instructions=None)
+    lower = p.lower()
+    assert "specific" in lower or "concrete" in lower
+    # Must explicitly call out announcements as a target
+    assert "announce" in lower
+    # And surface anti-pattern guidance
+    assert "avoid" in lower or "do not paraphrase" in lower
+
+
+def test_reduce_prompt_demands_specificity():
+    from app.services.summarizer import build_reduce_prompt
+    p = build_reduce_prompt(language="auto", extra_instructions=None)
+    lower = p.lower()
+    assert "specific" in lower or "concrete" in lower
+    assert "announce" in lower
+
+
+def test_render_live_summary_human_friendly_header():
+    """The intermediate state shown to the UI should not look like
+    debug output. No raw 'Part 1 of 7 / Part 2 of 7' headers."""
+    from app.services.summarizer import _render_live_summary
+    out = _render_live_summary(["alpha summary", "beta summary"], total=4)
+    # Friendly header indicating progress
+    assert "2" in out and "4" in out
+    # Should still contain both partial bodies
+    assert "alpha summary" in out
+    assert "beta summary" in out
