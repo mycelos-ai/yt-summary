@@ -16,7 +16,7 @@
     <section class="settings-card">
       <header class="settings-card-head">
         <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/llm.png') }}" alt="">
+          <img src="{{ url_for('static', path='icons/llm.png') }}?v={{ asset_version }}" alt="">
         </span>
         <h2>Language model</h2>
         <p class="settings-card-sub">Used to summarize transcripts and answer chat questions.</p>
@@ -55,7 +55,7 @@
     <section class="settings-card">
       <header class="settings-card-head">
         <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/whisper.png') }}" alt="">
+          <img src="{{ url_for('static', path='icons/whisper.png') }}?v={{ asset_version }}" alt="">
         </span>
         <h2>Whisper (speech-to-text)</h2>
         <p class="settings-card-sub">Used when a video has no usable YouTube subtitles. Local by default; switch to a hosted endpoint to offload from the Pi.</p>
@@ -96,7 +96,7 @@
     <section class="settings-card">
       <header class="settings-card-head">
         <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/summary.png') }}" alt="">
+          <img src="{{ url_for('static', path='icons/summary.png') }}?v={{ asset_version }}" alt="">
         </span>
         <h2>Summary output</h2>
         <p class="settings-card-sub">Per-video defaults applied when the LLM produces a summary.</p>
@@ -135,7 +135,7 @@
     <section class="settings-card">
       <header class="settings-card-head">
         <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/embedding.png') }}" alt="">
+          <img src="{{ url_for('static', path='icons/embedding.png') }}?v={{ asset_version }}" alt="">
         </span>
         <h2>Embeddings (semantic search)</h2>
         <p class="settings-card-sub">Used for hybrid search across summaries on the home page. Optional; keyword-only search still works without it.</p>
@@ -168,7 +168,7 @@
     <section class="settings-card">
       <header class="settings-card-head">
         <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/playlists.png') }}" alt="">
+          <img src="{{ url_for('static', path='icons/playlists.png') }}?v={{ asset_version }}" alt="">
         </span>
         <h2>Playlists</h2>
         <p class="settings-card-sub">How the scheduler tracks and imports YouTube playlists.</p>
@@ -198,7 +198,7 @@
   <section class="settings-card">
     <header class="settings-card-head">
       <span class="settings-card-icon" aria-hidden="true">
-        <img src="{{ url_for('static', path='icons/cookies.png') }}" alt="">
+        <img src="{{ url_for('static', path='icons/cookies.png') }}?v={{ asset_version }}" alt="">
       </span>
       <h2>YouTube cookies</h2>
       <p class="settings-card-sub">Optional. Lets yt-dlp see age-gated, member-only, or geo-restricted videos.</p>
@@ -229,7 +229,7 @@
   <section class="settings-card">
     <header class="settings-card-head">
       <span class="settings-card-icon" aria-hidden="true">
-        <img src="{{ url_for('static', path='icons/api.png') }}" alt="">
+        <img src="{{ url_for('static', path='icons/api.png') }}?v={{ asset_version }}" alt="">
       </span>
       <h2>API access</h2>
       <p class="settings-card-sub">A single API key gates both the REST API at <code>/api/v1</code> and the MCP server at <code>/mcp/sse</code>.</p>

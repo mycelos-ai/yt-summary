@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ asset_version }}">
   <script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
   <script src="{{ url_for('static', path='alpine.min.js') }}" defer></script>
 </head>
 <body>
   <header>
     <a href="/" class="brand">
-      <img class="brand-logo" src="{{ url_for('static', path='icons/logo-alt.png') }}" alt="">
+      <img class="brand-logo" src="{{ url_for('static', path='icons/logo-alt.png') }}?v={{ asset_version }}" alt="">
       yt-summary
     </a>
     <a href="/settings" class="gear" aria-label="Settings">⚙</a>
