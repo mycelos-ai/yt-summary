@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,8 @@ from typing import Any, Literal
 import anyio
 import httpx
 from yt_dlp import YoutubeDL
+
+log = logging.getLogger(__name__)
 
 _VIDEO_ID_RE = re.compile(
     r"(?:v=|/shorts/|youtu\.be/|/embed/)([A-Za-z0-9_-]{11})"
@@ -160,18 +163,42 @@ def _pick_subtitle_url(info: dict[str, Any], key: str) -> str | None:
     return None
 
 
+async def _try_download_subtitle(url: str) -> str | None:
+    """Wrap _download_text so that 429 and 5xx errors return None
+    instead of raising. The caller treats None as 'no subtitle' and
+    the pipeline falls back to Whisper.
+
+    Other HTTP errors (auth, 4xx) are not transient and still bubble
+    so we don't silently mask broken cookies."""
+    try:
+        return await _download_text(url)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        if status == 429 or 500 <= status < 600:
+            log.warning(
+                "Subtitle fetch transient error %s for %s — falling "
+                "back to Whisper",
+                status,
+                url,
+            )
+            return None
+        raise
+
+
 async def fetch_subtitles(
     url: str, cookies_path: Path | None
 ) -> tuple[str, SubtitleSource] | None:
     info = await asyncio.to_thread(_extract_info_with_subs, url, cookies_path)
     manual_url = _pick_subtitle_url(info, "subtitles")
     if manual_url:
-        text = await _download_text(manual_url)
-        return vtt_to_plain_text(text), "manual_subs"
+        text = await _try_download_subtitle(manual_url)
+        if text is not None:
+            return vtt_to_plain_text(text), "manual_subs"
     auto_url = _pick_subtitle_url(info, "automatic_captions")
     if auto_url:
-        text = await _download_text(auto_url)
-        return vtt_to_plain_text(text), "auto_subs"
+        text = await _try_download_subtitle(auto_url)
+        if text is not None:
+            return vtt_to_plain_text(text), "auto_subs"
     return None
 
 

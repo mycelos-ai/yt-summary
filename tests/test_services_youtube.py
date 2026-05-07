@@ -189,3 +189,81 @@ def test_pick_best_thumbnail_takes_last_when_no_width_info():
         ],
     }
     assert _pick_best_thumbnail(info) == "https://example.com/b.jpg"
+
+
+async def test_fetch_subtitles_returns_none_on_429():
+    """YouTube ratelimits the timedtext endpoint occasionally. We treat
+    that as 'no subtitles available' so the worker falls back to
+    Whisper instead of failing the whole job."""
+    from httpx import HTTPStatusError, Request, Response
+
+    from app.services.youtube import fetch_subtitles
+    fake_info = {
+        "subtitles": {},
+        "automatic_captions": {"en": [{"ext": "vtt", "url": "https://example.com/auto.vtt"}]},
+    }
+    rate_limited = HTTPStatusError(
+        "429 Too Many Requests",
+        request=Request("GET", "https://example.com/auto.vtt"),
+        response=Response(429),
+    )
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(side_effect=rate_limited),
+        ),
+    ):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is None
+
+
+async def test_fetch_subtitles_returns_none_on_5xx():
+    """Same fallback behaviour for transient YouTube server errors."""
+    from httpx import HTTPStatusError, Request, Response
+
+    from app.services.youtube import fetch_subtitles
+    fake_info = {
+        "subtitles": {"en": [{"ext": "vtt", "url": "https://example.com/manual.vtt"}]},
+        "automatic_captions": {},
+    }
+    server_error = HTTPStatusError(
+        "503 Service Unavailable",
+        request=Request("GET", "https://example.com/manual.vtt"),
+        response=Response(503),
+    )
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(side_effect=server_error),
+        ),
+    ):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is None
+
+
+async def test_fetch_subtitles_propagates_other_4xx():
+    """A 401/403 means our cookies are bad — that's not transient,
+    don't silently fall back to Whisper. Let it bubble."""
+    from httpx import HTTPStatusError, Request, Response
+
+    from app.services.youtube import fetch_subtitles
+    fake_info = {
+        "subtitles": {"en": [{"ext": "vtt", "url": "https://example.com/manual.vtt"}]},
+        "automatic_captions": {},
+    }
+    auth_error = HTTPStatusError(
+        "403 Forbidden",
+        request=Request("GET", "https://example.com/manual.vtt"),
+        response=Response(403),
+    )
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(side_effect=auth_error),
+        ),
+        pytest.raises(HTTPStatusError),
+    ):
+        await fetch_subtitles("https://youtu.be/x", cookies_path=None)
