@@ -59,6 +59,7 @@ async def process_video(
                 audio_dir=config.audio_dir,
                 cookies_path=cookies,
                 whisper_model=whisper_model,
+                progress_cb=set_step,
             )
             await videos_repo.set_transcript(db, video_id, text, source)
     else:
