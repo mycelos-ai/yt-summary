@@ -85,13 +85,18 @@ header {
   z-index: 10;
 }
 header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.3px;
 }
-header .brand::before {
-  content: "▸ ";
-  color: var(--brand-green);
+header .brand-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
 }
 header .gear {
   display: inline-flex;
@@ -553,6 +558,24 @@ p { margin: 0 0 16px 0; }
   margin: -4px 0 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--hairline-soft);
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  column-gap: 16px;
+  align-items: center;
+}
+.settings-card-icon {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  grid-row: 1 / span 2;
+}
+.settings-card-icon img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  /* PNGs are monochrome line-art on white; sit directly on the card surface. */
 }
 .settings-card-head h2 {
   font-size: 18px;
