@@ -98,3 +98,95 @@ async def test_obtain_transcript_calls_progress_callback_during_whisper(tmp_path
 
     assert any("transcribing" in s and "50%" in s for s in captured), captured
     assert any("100%" in s for s in captured), captured
+
+
+async def test_obtain_transcript_uses_whisper_api_when_base_url_set(tmp_path):
+    """When whisper_base_url is set, obtain_transcript routes audio
+    through the hosted Whisper endpoint instead of running Whisper
+    locally."""
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch(
+            "app.services.transcript.transcribe_via_api",
+            AsyncMock(return_value="hosted whisper text"),
+        ) as api_mock,
+        patch("app.services.transcript.transcribe") as local_mock,
+    ):
+        text, source = await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="whisper-large-v3",
+            whisper_base_url="https://api.groq.com/openai/v1",
+            whisper_api_key="gsk-test",
+        )
+
+    assert text == "hosted whisper text"
+    assert source.value == "whisper"
+    api_mock.assert_called_once()
+    kwargs = api_mock.call_args.kwargs
+    assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
+    assert kwargs["api_key"] == "gsk-test"
+    assert kwargs["model_name"] == "whisper-large-v3"
+    local_mock.assert_not_called()
+
+
+async def test_obtain_transcript_local_when_no_base_url(tmp_path):
+    """Empty whisper_base_url means: run Whisper locally (status quo)."""
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.transcribe", return_value="local"),
+        patch("app.services.transcript.transcribe_via_api") as api_mock,
+    ):
+        text, _ = await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            whisper_base_url="",
+            whisper_api_key="",
+        )
+    assert text == "local"
+    api_mock.assert_not_called()
+
+
+async def test_obtain_transcript_api_path_deletes_audio_after(tmp_path):
+    """The audio file should be cleaned up regardless of which Whisper
+    backend was used."""
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch(
+            "app.services.transcript.transcribe_via_api",
+            AsyncMock(return_value="x"),
+        ),
+    ):
+        await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="m",
+            whisper_base_url="https://api.example.com",
+            whisper_api_key="k",
+        )
+    assert not fake_audio.exists()

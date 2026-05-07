@@ -60,6 +60,8 @@ async def process_video(
                 cookies_path=cookies,
                 whisper_model=whisper_model,
                 progress_cb=set_step,
+                whisper_base_url=settings.get("whisper_base_url", ""),
+                whisper_api_key=settings.get("whisper_api_key", ""),
             )
             await videos_repo.set_transcript(db, video_id, text, source)
     else:

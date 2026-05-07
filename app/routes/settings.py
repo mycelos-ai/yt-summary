@@ -27,7 +27,11 @@ async def settings_page(
     settings = await settings_repo.get_all(db)
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
     has_api_key = bool(settings.get("llm_api_key"))
-    safe_settings = {k: v for k, v in settings.items() if k != "llm_api_key"}
+    has_whisper_key = bool(settings.get("whisper_api_key"))
+    safe_settings = {
+        k: v for k, v in settings.items()
+        if k not in ("llm_api_key", "whisper_api_key")
+    }
     user = await users_repo.get_default_user(db)
     return templates.TemplateResponse(
         request,
@@ -35,6 +39,7 @@ async def settings_page(
         {
             "settings": safe_settings,
             "has_api_key": has_api_key,
+            "has_whisper_key": has_whisper_key,
             "has_cookies": has_cookies,
             "api_key_prefix": user.api_key_prefix if user else None,
             "api_key_created_at": user.api_key_created_at if user else None,
@@ -48,6 +53,8 @@ async def save_settings(
     llm_api_key: str = Form(""),
     llm_base_url: str = Form(""),
     whisper_model: str = Form("small"),
+    whisper_base_url: str = Form(""),
+    whisper_api_key: str = Form(""),
     summary_language: str = Form("auto"),
     summary_extra_instructions: str = Form(""),
     embedding_model: str = Form(""),
@@ -56,14 +63,17 @@ async def save_settings(
     playlist_initial_import_limit: str = Form("20"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    # LiteLLM appends paths to api_base; a trailing "/" produces "//api/chat"
-    # which some providers reject with 405.
+    # LiteLLM and httpx clients append paths to base; a trailing "/"
+    # would produce "//audio/transcriptions" or "//api/chat" which some
+    # providers reject with 405.
     llm_base_url = llm_base_url.strip().rstrip("/")
     embedding_base_url = embedding_base_url.strip().rstrip("/")
+    whisper_base_url = whisper_base_url.strip().rstrip("/")
     for key, value in (
         ("llm_model", llm_model.strip()),
         ("llm_base_url", llm_base_url),
-        ("whisper_model", whisper_model),
+        ("whisper_model", whisper_model.strip() or "small"),
+        ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
         ("summary_extra_instructions", summary_extra_instructions.strip()),
         ("embedding_model", embedding_model.strip()),
@@ -77,6 +87,8 @@ async def save_settings(
             await settings_repo.delete(db, key)
     if llm_api_key:
         await settings_repo.set(db, "llm_api_key", llm_api_key)
+    if whisper_api_key:
+        await settings_repo.set(db, "whisper_api_key", whisper_api_key)
     return RedirectResponse("/settings", status_code=303)
 
 

@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from app.models import TranscriptSource
-from app.services.whisper import transcribe
+from app.services.whisper import transcribe, transcribe_via_api
 from app.services.youtube import download_audio, fetch_subtitles
 
 # Don't update job.step more than once every 3 seconds. Whisper yields
@@ -65,19 +65,40 @@ async def obtain_transcript(
     cookies_path: Path | None,
     whisper_model: str,
     progress_cb: Callable[[str], Awaitable[None]] | None = None,
+    whisper_base_url: str = "",
+    whisper_api_key: str = "",
 ) -> tuple[str, TranscriptSource]:
+    """Obtain a transcript for `url`.
+
+    Tries YouTube subtitles first. Falls back to Whisper.
+
+    If `whisper_base_url` is non-empty, the audio is sent to a hosted
+    Whisper endpoint that speaks the OpenAI /v1/audio/transcriptions
+    contract (works with faster-whisper-server, Groq, OpenAI, etc.).
+    Otherwise Whisper runs locally via faster-whisper.
+    """
     subs = await fetch_subtitles(url, cookies_path=cookies_path)
     if subs is not None:
         text, source = subs
         return text, TranscriptSource(source)
 
     audio_path = await download_audio(url, video_id, audio_dir, cookies_path=cookies_path)
-    loop = asyncio.get_running_loop()
-    whisper_progress = _build_whisper_progress(progress_cb, loop)
     try:
-        text = await asyncio.to_thread(
-            transcribe, audio_path, whisper_model, progress=whisper_progress
-        )
+        if whisper_base_url:
+            if progress_cb is not None:
+                await progress_cb(f"sending audio to {whisper_base_url}")
+            text = await transcribe_via_api(
+                audio_path,
+                base_url=whisper_base_url,
+                api_key=whisper_api_key,
+                model_name=whisper_model,
+            )
+        else:
+            loop = asyncio.get_running_loop()
+            whisper_progress = _build_whisper_progress(progress_cb, loop)
+            text = await asyncio.to_thread(
+                transcribe, audio_path, whisper_model, progress=whisper_progress
+            )
     finally:
         if await asyncio.to_thread(audio_path.exists):
             await asyncio.to_thread(audio_path.unlink)

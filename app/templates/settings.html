@@ -23,11 +23,20 @@
     </label>
     <label>
       Whisper Model
-      <select name="whisper_model">
-        {% for m in ['tiny', 'base', 'small', 'medium', 'large-v3'] %}
-          <option value="{{ m }}" {% if settings.get('whisper_model', 'small') == m %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
+      <input name="whisper_model" value="{{ settings.get('whisper_model', 'small') }}"
+             placeholder="small / base / large-v3 / whisper-large-v3 / …">
+      <small>Local default: <code>small</code>. With Whisper Base URL set, this is the model name the remote server expects (e.g. <code>whisper-large-v3</code> for Groq, <code>whisper-1</code> for OpenAI, <code>Systran/faster-whisper-large-v3</code> for self-hosted).</small>
+    </label>
+    <label>
+      Whisper Base URL <small style="display:inline; color: var(--steel); font-weight: 400;">— optional, hosted Whisper backend</small>
+      <input name="whisper_base_url" value="{{ settings.get('whisper_base_url', '') }}"
+             placeholder="https://api.groq.com/openai/v1">
+      <small>Empty = run faster-whisper locally inside the container. Set to an OpenAI-compatible <code>/audio/transcriptions</code> root: Groq <code>https://api.groq.com/openai/v1</code>, OpenAI <code>https://api.openai.com/v1</code>, or your own server (e.g. <code>http://mac-mini.local:8000/v1</code>).</small>
+    </label>
+    <label>
+      Whisper API Key
+      <input name="whisper_api_key" type="password"
+             placeholder="{% if has_whisper_key %}(set, leave blank to keep){% else %}leave blank for local servers without auth{% endif %}">
     </label>
     <label>
       Summary language
