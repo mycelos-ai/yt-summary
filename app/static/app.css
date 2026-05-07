@@ -71,8 +71,9 @@ code, pre, .mono {
   font-family: var(--font-mono);
 }
 
-/* Header */
-header {
+/* Site-wide top header (brand + gear). Scoped to .site-header so it
+   doesn't leak into the <header> elements inside cards / detail pages. */
+.site-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -84,7 +85,7 @@ header {
   top: 0;
   z-index: 10;
 }
-header .brand {
+.site-header .brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -92,13 +93,13 @@ header .brand {
   font-weight: 600;
   letter-spacing: -0.3px;
 }
-header .brand-logo {
+.site-header .brand-logo {
   width: 28px;
   height: 28px;
   object-fit: contain;
   display: block;
 }
-header .gear {
+.site-header .gear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -110,7 +111,7 @@ header .gear {
   font-size: 16px;
   transition: background 150ms ease;
 }
-header .gear:hover {
+.site-header .gear:hover {
   text-decoration: none;
   background: var(--surface);
 }
@@ -326,13 +327,8 @@ p { margin: 0 0 16px 0; }
   margin: 0 auto;
 }
 .video-detail header {
-  position: static;
   display: block;
-  border: none;
-  padding: 0;
-  height: auto;
   margin-bottom: 24px;
-  background: transparent;
 }
 .video-detail h1 {
   font-size: 36px;
