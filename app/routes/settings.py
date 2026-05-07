@@ -1,4 +1,6 @@
 import asyncio
+import time
+from pathlib import Path
 
 import aiosqlite
 import httpx
@@ -13,9 +15,17 @@ from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
+from app.services.embeddings import embed_text
+from app.services.whisper import transcribe, transcribe_via_api
+from app.template_filters import register_filters
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
+
+# Bundled audio sample for /settings/test-whisper. Short clip of "This
+# is a test" so the round-trip stays cheap on a Pi5.
+WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -144,6 +154,98 @@ async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
         return HTMLResponse(
             f'<p class="status status-failed">⚠ {type(e).__name__}: {e}</p>'
         )
+
+
+@router.post("/settings/test-whisper", response_class=HTMLResponse)
+async def test_whisper(db: aiosqlite.Connection = Depends(get_db)):
+    """Round-trip the bundled audio sample through whatever Whisper
+    backend is configured. Local path uses faster-whisper, API path
+    uses transcribe_via_api()."""
+    if not await asyncio.to_thread(WHISPER_TEST_SAMPLE.exists):
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Test sample not found '
+            f'at {WHISPER_TEST_SAMPLE}.</p>'
+        )
+
+    settings = await settings_repo.get_all(db)
+    model = settings.get("whisper_model") or "small"
+    base_url = (settings.get("whisper_base_url") or "").strip()
+    api_key = settings.get("whisper_api_key") or ""
+
+    started = time.monotonic()
+    try:
+        if base_url:
+            text = await transcribe_via_api(
+                WHISPER_TEST_SAMPLE,
+                base_url=base_url,
+                api_key=api_key,
+                model_name=model,
+            )
+            backend = f"{base_url} ({model})"
+        else:
+            text = await asyncio.to_thread(
+                transcribe, WHISPER_TEST_SAMPLE, model
+            )
+            backend = f"local faster-whisper ({model})"
+    except Exception as e:
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ {type(e).__name__}: {e}</p>'
+        )
+    elapsed = time.monotonic() - started
+    snippet = (text or "(empty)")[:120]
+    return HTMLResponse(
+        f'<p class="status status-done">✓ {backend} '
+        f'transcribed in {elapsed:.1f}s: <em>{snippet}</em></p>'
+    )
+
+
+@router.post("/settings/test-embedding", response_class=HTMLResponse)
+async def test_embedding(db: aiosqlite.Connection = Depends(get_db)):
+    """Embed a fixed short string through the configured embedding
+    backend. Reports the vector dimension and timing."""
+    settings = await settings_repo.get_all(db)
+    model = (settings.get("embedding_model") or "").strip()
+    # embed_text falls back to ollama/nomic-embed-text but only makes
+    # sense if there's *some* base URL it can hit.
+    has_base = bool(
+        settings.get("embedding_base_url") or settings.get("llm_base_url")
+    )
+    if not model and not has_base:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Configure an embedding '
+            'model (or an LLM Base URL to fall back on).</p>'
+        )
+
+    embedding_base = (
+        settings.get("embedding_base_url") or settings.get("llm_base_url") or None
+    )
+    embedding_key = settings.get("llm_api_key") or ""
+    started = time.monotonic()
+    try:
+        vec = await embed_text(
+            "yt-summary embedding test",
+            model=model or None,
+            api_key=embedding_key,
+            base_url=embedding_base,
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ {type(e).__name__}: {e}</p>'
+        )
+    elapsed = time.monotonic() - started
+    dim = len(vec) if vec else 0
+    if dim == 0:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Embedding returned an '
+            'empty vector.</p>'
+        )
+    preview = ", ".join(f"{v:.3f}" for v in vec[:3])
+    label = model or "(default ollama/nomic-embed-text)"
+    return HTMLResponse(
+        f'<p class="status status-done">✓ {label} returned a '
+        f'{dim}-dim vector in {elapsed:.2f}s. First values: '
+        f'[{preview}, …]</p>'
+    )
 
 
 @router.post("/settings/youtube-curl")

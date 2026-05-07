@@ -522,71 +522,117 @@ p { margin: 0 0 16px 0; }
 .chat-msg-error strong { color: var(--brand-error); }
 .chat-msg-error .chat-content { color: var(--brand-error); font-family: var(--font-mono); font-size: 13px; }
 
-/* Settings */
+/* Settings — card-based layout */
 .settings-page {
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
 }
 .settings-page h1 {
   font-size: 36px;
-  margin-bottom: 32px;
+  margin-bottom: 12px;
 }
-.settings-page h2 {
-  font-size: 22px;
-  margin-top: 48px;
-  margin-bottom: 16px;
-  padding-top: 32px;
-  border-top: 1px solid var(--hairline);
-}
-.settings-form, .curl-form {
-  background: var(--canvas);
-  padding: 24px;
-  border-radius: var(--rounded-lg);
-  border: 1px solid var(--hairline);
-}
-.settings-form label, .curl-form label {
-  display: block;
-  margin-bottom: 20px;
+.settings-intro {
+  color: var(--steel);
   font-size: 14px;
-  font-weight: 500;
-  color: var(--ink);
+  line-height: 1.6;
+  margin-bottom: 32px;
+  max-width: 620px;
 }
-.settings-form label small, .curl-form label small {
+
+/* Each themed group is a card. The form wraps a stack of cards plus a
+   final save row; YouTube cookies and API access are sibling cards
+   outside the form. */
+.settings-card {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+}
+.settings-card-head {
+  margin: -4px 0 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.settings-card-head h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  border: none;
+  padding: 0;
+}
+.settings-card-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.5;
+}
+
+/* One field = label + input + optional small helper. */
+.settings-field {
+  display: block;
+  margin-bottom: 18px;
+}
+.settings-field:last-of-type { margin-bottom: 0; }
+.settings-label {
   display: block;
   font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.settings-hint-inline {
+  font-weight: 400;
+  color: var(--steel);
+}
+.settings-field small {
+  display: block;
+  font-size: 12px;
   font-weight: 400;
   color: var(--steel);
   margin-top: 6px;
   line-height: 1.5;
 }
-.settings-form input,
-.settings-form select,
-.curl-form textarea {
+
+/* All form controls inside the settings page get the same chrome.
+   Note we scope to .settings-page (not .settings-form) so the YouTube
+   cookies form picks the same styling. */
+.settings-page input[type="text"],
+.settings-page input[type="password"],
+.settings-page input[type="number"],
+.settings-page input:not([type]),
+.settings-page select,
+.settings-page textarea {
   display: block;
   width: 100%;
-  margin-top: 6px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   font-size: 14px;
+  font-family: var(--font-ui);
+  color: var(--ink);
   border: 1px solid var(--hairline);
   border-radius: var(--rounded-md);
   background: var(--canvas);
   outline: none;
-  transition: border-color 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-.settings-form input:focus,
-.settings-form select:focus,
-.curl-form textarea:focus {
-  border-color: var(--brand-green);
-  border-width: 2px;
-  padding: 9px 11px;
-}
-.curl-form textarea {
+.settings-page textarea {
   font-family: var(--font-mono);
   font-size: 13px;
   resize: vertical;
-  min-height: 120px;
+  min-height: 96px;
+  line-height: 1.55;
 }
-.settings-form code, .curl-form code {
+.settings-page input:focus,
+.settings-page select:focus,
+.settings-page textarea:focus {
+  border-color: var(--brand-green);
+  box-shadow: 0 0 0 3px rgba(0, 212, 164, 0.12);
+}
+.settings-page input::placeholder,
+.settings-page textarea::placeholder {
+  color: var(--stone);
+}
+.settings-page code {
   background: var(--surface);
   padding: 1px 6px;
   border-radius: var(--rounded-xs);
@@ -595,30 +641,62 @@ p { margin: 0 0 16px 0; }
   font-weight: 500;
   border: 1px solid var(--hairline);
 }
-.settings-form button[type="submit"],
-.curl-form button[type="submit"] {
+
+/* Test buttons: a row above an inline result panel. */
+.settings-test-row {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--hairline-soft);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.settings-test-result {
+  flex: 1;
+  min-width: 0;
+}
+.settings-test-result p {
+  margin: 0;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.settings-test-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--steel);
+}
+
+/* Single Save row at the bottom of the main form. */
+.settings-save-row {
+  position: sticky;
+  bottom: 0;
+  margin: 24px 0;
+  padding: 16px 0;
+  background: linear-gradient(to bottom, transparent, var(--surface) 30%);
+  display: flex;
+  justify-content: flex-end;
+}
+.settings-page button[type="submit"],
+.settings-page .btn-primary {
   background: var(--primary);
   color: var(--on-primary);
   font-size: 14px;
   font-weight: 500;
-  padding: 10px 20px;
+  padding: 10px 24px;
   border-radius: var(--rounded-full);
-  margin-top: 8px;
+  border: none;
+  cursor: pointer;
   transition: background 150ms ease;
 }
-.settings-form button[type="submit"]:hover,
-.curl-form button[type="submit"]:hover {
+.settings-page button[type="submit"]:hover,
+.settings-page .btn-primary:hover {
   background: var(--charcoal);
 }
-
-.llm-test {
-  margin: 24px 0;
-  padding: 20px;
-  background: var(--surface-soft);
-  border-radius: var(--rounded-md);
-  border: 1px solid var(--hairline-soft);
-}
-.llm-test button {
+.settings-page .btn-secondary {
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--hairline);
@@ -626,14 +704,26 @@ p { margin: 0 0 16px 0; }
   font-weight: 500;
   padding: 8px 16px;
   border-radius: var(--rounded-full);
-  transition: background 150ms ease;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
 }
-.llm-test button:hover { background: var(--canvas); }
-.llm-test #llm-test-result { margin-top: 12px; }
-.llm-test #llm-test-result p {
-  margin: 0;
+.settings-page .btn-secondary:hover {
+  background: var(--surface);
+  border-color: var(--stone);
+}
+.settings-page .btn-secondary:disabled,
+.settings-page button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-muted { color: var(--steel); }
+.settings-endpoint-list {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: var(--steel);
   font-size: 13px;
-  font-family: var(--font-mono);
+  line-height: 1.7;
 }
 
 .cookies-state {

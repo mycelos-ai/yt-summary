@@ -272,3 +272,135 @@ def test_revoke_api_key_clears_state(tmp_path, monkeypatch):
             assert user.api_key_hash is None
 
         asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_test_whisper_without_sample_returns_warning(tmp_path, monkeypatch):
+    """If the bundled sample file is missing somehow, the route still
+    responds gracefully (not a 500)."""
+    from unittest.mock import patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch("app.routes.settings.WHISPER_TEST_SAMPLE", tmp_path / "missing.m4a"),
+    ):
+        resp = client.post("/settings/test-whisper")
+    assert resp.status_code == 200
+    assert "sample" in resp.text.lower()
+
+
+def test_test_whisper_local_path(tmp_path, monkeypatch):
+    """When no whisper_base_url is set, hits the local transcribe()."""
+    from unittest.mock import patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.transcribe",
+            return_value="this is a test",
+        ),
+    ):
+        resp = client.post("/settings/test-whisper")
+    assert resp.status_code == 200
+    assert "this is a test" in resp.text
+
+
+def test_test_whisper_api_path(tmp_path, monkeypatch):
+    """When whisper_base_url is set, hits transcribe_via_api."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "whisper_base_url",
+                "https://api.groq.com/openai/v1",
+            )
+            await settings_repo.set(app.state.db, "whisper_api_key", "gsk-x")
+            await settings_repo.set(app.state.db, "whisper_model", "whisper-large-v3")
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        with patch(
+            "app.routes.settings.transcribe_via_api",
+            AsyncMock(return_value="hosted whisper text"),
+        ) as api_mock:
+            resp = client.post("/settings/test-whisper")
+    assert resp.status_code == 200
+    assert "hosted whisper text" in resp.text
+    api_mock.assert_called_once()
+    kwargs = api_mock.call_args.kwargs
+    assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
+    assert kwargs["api_key"] == "gsk-x"
+    assert kwargs["model_name"] == "whisper-large-v3"
+
+
+def test_test_whisper_reports_error(tmp_path, monkeypatch):
+    """If the API path raises, the route shows the error string."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "whisper_base_url", "https://x"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        with patch(
+            "app.routes.settings.transcribe_via_api",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            resp = client.post("/settings/test-whisper")
+    assert resp.status_code == 200
+    assert "boom" in resp.text
+
+
+def test_test_embedding_without_model_returns_warning(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post("/settings/test-embedding")
+    # No embedding_model and no LLM base URL fallback → "configure"
+    assert resp.status_code == 200
+    assert "embed" in resp.text.lower()
+
+
+def test_test_embedding_returns_dimension(tmp_path, monkeypatch):
+    """Successful embedding test reports the vector dimension and a
+    short preview of the values."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "embedding_model", "ollama/nomic-embed-text"
+            )
+            await settings_repo.set(
+                app.state.db, "embedding_base_url", "http://localhost:11434"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        with patch(
+            "app.routes.settings.embed_text",
+            AsyncMock(return_value=[0.1, 0.2, 0.3] * 256),  # 768-dim
+        ):
+            resp = client.post("/settings/test-embedding")
+    assert resp.status_code == 200
+    assert "768" in resp.text
+    assert "ollama/nomic-embed-text" in resp.text
