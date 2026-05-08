@@ -6,6 +6,8 @@
 [![CI](https://github.com/stefan-kp/yt-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/stefan-kp/yt-summary/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![yt-summary home — paste a URL, or save videos to a connected queue / playlist](docs/screenshots/home.png)
+
 ## The killer use case
 
 Make a private YouTube playlist. While you scroll through YouTube on your
