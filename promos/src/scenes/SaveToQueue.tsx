@@ -96,15 +96,14 @@ export const SaveToQueue: React.FC = () => {
           style={{
             opacity: a3,
             color: "rgba(255,255,255,0.75)",
-            fontSize: 24,
+            fontSize: 26,
             fontWeight: 400,
             marginTop: 32,
             lineHeight: 1.4,
             maxWidth: 520,
           }}
         >
-          Hit ⋯ → Save to playlist on any video. The summary lands
-          here a few minutes later — not on YouTube.
+          Save it to your playlist. Your summary is ready in minutes.
         </p>
       </div>
 
