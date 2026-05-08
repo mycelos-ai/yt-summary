@@ -758,6 +758,99 @@ p { margin: 0 0 16px 0; }
   line-height: 1.7;
 }
 
+/* Quick setup wizard card. */
+[x-cloak] { display: none !important; }
+.settings-flash {
+  background: rgba(0, 212, 164, 0.08);
+  border: 1px solid var(--brand-green);
+  color: var(--brand-green-deep);
+  padding: 12px 16px;
+  border-radius: var(--rounded-md);
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+.settings-quicksetup {
+  border-color: var(--brand-green);
+  background: linear-gradient(180deg, rgba(0, 212, 164, 0.04), transparent 60%);
+}
+.settings-quicksetup .settings-card-icon {
+  font-size: 24px;
+  background: var(--brand-green);
+  color: var(--canvas);
+  border-radius: var(--rounded-md);
+}
+.quicksetup-form { display: block; }
+.quicksetup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.quicksetup-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+  background: var(--canvas);
+}
+.quicksetup-option:hover {
+  border-color: var(--stone);
+}
+.quicksetup-option.is-selected {
+  border-color: var(--brand-green);
+  background: rgba(0, 212, 164, 0.05);
+  box-shadow: 0 0 0 3px rgba(0, 212, 164, 0.12);
+}
+.quicksetup-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.quicksetup-option-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.quicksetup-option-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.quicksetup-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  background: var(--surface);
+  border-radius: var(--rounded-xs);
+  color: var(--steel);
+  letter-spacing: 0.2px;
+}
+.quicksetup-detail {
+  margin-top: 8px;
+  padding: 16px;
+  background: var(--surface-soft);
+  border-radius: var(--rounded-md);
+  border: 1px solid var(--hairline-soft);
+}
+.quicksetup-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.5;
+}
+.quicksetup-summary {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--steel);
+  line-height: 1.6;
+}
+.quicksetup-summary code {
+  font-size: 11px;
+}
+
 .cookies-state {
   font-size: 13px;
   color: var(--steel);

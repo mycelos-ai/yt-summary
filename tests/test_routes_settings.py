@@ -404,3 +404,136 @@ def test_test_embedding_returns_dimension(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "768" in resp.text
     assert "ollama/nomic-embed-text" in resp.text
+
+
+def test_quick_setup_anthropic_writes_llm_only(tmp_path, monkeypatch):
+    """POSTing to /settings/quick-setup with provider=anthropic should
+    set llm_model + llm_api_key but leave embedding/whisper alone."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "embedding_model", "ollama/nomic-embed-text"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            "/settings/quick-setup",
+            data={"provider": "anthropic", "api_key": "sk-ant-test"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert "applied=anthropic" in resp.headers.get("location", "")
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert s["llm_model"] == "anthropic/claude-sonnet-4-6"
+            assert s["llm_api_key"] == "sk-ant-test"
+            # Embedding untouched
+            assert s["embedding_model"] == "ollama/nomic-embed-text"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_quick_setup_groq_sets_whisper(tmp_path, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/quick-setup",
+            data={"provider": "groq", "api_key": "gsk-test"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert s["whisper_base_url"] == "https://api.groq.com/openai/v1"
+            assert s["whisper_model"] == "whisper-large-v3"
+            assert s["whisper_api_key"] == "gsk-test"
+            assert s["llm_api_key"] == "gsk-test"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_quick_setup_blank_key_keeps_existing(tmp_path, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "llm_api_key", "old-existing-key"
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            "/settings/quick-setup",
+            data={"provider": "openai", "api_key": ""},  # blank
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            # llm_api_key kept
+            assert s["llm_api_key"] == "old-existing-key"
+            # llm_model still got swapped though
+            assert s["llm_model"] == "openai/gpt-4o"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_quick_setup_unknown_provider_400(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/quick-setup",
+            data={"provider": "bogus", "api_key": "x"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 400
+
+
+def test_settings_page_renders_quick_setup_card(tmp_path, monkeypatch):
+    """The settings page must include the Quick Setup card with all
+    six provider options."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "Quick setup" in text
+    for provider_label in (
+        "OpenAI", "Anthropic", "Google Gemini",
+        "Groq", "Ollama", "OpenRouter",
+    ):
+        assert provider_label in text
+
+
+def test_settings_page_shows_applied_banner(tmp_path, monkeypatch):
+    """When ?applied=<provider> is in the query string, render a
+    success banner so the user knows the preset took effect."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings?applied=groq")
+    assert resp.status_code == 200
+    assert "Groq" in resp.text
+    # Some indicator of success
+    assert "applied" in resp.text.lower() or "✓" in resp.text

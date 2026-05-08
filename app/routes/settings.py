@@ -5,7 +5,7 @@ from pathlib import Path
 import aiosqlite
 import httpx
 import litellm
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -16,6 +16,10 @@ from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 from app.services.embeddings import embed_text
+from app.services.providers import (
+    PROVIDER_PRESETS,
+    apply_preset,
+)
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
 
@@ -31,6 +35,7 @@ WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,
+    applied: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
 ):
@@ -43,10 +48,19 @@ async def settings_page(
         if k not in ("llm_api_key", "whisper_api_key")
     }
     user = await users_repo.get_default_user(db)
+
+    # Build preset dropdown data for the Quick Setup wizard.
+    presets = list(PROVIDER_PRESETS.values())
+    applied_preset = None
+    if applied and applied in PROVIDER_PRESETS:
+        applied_preset = PROVIDER_PRESETS[applied]
+
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
+            "presets": presets,
+            "applied_preset": applied_preset,
             "settings": safe_settings,
             "has_api_key": has_api_key,
             "has_whisper_key": has_whisper_key,
@@ -100,6 +114,44 @@ async def save_settings(
     if whisper_api_key:
         await settings_repo.set(db, "whisper_api_key", whisper_api_key)
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/quick-setup")
+async def quick_setup(
+    provider: str = Form(...),
+    api_key: str = Form(""),
+    llm_model: str = Form(""),
+    embedding_model: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Apply a curated provider preset.
+
+    Writes only the settings keys the preset's provider supports. A
+    blank api_key keeps whatever's already in the DB.
+    """
+    if provider not in PROVIDER_PRESETS:
+        raise HTTPException(400, detail=f"Unknown provider: {provider!r}")
+
+    current = await settings_repo.get_all(db)
+    updates = apply_preset(
+        provider_id=provider,
+        api_key=api_key.strip(),
+        current_settings=current,
+        llm_model_override=llm_model.strip() or None,
+        embedding_model_override=embedding_model.strip() or None,
+    )
+
+    for key, value in updates.items():
+        if value:
+            await settings_repo.set(db, key, value)
+        else:
+            # Empty string means "clear this setting" (e.g. when
+            # switching away from Ollama, clear stale llm_base_url).
+            await settings_repo.delete(db, key)
+
+    return RedirectResponse(
+        f"/settings?applied={provider}", status_code=303
+    )
 
 
 async def _probe_ollama_reachable(base_url: str) -> str | None:
