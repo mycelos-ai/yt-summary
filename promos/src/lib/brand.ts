@@ -24,3 +24,9 @@ export const fonts = {
 
 /** Repo URL shown in the outro. */
 export const REPO_URL = "github.com/mycelos-ai/yt-summary";
+
+/** One-command installer shown in the outro panel. Kept short by
+ *  splitting the pipe onto two lines so it fits at readable size on
+ *  1920×1080 without horizontal cramping. */
+export const INSTALL_CMD =
+  "curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh";

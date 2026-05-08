@@ -23,7 +23,7 @@
  *   magic-happens  23 → 37.0   diagram + 4 step pulses (the drop)
  *   skim-decide    37 → 49.0   three card sections, hero asset
  *   self-hosted    49 → 57.0   quick-setup + provider chips
- *   outro          57 → 62.0   logo + URL, fade
+ *   outro          57 → 65.0   logo + URL, then install command
  */
 
 import { sToFrame, snapToDownbeat } from "./cues";
@@ -44,10 +44,10 @@ const raw = [
   { id: "magic-happens", startS: 23.0, endS: 37.0 },
   { id: "skim-decide",   startS: 37.0, endS: 49.0 },
   { id: "self-hosted",   startS: 49.0, endS: 57.0 },
-  { id: "outro",         startS: 57.0, endS: 62.0 },
+  { id: "outro",         startS: 57.0, endS: 65.0 },
 ];
 
-export const TOTAL_DURATION_S = 62;
+export const TOTAL_DURATION_S = 65;
 export const TOTAL_FRAMES = sToFrame(TOTAL_DURATION_S);
 
 export const scenes: Scene[] = raw.map((r) => {
