@@ -80,7 +80,7 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="groq",
         name="Groq",
         litellm_provider="groq",
-        default_llm="groq/llama-3.3-70b-versatile",
+        default_llm="groq/meta-llama/llama-4-maverick-17b-128e-instruct",
         api_key_url="https://console.groq.com/keys",
         # Groq has no first-party embedding model.
         default_embedding=None,
@@ -88,8 +88,9 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         whisper_base_url="https://api.groq.com/openai/v1",
         whisper_model="whisper-large-v3",
         notes=(
-            "Groq has no embedding API. The summary LLM and Whisper "
-            "are both extremely fast through Groq."
+            "Groq has no embedding API — configure Ollama or another "
+            "provider in the Embedding card if you need search. The "
+            "summary LLM and Whisper are extremely fast on Groq."
         ),
     ),
     "ollama": ProviderPreset(

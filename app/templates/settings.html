@@ -94,6 +94,43 @@
               </button>
             </div>
             <div id="ollama-models-result"></div>
+          {% else %}
+            {# Cloud providers: pre-render the dropdown with LiteLLM's
+               known model list, default selected. User can pick any
+               other model the provider exposes without typing. #}
+            {% set chat_models = preset_chat_models.get(p.id, []) %}
+            {% if chat_models %}
+              <label class="settings-field">
+                <span class="settings-label">LLM model</span>
+                <select name="llm_model"
+                        x-bind:disabled="provider !== '{{ p.id }}'">
+                  {% for m in chat_models %}
+                    <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
+                            {% if m == p.default_llm or m == p.default_llm.split('/', 1)[-1] %}selected{% endif %}>
+                      {{ m }}
+                    </option>
+                  {% endfor %}
+                </select>
+                <small>Default for {{ p.name }} pre-selected. Pick any
+                  other model the provider exposes — the list is from
+                  LiteLLM's static model map.</small>
+              </label>
+            {% endif %}
+            {% set embed_models = preset_embed_models.get(p.id, []) %}
+            {% if embed_models %}
+              <label class="settings-field">
+                <span class="settings-label">Embedding model</span>
+                <select name="embedding_model"
+                        x-bind:disabled="provider !== '{{ p.id }}'">
+                  {% for m in embed_models %}
+                    <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
+                            {% if m == p.default_embedding or m == p.default_embedding.split('/', 1)[-1] %}selected{% endif %}>
+                      {{ m }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </label>
+            {% endif %}
           {% endif %}
           <p class="quicksetup-summary">
             Will set:

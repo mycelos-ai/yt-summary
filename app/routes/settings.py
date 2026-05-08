@@ -20,6 +20,8 @@ from app.services.providers import (
     PROVIDER_PRESETS,
     apply_preset,
     fetch_ollama_models,
+    list_chat_models,
+    list_embedding_models,
     split_ollama_tags,
 )
 from app.services.whisper import transcribe, transcribe_via_api
@@ -57,11 +59,25 @@ async def settings_page(
     if applied and applied in PROVIDER_PRESETS:
         applied_preset = PROVIDER_PRESETS[applied]
 
+    # Per-provider chat / embedding model lists for cloud providers.
+    # Ollama gets its list dynamically from /api/tags via HTMX, so we
+    # don't pre-fill those here.
+    preset_chat_models: dict[str, list[str]] = {}
+    preset_embed_models: dict[str, list[str]] = {}
+    for p in presets:
+        if p.id == "ollama":
+            continue
+        preset_chat_models[p.id] = list_chat_models(p.id)
+        if p.default_embedding:
+            preset_embed_models[p.id] = list_embedding_models(p.id)
+
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "presets": presets,
+            "preset_chat_models": preset_chat_models,
+            "preset_embed_models": preset_embed_models,
             "applied_preset": applied_preset,
             "settings": safe_settings,
             "has_api_key": has_api_key,

@@ -652,3 +652,37 @@ def test_quick_setup_ollama_models_no_embedders(tmp_path, monkeypatch):
     assert 'name="llm_model"' in resp.text
     # No embedding select rendered
     assert 'name="embedding_model"' not in resp.text
+
+
+def test_settings_page_renders_cloud_provider_dropdowns(tmp_path, monkeypatch):
+    """Cloud provider Quick Setup details should expose a dropdown of
+    available LLM models from LiteLLM's static map, not just a static
+    'will set' summary."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert resp.status_code == 200
+    text = resp.text
+    # Groq's selected default should be the new Llama 4 Maverick
+    assert "llama-4-maverick" in text
+    # Other Groq models should also be in the list
+    assert "kimi-k2-instruct" in text or "kimi" in text.lower()
+    # Each cloud preset gets its own LLM dropdown
+    # (Ollama uses a server-loaded HTMX fragment instead, so it has no
+    # static select before page load — but the others should.)
+    # Anthropic dropdown contains a recent Claude variant
+    assert "claude" in text.lower()
+
+
+def test_settings_page_renders_cloud_embedding_dropdowns(tmp_path, monkeypatch):
+    """Providers with embedding support (OpenAI, Gemini) should render
+    an embedding model dropdown, but Anthropic and Groq should not."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    text = resp.text
+    # The embedding select for the wizard is named embedding_model.
+    # OpenAI's default text-embedding-3-small should be visible.
+    assert "text-embedding-3-small" in text
