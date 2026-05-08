@@ -1169,6 +1169,49 @@ p { margin: 0 0 16px 0; }
   border: 1px solid var(--hairline);
   border-radius: var(--rounded-lg);
   padding: 28px;
+  margin-bottom: 20px;
+}
+.playlist-new-card:last-child { margin-bottom: 0; }
+.playlist-new-card-primary {
+  border-color: var(--brand-green);
+  background: linear-gradient(180deg, rgba(0, 212, 164, 0.04), transparent 60%);
+}
+.playlist-new-card-secondary {
+  background: var(--surface-soft);
+}
+.playlist-new-card-head {
+  margin-bottom: 16px;
+}
+.playlist-new-card-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 6px 0 8px;
+  letter-spacing: -0.2px;
+}
+.playlist-new-card-sub {
+  margin: 0 0 4px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.playlist-new-card-sub em {
+  font-style: normal;
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: var(--rounded-xs);
+  font-weight: 500;
+  color: var(--ink);
+}
+.playlist-new-card-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--brand-green-deep);
+  background: rgba(0, 212, 164, 0.12);
+  padding: 3px 8px;
+  border-radius: var(--rounded-xs);
 }
 .playlist-new-form { display: block; }
 .playlist-new-field {
@@ -1313,4 +1356,25 @@ p { margin: 0 0 16px 0; }
 }
 .playlist-new-actions .btn-link:hover {
   color: var(--ink);
+}
+
+/* Home empty-state CTA: shown when no playlists/queues are configured. */
+.home-queue-cta {
+  background: linear-gradient(180deg, rgba(0, 212, 164, 0.06), transparent 70%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  padding: 32px;
+  margin: 32px 0 24px;
+  max-width: 640px;
+}
+.home-queue-cta h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.home-queue-cta p {
+  color: var(--steel);
+  line-height: 1.6;
+  margin: 0 0 20px;
+  max-width: 540px;
 }

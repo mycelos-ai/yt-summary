@@ -11,7 +11,7 @@
 </section>
 
 {% if playlists %}
-  <p class="section-title">Playlists</p>
+  <p class="section-title">Queues &amp; playlists</p>
   <section class="playlist-strip">
     {% for playlist in playlists %}
       {% include "playlist_card.html" %}
@@ -19,15 +19,21 @@
     <a href="/playlists/new" class="playlist-card playlist-card-add">
       <div class="playlist-card-placeholder">+</div>
       <div class="playlist-card-body">
-        <h4>Add playlist</h4>
-        <p class="caption">Subscribe to a YouTube playlist</p>
+        <h4>Add queue or playlist</h4>
+        <p class="caption">A private watch-later queue or any public playlist</p>
       </div>
     </a>
   </section>
 {% else %}
-  <p style="margin: 24px 0;">
-    <a href="/playlists/new" class="btn btn-secondary">+ Add a playlist</a>
-  </p>
+  <section class="home-queue-cta">
+    <h3>Connect a YouTube queue</h3>
+    <p>
+      Save long videos to a private YouTube playlist while you scroll, get
+      a summary here a few minutes later, and decide whether the full video
+      is worth your time.
+    </p>
+    <a href="/playlists/new" class="btn btn-accent">+ Set up your queue</a>
+  </section>
 {% endif %}
 
 <form method="get" action="/" class="search-form">

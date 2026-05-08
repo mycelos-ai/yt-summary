@@ -3,37 +3,75 @@
 {% block content %}
 <div class="playlist-new">
   <header class="playlist-new-head">
-    <h1>Add a playlist</h1>
+    <h1>Hook up a YouTube playlist</h1>
     <p class="playlist-new-sub">
-      Subscribe to a YouTube playlist. The newest videos get summarized
-      automatically, and the scheduler re-checks for new entries every hour.
-      Older videos can be loaded later from the playlist page.
+      yt-summary monitors any playlist you point at and summarizes new
+      videos as they're added. The killer pattern is <strong>your own
+      private "watch later" queue</strong> — but you can also subscribe
+      to a public playlist if you just want everything from a channel.
     </p>
   </header>
 
-  <section class="playlist-new-card">
+  <!-- ── Personal queue (primary use case) ──────────────────── -->
+  <section class="playlist-new-card playlist-new-card-primary">
+    <header class="playlist-new-card-head">
+      <span class="playlist-new-card-tag">Recommended</span>
+      <h2>Your personal queue</h2>
+      <p class="playlist-new-card-sub">
+        Create a private playlist on YouTube. Whenever you spot a long
+        video while scrolling — on your phone, on the couch, doesn't
+        matter — tap <em>Save → your queue</em>. The summary lands here
+        a few minutes later. Skim it, decide whether the full video is
+        worth your time.
+      </p>
+    </header>
+
+    <details class="playlist-new-help" open>
+      <summary>One-time setup on YouTube</summary>
+      <ol>
+        <li>Open <a href="https://www.youtube.com/feed/playlists" target="_blank" rel="noopener">YouTube → Library → Playlists</a> and click <strong>+ New playlist</strong>.</li>
+        <li>Name it something like <code>yt-summary queue</code>.</li>
+        <li>Set privacy to <strong>Unlisted</strong>. (Private won't work — yt-dlp can't see the videos. Unlisted lets yt-summary in via the link without making the playlist searchable.)</li>
+        <li>Save the empty playlist, then copy its URL from the address bar.</li>
+        <li>Paste it below. From now on, <em>Save → yt-summary queue</em> on any video adds it to your transcribe queue.</li>
+      </ol>
+    </details>
+
     <form method="post" action="/playlists" class="playlist-new-form">
       <label class="playlist-new-field">
-        <span class="playlist-new-label">YouTube playlist URL</span>
-        <input id="playlist-url" name="url" type="url"
+        <span class="playlist-new-label">Your queue's playlist URL</span>
+        <input id="queue-url" name="url" type="url"
                placeholder="https://www.youtube.com/playlist?list=PL..."
-               required autofocus>
+               required>
+      </label>
+      <div class="playlist-new-actions">
+        <a href="/" class="btn btn-link">Cancel</a>
+        <button type="submit" class="btn btn-primary">Connect queue</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ── Public playlist (secondary use case) ───────────────── -->
+  <section class="playlist-new-card playlist-new-card-secondary">
+    <header class="playlist-new-card-head">
+      <h2>Or subscribe to a public playlist</h2>
+      <p class="playlist-new-card-sub">
+        Auto-summarize new uploads from someone else's curated list or a
+        channel's "All videos" playlist. Great for following research
+        groups, podcast feeds with YouTube versions, or specific
+        channels.
+      </p>
+    </header>
+
+    <form method="post" action="/playlists" class="playlist-new-form">
+      <label class="playlist-new-field">
+        <span class="playlist-new-label">Public playlist URL</span>
+        <input id="public-url" name="url" type="url"
+               placeholder="https://www.youtube.com/playlist?list=PL..."
+               required>
       </label>
 
-      <details class="playlist-new-help">
-        <summary>How do I find a playlist URL?</summary>
-        <ol>
-          <li>On YouTube, open any playlist page.</li>
-          <li>Copy the URL from your browser's address bar.</li>
-          <li>It should contain <code>list=PL…</code> or <code>list=UU…</code>.</li>
-        </ol>
-        <p class="playlist-new-help-note">
-          Channel-uploads "playlists" work too — you can grab them from a
-          channel's <em>Videos</em> tab, then click <em>View as playlist</em>.
-        </p>
-      </details>
-
-      <p class="playlist-new-examples-label">Or try one of these:</p>
+      <p class="playlist-new-examples-label">Try one of these:</p>
       <div class="playlist-new-examples">
         <button type="button" class="playlist-new-example"
                 data-url="https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi">
@@ -53,18 +91,17 @@
       </div>
 
       <div class="playlist-new-actions">
-        <a href="/" class="btn btn-link">Cancel</a>
-        <button type="submit" class="btn btn-primary">Add playlist</button>
+        <button type="submit" class="btn btn-secondary">Subscribe</button>
       </div>
     </form>
   </section>
 </div>
 
 <script>
-  // Click an example tile → drop its URL into the input.
+  // Click an example tile → drop its URL into the public-playlist input.
   document.querySelectorAll('.playlist-new-example').forEach(btn => {
     btn.addEventListener('click', () => {
-      const input = document.getElementById('playlist-url');
+      const input = document.getElementById('public-url');
       input.value = btn.dataset.url;
       input.focus();
     });

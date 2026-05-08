@@ -75,10 +75,11 @@ def test_home_no_playlists_strip_when_none(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.get("/")
     assert resp.status_code == 200
-    # Without playlists, the strip with the cards isn't shown,
-    # but the fallback "Add a playlist" link still appears.
-    assert "Add a playlist" in resp.text
+    # Without playlists, the strip with the cards isn't shown — instead
+    # we render the queue-CTA empty state with a clear call to action.
     assert 'class="playlist-strip"' not in resp.text
+    assert "queue" in resp.text.lower()
+    assert "/playlists/new" in resp.text
 
 
 def test_home_shows_playlist_tags_on_video_cards(tmp_path, monkeypatch):
