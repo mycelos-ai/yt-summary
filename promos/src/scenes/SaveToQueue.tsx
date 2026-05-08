@@ -11,10 +11,11 @@ import {
 import { brand } from "../lib/brand";
 
 /**
- * 22s - 40s: the answer to the problem. The actual YouTube UI with
+ * 13s - 23s: the answer to the problem. The actual YouTube UI with
  * the context menu open ("Save to Watch later / Save to playlist /
  * ...") slides in from the right; on the left, the headline
- * "Save → your queue." appears in three beats.
+ * "Save to playlist. → yt-summary does the rest." reveals in three
+ * beats.
  *
  * The image is the strongest part of this scene because it shows
  * the literal action the user takes — no abstraction needed.

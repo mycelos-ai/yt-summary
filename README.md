@@ -10,13 +10,15 @@
 
 ## The killer use case
 
-Make a private YouTube playlist. While you scroll through YouTube on your
-phone or couch, hit **Save → your queue** on anything that looks too long
-to commit to right now. yt-summary picks it up, transcribes it, summarizes
-it. A few minutes later you skim the summary, then decide whether the
-full video is actually worth your time.
+Make an unlisted YouTube playlist. While you scroll through YouTube on
+your phone or couch, hit the ⋯ menu on anything that looks too long
+to commit to right now and pick **Save to playlist** → your playlist.
+yt-summary picks it up, transcribes it, summarizes it. A few minutes
+later you skim the summary, then decide whether the full video is
+actually worth your time.
 
-Your watch-later list, but with a real cost-of-watching filter on top.
+Your watch-later list, but with a real cost-of-watching filter on top —
+and the summary lives in yt-summary, not on YouTube.
 
 ![Connect your YouTube queue — guided setup page with the killer pattern explained](docs/screenshots/playlist-new.png)
 
