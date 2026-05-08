@@ -3,6 +3,11 @@ import { AbsoluteFill, Audio, Sequence, staticFile } from "remotion";
 import { scenes } from "./lib/storyboard";
 import { LogoReveal } from "./scenes/LogoReveal";
 import { Problem } from "./scenes/Problem";
+import { SaveToQueue } from "./scenes/SaveToQueue";
+import { MagicHappens } from "./scenes/MagicHappens";
+import { SkimDecide } from "./scenes/SkimDecide";
+import { SelfHosted } from "./scenes/SelfHosted";
+import { Outro } from "./scenes/Outro";
 import { Placeholder } from "./scenes/Placeholder";
 
 /**
@@ -16,6 +21,16 @@ const SceneFor: React.FC<{ id: string }> = ({ id }) => {
       return <LogoReveal />;
     case "problem":
       return <Problem />;
+    case "save-to-queue":
+      return <SaveToQueue />;
+    case "magic-happens":
+      return <MagicHappens />;
+    case "skim-decide":
+      return <SkimDecide />;
+    case "self-hosted":
+      return <SelfHosted />;
+    case "outro":
+      return <Outro />;
     default:
       return <Placeholder id={id} />;
   }
