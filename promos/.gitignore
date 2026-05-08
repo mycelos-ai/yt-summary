@@ -7,5 +7,8 @@ out/
 public/music/promo_1.mp3
 public/music/opening_*.mp3
 
+# Thumbnail source images (work-in-progress, large, uploaded directly to YouTube)
+thumbnails/
+
 # OS junk
 .DS_Store

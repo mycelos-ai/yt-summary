@@ -6,6 +6,10 @@
 [![CI](https://github.com/mycelos-ai/yt-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/mycelos-ai/yt-summary/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+[![Watch the 60-second demo](https://img.youtube.com/vi/wUkqSNn63Hk/maxresdefault.jpg)](https://www.youtube.com/watch?v=wUkqSNn63Hk)
+
+> ▶ [60-second demo on YouTube](https://www.youtube.com/watch?v=wUkqSNn63Hk)
+
 ![yt-summary home — paste a URL, or save videos to a connected queue / playlist](docs/screenshots/home.png)
 
 ## The killer use case
