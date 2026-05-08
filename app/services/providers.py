@@ -80,7 +80,9 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="groq",
         name="Groq",
         litellm_provider="groq",
-        default_llm="groq/meta-llama/llama-4-maverick-17b-128e-instruct",
+        # Kimi K2 (Moonshot) is excellent at long-form summarization.
+        # 262k context, ~9× larger than Llama 4 Maverick (128k).
+        default_llm="groq/moonshotai/kimi-k2-instruct-0905",
         api_key_url="https://console.groq.com/keys",
         # Groq has no first-party embedding model.
         default_embedding=None,

@@ -664,14 +664,13 @@ def test_settings_page_renders_cloud_provider_dropdowns(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     text = resp.text
-    # Groq's selected default should be the new Llama 4 Maverick
+    # Groq's curated default — currently Kimi K2 (long context, strong
+    # at summarization). Updating this default is a one-line change in
+    # PROVIDER_PRESETS, so this test is intentionally loose.
+    assert "kimi-k2-instruct" in text
+    # Other Groq models also in the dropdown
     assert "llama-4-maverick" in text
-    # Other Groq models should also be in the list
-    assert "kimi-k2-instruct" in text or "kimi" in text.lower()
-    # Each cloud preset gets its own LLM dropdown
-    # (Ollama uses a server-loaded HTMX fragment instead, so it has no
-    # static select before page load — but the others should.)
-    # Anthropic dropdown contains a recent Claude variant
+    # Cloud presets render real selects; Anthropic shows Claude variants
     assert "claude" in text.lower()
 
 
