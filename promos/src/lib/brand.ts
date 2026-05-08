@@ -23,4 +23,4 @@ export const fonts = {
 };
 
 /** Repo URL shown in the outro. */
-export const REPO_URL = "github.com/stefan-kp/yt-summary";
+export const REPO_URL = "github.com/mycelos-ai/yt-summary";

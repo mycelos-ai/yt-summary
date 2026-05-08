@@ -2,14 +2,14 @@
 # yt-summary one-command installer.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
 #
 # Env vars:
 #   YTS_DIR  install directory (default: ~/yt-summary)
 
 set -eu
 
-REPO_RAW="https://raw.githubusercontent.com/stefan-kp/yt-summary/main"
+REPO_RAW="https://raw.githubusercontent.com/mycelos-ai/yt-summary/main"
 COMPOSE_URL="${REPO_RAW}/docker-compose.yml"
 INSTALL_DIR="${YTS_DIR:-${HOME}/yt-summary}"
 

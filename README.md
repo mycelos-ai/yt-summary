@@ -3,7 +3,7 @@
 > **Watch later, but smart.**
 > A self-hosted YouTube summarizer that turns "save for later" into "skim later, watch only the worthwhile ones."
 
-[![CI](https://github.com/stefan-kp/yt-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/stefan-kp/yt-summary/actions)
+[![CI](https://github.com/mycelos-ai/yt-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/mycelos-ai/yt-summary/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ![yt-summary home — paste a URL, or save videos to a connected queue / playlist](docs/screenshots/home.png)
@@ -30,7 +30,7 @@ It also works on:
 One command, no git clone, no manual editing:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
 ```
 
 That fetches `docker-compose.yml` into `~/yt-summary/`, pulls the
@@ -39,14 +39,14 @@ prebuilt image from GHCR, and starts the container.
 Prefer to read the script first?
 
 ```bash
-curl -O https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh
+curl -O https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh
 sh install.sh
 ```
 
 Install somewhere other than `~/yt-summary` with `YTS_DIR`:
 
 ```bash
-YTS_DIR=/opt/yt-summary curl -fsSL https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh | sh
+YTS_DIR=/opt/yt-summary curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
 ```
 
 Open <http://localhost:8200>, click the gear icon, and either:

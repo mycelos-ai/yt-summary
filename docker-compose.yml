@@ -1,6 +1,6 @@
 services:
   yt-summary:
-    image: ghcr.io/stefan-kp/yt-summary:latest
+    image: ghcr.io/mycelos-ai/yt-summary:latest
     build:
       context: .
       dockerfile: docker/Dockerfile
