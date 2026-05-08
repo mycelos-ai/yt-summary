@@ -1,0 +1,11 @@
+# Remotion / npm
+node_modules/
+out/
+.cache/
+
+# Suno alternates we didn't pick — only promo_2.mp3 is the chosen take
+public/music/promo_1.mp3
+public/music/opening_*.mp3
+
+# OS junk
+.DS_Store

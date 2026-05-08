@@ -1,0 +1,29 @@
+{
+  "name": "yt-summary-promos",
+  "version": "1.0.0",
+  "description": "Remotion promo videos for yt-summary",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion render YtSummaryPromo out/promo.mp4",
+    "lint": "eslint src && tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.445",
+    "@remotion/media": "^4.0.445",
+    "@remotion/tailwind-v4": "4.0.445",
+    "@remotion/transitions": "^4.0.445",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.445",
+    "tailwindcss": "4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.445",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  }
+}

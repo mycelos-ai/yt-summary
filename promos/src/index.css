@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-green: #00d4a4;
+  --color-brand-green-deep: #00b48a;
+  --color-ink: #0a0a0a;
+  --color-canvas: #ffffff;
+  --color-tron-blue: #4af3ff;
+  --color-tron-cyan: #00e5ff;
+  --color-tron-deep: #001428;
+
+  --font-ui: "Inter", -apple-system, sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", monospace;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-ui);
+  background: var(--color-tron-deep);
+}
