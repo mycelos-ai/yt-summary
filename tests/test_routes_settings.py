@@ -537,3 +537,58 @@ def test_settings_page_shows_applied_banner(tmp_path, monkeypatch):
     assert "Groq" in resp.text
     # Some indicator of success
     assert "applied" in resp.text.lower() or "✓" in resp.text
+
+
+def test_quick_setup_ollama_models_empty_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings/quick-setup/ollama-models")
+    assert resp.status_code == 200
+    assert "Enter a server URL" in resp.text
+
+
+def test_quick_setup_ollama_models_renders_select(tmp_path, monkeypatch):
+    """Successful fetch returns a <select name='llm_model'> with all
+    pulled models prefixed for chat use."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.fetch_ollama_models",
+            AsyncMock(return_value=["llama3.1:latest", "qwen2.5:14b"]),
+        ),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/ollama-models",
+            params={"llm_base_url": "http://192.168.0.27:11434"},
+        )
+    assert resp.status_code == 200
+    assert 'name="llm_model"' in resp.text
+    assert "ollama_chat/llama3.1:latest" in resp.text
+    assert "ollama_chat/qwen2.5:14b" in resp.text
+    assert "Found 2 models" in resp.text
+
+
+def test_quick_setup_ollama_models_handles_fetch_error(tmp_path, monkeypatch):
+    """If the server isn't reachable, surface the error inline."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.fetch_ollama_models",
+            AsyncMock(side_effect=ConnectionError("refused")),
+        ),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/ollama-models",
+            params={"llm_base_url": "http://nope:11434"},
+        )
+    assert resp.status_code == 200
+    assert "Cannot reach Ollama" in resp.text

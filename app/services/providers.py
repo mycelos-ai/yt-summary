@@ -12,6 +12,8 @@ modes and sort with the curated default first.
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import httpx
+
 
 @dataclass(frozen=True)
 class ProviderPreset:
@@ -133,6 +135,7 @@ def apply_preset(
     api_key: str,
     current_settings: dict[str, str],
     llm_model_override: str | None = None,
+    llm_base_url_override: str | None = None,
     embedding_model_override: str | None = None,
 ) -> dict[str, str]:
     """Compute the new settings dict after applying a preset.
@@ -148,8 +151,12 @@ def apply_preset(
 
     # ── LLM ──
     out["llm_model"] = (llm_model_override or preset.default_llm).strip()
-    if preset.default_llm_base_url:
-        out["llm_base_url"] = preset.default_llm_base_url
+    # Base URL: explicit user input wins, then preset default, then clear.
+    chosen_base_url = (
+        llm_base_url_override.strip() if llm_base_url_override else None
+    ) or preset.default_llm_base_url
+    if chosen_base_url:
+        out["llm_base_url"] = chosen_base_url.rstrip("/")
     elif "llm_base_url" in current_settings:
         # Switching to a hosted provider — clear any old self-hosted
         # base URL that would point at the wrong server. Cloud providers
@@ -166,7 +173,8 @@ def apply_preset(
         if preset.id != "ollama":
             out["embedding_base_url"] = ""
         else:
-            out["embedding_base_url"] = preset.default_llm_base_url
+            # Ollama: point embedding at the same server.
+            out["embedding_base_url"] = chosen_base_url or ""
 
     # ── Whisper (only if provider hosts a Whisper-compatible endpoint) ──
     if preset.whisper_base_url:
@@ -247,3 +255,19 @@ def _sort_with_default_first(models: Iterable[str], default: str) -> list[str]:
     # Default missing from LiteLLM — keep it as first option anyway,
     # since the user might be on a fresher model than the cost map.
     return [default, *sorted_models]
+
+
+async def fetch_ollama_models(base_url: str) -> list[str]:
+    """Hit /api/tags on an Ollama server and return its model name list.
+
+    Used by the Quick Setup wizard so users can pick from real models
+    on their server instead of typing tags from memory.
+
+    Raises httpx.HTTPError on non-2xx or unreachable.
+    """
+    url = f"{base_url.rstrip('/')}/api/tags"
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        body = resp.json()
+    return [m.get("name", "") for m in body.get("models", []) if m.get("name")]

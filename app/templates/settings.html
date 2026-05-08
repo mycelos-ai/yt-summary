@@ -68,6 +68,33 @@
                      placeholder="leave blank to keep existing key">
             </label>
           {% endif %}
+          {% if p.id == 'ollama' %}
+            {# Ollama needs a real server URL — Docker default is rarely
+               right — and the model list is the user's actual pulled
+               tags, queried via /api/tags. #}
+            <label class="settings-field">
+              <span class="settings-label">Ollama server URL</span>
+              <input type="text"
+                     name="llm_base_url"
+                     x-bind:disabled="provider !== '{{ p.id }}'"
+                     value="{{ settings.get('llm_base_url', p.default_llm_base_url) }}"
+                     placeholder="http://192.168.0.27:11434"
+                     id="ollama-base-url">
+              <small>Use the LAN IP, not <code>*.local</code> — Python's
+                resolver doesn't always handle mDNS hostnames.</small>
+            </label>
+            <div class="settings-test-row">
+              <button type="button" class="btn btn-secondary"
+                      hx-get="/settings/quick-setup/ollama-models"
+                      hx-include="#ollama-base-url"
+                      hx-target="#ollama-models-result"
+                      hx-swap="innerHTML"
+                      hx-disabled-elt="this">
+                Load models from server
+              </button>
+            </div>
+            <div id="ollama-models-result"></div>
+          {% endif %}
           <p class="quicksetup-summary">
             Will set:
             <code>{{ p.default_llm }}</code>

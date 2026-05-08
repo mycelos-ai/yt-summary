@@ -174,3 +174,76 @@ def test_list_chat_models_default_first():
     # Default is the LLM stripped of provider prefix
     default_bare = preset.default_llm.removeprefix("openai/")
     assert models[0] in (default_bare, preset.default_llm)
+
+
+def test_apply_preset_ollama_with_custom_base_url():
+    """Ollama wizard lets the user override the base URL (Docker
+    default is rarely right). Custom base URL should win."""
+    out = apply_preset(
+        provider_id="ollama",
+        api_key="",
+        current_settings={},
+        llm_base_url_override="http://192.168.0.27:11434",
+        llm_model_override="ollama_chat/qwen2.5:14b",
+    )
+    assert out["llm_base_url"] == "http://192.168.0.27:11434"
+    assert out["llm_model"] == "ollama_chat/qwen2.5:14b"
+    # Embedding base URL also points at the same Ollama server
+    assert out["embedding_base_url"] == "http://192.168.0.27:11434"
+
+
+async def test_fetch_ollama_models_returns_model_tags():
+    """fetch_ollama_models should call /api/tags on the given base URL
+    and return the model name strings."""
+    import respx
+    from httpx import Response
+
+    from app.services.providers import fetch_ollama_models
+
+    sample = {
+        "models": [
+            {"name": "llama3.1:latest", "size": 4661211808},
+            {"name": "qwen2.5:14b", "size": 8988111360},
+            {"name": "nomic-embed-text:latest", "size": 274302450},
+        ]
+    }
+    with respx.mock(base_url="http://192.168.0.27:11434") as mock:
+        mock.get("/api/tags").mock(return_value=Response(200, json=sample))
+        models = await fetch_ollama_models("http://192.168.0.27:11434")
+    assert "llama3.1:latest" in models
+    assert "qwen2.5:14b" in models
+    assert "nomic-embed-text:latest" in models
+
+
+async def test_fetch_ollama_models_strips_trailing_slash():
+    import respx
+    from httpx import Response
+
+    from app.services.providers import fetch_ollama_models
+
+    with respx.mock(base_url="http://x:11434") as mock:
+        route = mock.get("/api/tags").mock(
+            return_value=Response(200, json={"models": []})
+        )
+        await fetch_ollama_models("http://x:11434/")
+    assert route.called
+
+
+async def test_fetch_ollama_models_raises_on_unreachable():
+    """If the server doesn't answer, raise so caller can surface a
+    clear UI error instead of pretending the server has zero models."""
+    import httpx
+    import pytest as _pytest
+    import respx
+    from httpx import Response
+
+    from app.services.providers import fetch_ollama_models
+
+    with (
+        respx.mock(base_url="http://nope:11434") as mock,
+        _pytest.raises(httpx.HTTPError),
+    ):
+        mock.get("/api/tags").mock(
+            return_value=Response(503, json={"error": "down"})
+        )
+        await fetch_ollama_models("http://nope:11434")

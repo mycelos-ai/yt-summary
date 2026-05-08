@@ -19,6 +19,7 @@ from app.services.embeddings import embed_text
 from app.services.providers import (
     PROVIDER_PRESETS,
     apply_preset,
+    fetch_ollama_models,
 )
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
@@ -121,6 +122,7 @@ async def quick_setup(
     provider: str = Form(...),
     api_key: str = Form(""),
     llm_model: str = Form(""),
+    llm_base_url: str = Form(""),
     embedding_model: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
@@ -138,6 +140,7 @@ async def quick_setup(
         api_key=api_key.strip(),
         current_settings=current,
         llm_model_override=llm_model.strip() or None,
+        llm_base_url_override=llm_base_url.strip() or None,
         embedding_model_override=embedding_model.strip() or None,
     )
 
@@ -152,6 +155,58 @@ async def quick_setup(
     return RedirectResponse(
         f"/settings?applied={provider}", status_code=303
     )
+
+
+@router.get(
+    "/settings/quick-setup/ollama-models",
+    response_class=HTMLResponse,
+)
+async def quick_setup_ollama_models(llm_base_url: str = ""):
+    """HTMX fragment: list available models on a given Ollama server.
+
+    The query param is named `llm_base_url` so it matches the form
+    field's name attribute and gets serialised by HTMX's hx-include.
+
+    Returns a <select name="llm_model"> populated with the server's
+    /api/tags response, or an inline error if unreachable.
+    """
+    base_url = llm_base_url.strip()
+    if not base_url:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Enter a server URL first.</p>'
+        )
+    try:
+        tags = await fetch_ollama_models(base_url)
+    except Exception as e:
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ Cannot reach Ollama at '
+            f'{base_url}: {type(e).__name__}: {e}</p>'
+        )
+    if not tags:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Ollama server has no '
+            'models pulled yet. Run e.g. <code>ollama pull llama3.1</code> '
+            'first.</p>'
+        )
+
+    # Build a <select> with each tag prefixed for chat use.
+    options = []
+    for tag in tags:
+        # Default to ollama_chat/ for chat-capable models; nomic-embed
+        # etc still get listed but the embedding card handles those.
+        value = f"ollama_chat/{tag}"
+        options.append(
+            f'<option value="{value}">{tag}</option>'
+        )
+    body = (
+        '<label class="settings-field">'
+        '  <span class="settings-label">Model on this server</span>'
+        f'  <select name="llm_model">{"".join(options)}</select>'
+        f'  <small>Found {len(tags)} model{"" if len(tags) == 1 else "s"} '
+        f'on {base_url}.</small>'
+        '</label>'
+    )
+    return HTMLResponse(body)
 
 
 async def _probe_ollama_reachable(base_url: str) -> str | None:
