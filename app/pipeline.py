@@ -8,6 +8,7 @@ import aiosqlite
 from app.config import Config
 from app.models import TranscriptSource, VideoKind
 from app.repos import embeddings as embeddings_repo
+from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
@@ -94,6 +95,12 @@ async def process_video(
         # while the job is running.
         await videos_repo.set_summary(db, video_id, partial, model)
 
+    # Playlists this video lives in are topical hints — the user files
+    # videos thematically (e.g. "AI", "Long-form interviews"), so we
+    # surface those names to the summarizer for better focus.
+    playlist_links = await playlists_repo.playlists_for_videos(db, [video_id])
+    playlist_context = [title for _id, title in playlist_links.get(video_id, [])]
+
     summary = await summarize(
         transcript=text,
         model=model,
@@ -103,6 +110,7 @@ async def process_video(
         description=video.description,
         language=settings.get("summary_language"),
         extra_instructions=settings.get("summary_extra_instructions"),
+        playlist_context=playlist_context or None,
         progress=set_step,
         on_partial=_persist_partial,
     )

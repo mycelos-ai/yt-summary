@@ -249,3 +249,105 @@ def test_render_live_summary_human_friendly_header():
     # Should still contain both partial bodies
     assert "alpha summary" in out
     assert "beta summary" in out
+
+
+async def test_summarize_passes_playlist_context_to_user_message():
+    """When the video sits in named playlists, surface those names to
+    the LLM as topic hints — the user organises their queue
+    thematically and we want the summary to lean into that bucket."""
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("ok")
+
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="t",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            title="Some Video",
+            description="",
+            playlist_context=["AI", "Long-form interviews"],
+        )
+
+    user_msg = captured["messages"][1]["content"]
+    # Both playlist names should appear, comma-joined or similar
+    assert "AI" in user_msg
+    assert "Long-form interviews" in user_msg
+    # Some explicit framing so the LLM knows what these are
+    assert (
+        "playlist" in user_msg.lower()
+        or "topic" in user_msg.lower()
+        or "filed" in user_msg.lower()
+    )
+
+
+async def test_summarize_no_playlist_context_omits_section():
+    """If the video isn't in any playlist, don't add a confusing empty
+    or 'no playlist' line — just leave that part of the prompt out."""
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("ok")
+
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="t",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            title="Standalone video",
+            description="",
+            playlist_context=None,
+        )
+
+    user_msg = captured["messages"][1]["content"]
+    # No "ADDED TO" / "PLAYLIST" header should appear when there's no
+    # playlist context — keep the prompt clean.
+    assert "ADDED TO" not in user_msg
+    assert "PLAYLIST" not in user_msg
+
+
+async def test_summarize_empty_playlist_list_treated_as_none():
+    """A list with no entries shouldn't render an empty header either."""
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("ok")
+
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="t",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            title="x",
+            description="",
+            playlist_context=[],
+        )
+
+    user_msg = captured["messages"][1]["content"]
+    assert "ADDED TO" not in user_msg
+    assert "PLAYLIST" not in user_msg

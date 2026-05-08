@@ -119,16 +119,35 @@ def build_reduce_prompt(
 
 
 def _build_user_message(
-    *, title: str, description: str, body: str
+    *,
+    title: str,
+    description: str,
+    body: str,
+    playlist_context: list[str] | None = None,
 ) -> str:
     """Body is either the full transcript (single-shot) or one chunk
-    (map step) or the joined partials (reduce step)."""
-    return (
-        f"VIDEO TITLE: {title}\n\n"
-        f"VIDEO DESCRIPTION:\n{description or '(empty)'}\n\n"
-        f"---\n\n"
-        f"{body}"
-    )
+    (map step) or the joined partials (reduce step).
+
+    playlist_context: names of the user's own playlists this video
+    sits in. The user organises their queue thematically (e.g.
+    "AI", "Long-form interviews"), so naming the bucket lets the
+    LLM bias the summary toward that topic.
+    """
+    parts = [
+        f"VIDEO TITLE: {title}",
+        f"VIDEO DESCRIPTION:\n{description or '(empty)'}",
+    ]
+    if playlist_context:
+        joined = ", ".join(playlist_context)
+        parts.append(
+            f"ADDED TO PLAYLIST(S): {joined}\n"
+            f"(The user files videos thematically; treat these names "
+            f"as topic hints and emphasise the matching angle in the "
+            f"summary.)"
+        )
+    parts.append("---")
+    parts.append(body)
+    return "\n\n".join(parts)
 
 
 async def _noop(_: str) -> None:
@@ -188,6 +207,7 @@ async def summarize(
     description: str = "",
     language: str | None = None,
     extra_instructions: str | None = None,
+    playlist_context: list[str] | None = None,
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
@@ -200,6 +220,11 @@ async def summarize(
         match the transcript's language.
     extra_instructions: free-form addendum appended to the system prompt
         (user preference for tone, length, style, etc.).
+    playlist_context: names of the user's own playlists this video is
+        in. Surfaced to the model as topic hints — the user organises
+        their queue thematically, so naming the bucket helps the
+        summary lean into that angle. Empty list / None omits the
+        section entirely.
     on_partial: optional async callback invoked after each completed chunk
         in the map-reduce path. Receives a Markdown-formatted "live"
         summary that combines the partial summaries produced so far.
@@ -232,6 +257,7 @@ async def summarize(
                         title=title,
                         description=description,
                         body=f"TRANSCRIPT:\n{transcript}",
+                        playlist_context=playlist_context,
                     ),
                 },
             ],
@@ -256,6 +282,7 @@ async def summarize(
                             f"TRANSCRIPT (part {idx} of {len(chunks)}):\n\n"
                             f"{chunk}"
                         ),
+                        playlist_context=playlist_context,
                     ),
                 },
             ],
@@ -280,6 +307,7 @@ async def summarize(
                         "PARTIAL SUMMARIES:\n\n"
                         + "\n\n---\n\n".join(partials)
                     ),
+                    playlist_context=playlist_context,
                 ),
             },
         ],

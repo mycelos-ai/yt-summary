@@ -144,3 +144,95 @@ async def test_pipeline_uses_reader_for_web_kind(db, tmp_path):
     assert v.transcript_source is not None
     assert v.transcript_source.value == "web"
     assert v.summary == "THE SUMMARY"
+
+
+async def test_pipeline_passes_playlist_context_to_summarizer(db, tmp_path):
+    """When a video is linked to one or more playlists, the pipeline
+    must surface those playlist names to summarize() so the LLM can
+    use them as topic hints."""
+    from app.repos import playlists as playlists_repo
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vctx", url="https://youtu.be/vctx", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await playlists_repo.create(
+        db, playlist_id="PL_AI", user_id=1, url="u",
+        title="AI", description="", thumbnail_path=None,
+    )
+    await playlists_repo.create(
+        db, playlist_id="PL_LF", user_id=1, url="u",
+        title="Long-form interviews", description="", thumbnail_path=None,
+    )
+    await playlists_repo.link_video(db, "PL_AI", "vctx")
+    await playlists_repo.link_video(db, "PL_LF", "vctx")
+
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "key")
+    await settings_repo.set(db, "whisper_model", "small")
+
+    captured: dict = {}
+
+    async def fake_summarize(**kwargs):
+        captured.update(kwargs)
+        return "S"
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("text", TranscriptSource.AUTO_SUBS)),
+        ),
+        patch("app.pipeline.summarize", side_effect=fake_summarize),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vctx", set_step)
+
+    assert "playlist_context" in captured
+    ctx = captured["playlist_context"]
+    assert ctx is not None
+    assert set(ctx) == {"AI", "Long-form interviews"}
+
+
+async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path):
+    """A video that's been submitted directly (no playlist) should
+    pass playlist_context=None so the summarizer's user message
+    doesn't render an empty section."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vsolo", url="https://youtu.be/vsolo", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "key")
+    await settings_repo.set(db, "whisper_model", "small")
+
+    captured: dict = {}
+
+    async def fake_summarize(**kwargs):
+        captured.update(kwargs)
+        return "S"
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("text", TranscriptSource.AUTO_SUBS)),
+        ),
+        patch("app.pipeline.summarize", side_effect=fake_summarize),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vsolo", set_step)
+
+    # None or empty list — both are fine, the summarizer treats them
+    # the same way (no header rendered).
+    assert captured.get("playlist_context") in (None, [])
