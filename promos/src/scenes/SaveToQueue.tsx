@@ -23,14 +23,15 @@ export const SaveToQueue: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Three beats of headline reveal
-  const a1 = interpolate(frame, [0, fps * 0.6], [0, 1], { extrapolateRight: "clamp" });
-  const a2 = interpolate(frame, [fps * 1.5, fps * 2.1], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const a3 = interpolate(frame, [fps * 3.0, fps * 3.6], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  // Three beats of headline reveal — tighter cadence (was ~1.5s,
+  // now ~0.7s between beats) for the shorter cut.
+  const a1 = interpolate(frame, [0, fps * 0.5], [0, 1], { extrapolateRight: "clamp" });
+  const a2 = interpolate(frame, [fps * 0.7, fps * 1.2], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const a3 = interpolate(frame, [fps * 1.6, fps * 2.2], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
-  // Screenshot slides in from the right at 4s (a beat earlier than
-  // before — gives more time to dwell on the actual action shot).
-  const entryStart = fps * 4;
+  // Screenshot slides in at 2.5s instead of 4s — leaves ~7.5s of
+  // dwell time so the eye can find the menu item.
+  const entryStart = fps * 2.5;
   const screenshotEntry = spring({
     frame: frame - entryStart,
     fps,
@@ -38,7 +39,7 @@ export const SaveToQueue: React.FC = () => {
   });
   const screenshotOpacity = interpolate(
     frame,
-    [entryStart, entryStart + fps * 1],
+    [entryStart, entryStart + fps * 0.8],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );

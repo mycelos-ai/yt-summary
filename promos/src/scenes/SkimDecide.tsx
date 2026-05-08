@@ -17,28 +17,29 @@ export const SkimDecide: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const headlineOpacity = interpolate(frame, [0, fps * 0.8], [0, 1], {
+  const headlineOpacity = interpolate(frame, [0, fps * 0.6], [0, 1], {
     extrapolateRight: "clamp",
   });
 
   const cardEntry = spring({
-    frame: frame - fps * 1.5,
+    frame: frame - fps * 0.8,
     fps,
-    config: { damping: 16, stiffness: 65 },
+    config: { damping: 16, stiffness: 75 },
   });
   const cardOpacity = interpolate(
     frame,
-    [fps * 1.5, fps * 2.5],
+    [fps * 0.8, fps * 1.6],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
   const cardScale = 0.92 + cardEntry * 0.08;
 
-  // Sequentially highlight each section of the summary.
+  // Sequentially highlight each section of the summary, ~1.8s apart
+  // (was 2.5s) so all three sections land within the shorter window.
   const sections = [
-    { delay: 4.0, label: "TL;DR" },
-    { delay: 6.5, label: "Key points" },
-    { delay: 9.0, label: "Resources" },
+    { delay: 2.5, label: "TL;DR" },
+    { delay: 4.3, label: "Key points" },
+    { delay: 6.1, label: "Resources" },
   ];
 
   return (

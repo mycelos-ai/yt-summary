@@ -17,21 +17,21 @@ export const LogoReveal: React.FC = () => {
     config: { damping: 14, stiffness: 90 },
   });
 
-  // Logo opacity ramps in over 0.5s
-  const logoOpacity = interpolate(frame, [0, 15], [0, 1], {
+  // Logo opacity ramps in over 0.4s
+  const logoOpacity = interpolate(frame, [0, 12], [0, 1], {
     extrapolateRight: "clamp",
   });
 
-  // Tagline waits 2.5s then fades up
+  // Tagline waits 1.0s then fades up
   const taglineOpacity = interpolate(
     frame,
-    [fps * 2.5, fps * 3.5],
+    [fps * 1.0, fps * 2.0],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
   const taglineY = interpolate(
     frame,
-    [fps * 2.5, fps * 3.5],
+    [fps * 1.0, fps * 2.0],
     [12, 0],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );

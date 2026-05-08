@@ -53,11 +53,11 @@ export const Problem: React.FC = () => {
       />
 
       {lines.map((text, idx) => {
-        // Each line gets ~3.5s; cross-fade between them.
-        const startFrame = idx * fps * 3.5;
-        const peakStart = startFrame + fps * 0.4;
-        const peakEnd = startFrame + fps * 3.0;
-        const endFrame = startFrame + fps * 3.5;
+        // Each line gets ~2s; cross-fade between them.
+        const startFrame = idx * fps * 2.0;
+        const peakStart = startFrame + fps * 0.3;
+        const peakEnd = startFrame + fps * 1.6;
+        const endFrame = startFrame + fps * 2.0;
         const opacity = interpolate(
           frame,
           [startFrame, peakStart, peakEnd, endFrame],

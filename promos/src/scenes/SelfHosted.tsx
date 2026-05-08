@@ -108,7 +108,10 @@ export const SelfHosted: React.FC = () => {
         }}
       >
         {providers.map((name, idx) => {
-          const start = fps * (2.5 + idx * 0.25);
+          // Chips fire at 1.6, 1.85, 2.10, 2.35, 2.60, 2.85s — 6
+          // chips across ~1.5s so the whole row settles by ~3s,
+          // leaving 5s of dwell.
+          const start = fps * (1.6 + idx * 0.25);
           const peak = start + fps * 0.4;
           const opacity = interpolate(frame, [start, peak], [0, 1], {
             extrapolateLeft: "clamp",

@@ -21,8 +21,8 @@ export const MagicHappens: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Diagram fade-in over the first 1.2s, with a tiny scale settle.
-  const diagramOpacity = interpolate(frame, [0, fps * 1.2], [0, 1], {
+  // Diagram fade-in over the first 0.8s, with a tiny scale settle.
+  const diagramOpacity = interpolate(frame, [0, fps * 0.8], [0, 1], {
     extrapolateRight: "clamp",
   });
   const diagramScale = spring({
@@ -34,14 +34,13 @@ export const MagicHappens: React.FC = () => {
   // Headline above the diagram, fades in slightly later.
   const headlineOpacity = interpolate(
     frame,
-    [fps * 1.0, fps * 2.0],
+    [fps * 0.6, fps * 1.4],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
 
-  // Four step pulses, ~3s apart starting at 4s.
-  // Each pulses brightness then settles back so the eye is drawn
-  // through the diagram in order.
+  // Four step pulses, ~2s apart starting at 2.5s. The drop in the
+  // music is at this point — pulses sync to the bass rhythm.
   const steps = [
     { label: "01 · Extract", x: 30, y: 78 },
     { label: "02 · Summarize", x: 50, y: 78 },
@@ -119,10 +118,12 @@ export const MagicHappens: React.FC = () => {
             percent-based on the diagram so they stay anchored
             regardless of render scale. */}
         {steps.map((step, idx) => {
-          const pulseStart = fps * (3.5 + idx * 3.0);
-          const pulsePeak = pulseStart + fps * 0.6;
-          const pulseEnd = pulseStart + fps * 2.2;
-          const pulseOut = pulseStart + fps * 3.2;
+          // Steps fire at 2.5, 4.5, 6.5, 8.5s — 4 pulses across ~8s,
+          // leaving 5s of headline + 1s tail.
+          const pulseStart = fps * (2.5 + idx * 2.0);
+          const pulsePeak = pulseStart + fps * 0.4;
+          const pulseEnd = pulseStart + fps * 1.5;
+          const pulseOut = pulseStart + fps * 2.2;
           const intensity = interpolate(
             frame,
             [pulseStart, pulsePeak, pulseEnd, pulseOut],
