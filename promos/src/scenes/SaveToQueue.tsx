@@ -57,19 +57,6 @@ export const SaveToQueue: React.FC = () => {
     >
       {/* Left half: headline */}
       <div style={{ flex: 1, maxWidth: "45%" }}>
-        <div
-          style={{
-            opacity: a1,
-            color: brand.tronBlue,
-            fontFamily: '"Geist Mono", monospace',
-            fontSize: 18,
-            letterSpacing: "4px",
-            textTransform: "uppercase",
-            marginBottom: 12,
-          }}
-        >
-          The killer pattern
-        </div>
         <h2
           style={{
             color: "white",
