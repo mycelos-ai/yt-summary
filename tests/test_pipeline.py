@@ -75,14 +75,22 @@ async def test_pipeline_transcript_only_when_llm_unset(db, tmp_path):
 
 
 async def test_pipeline_skips_transcript_when_already_present(db, tmp_path):
-    """Reindex case: transcript already cached, only summary needs (re)generation."""
+    """Reindex case: transcript + segments already cached, only summary
+    needs (re)generation. The presence of segments_json is what tells
+    the pipeline the transcript is in the new format and doesn't need
+    re-fetching."""
+    import json as _json
     config = Config(data_dir=tmp_path)
     config.ensure_dirs()
     await videos_repo.upsert_metadata(
         db, video_id="v1", url="u", title="t",
         description="", thumbnail_path=None, duration_seconds=None,
     )
-    await videos_repo.set_transcript(db, "v1", "cached", TranscriptSource.MANUAL_SUBS)
+    await videos_repo.set_transcript(
+        db, "v1", "cached",
+        TranscriptSource.MANUAL_SUBS,
+        segments_json=_json.dumps([{"start": 0.0, "text": "cached"}]),
+    )
     await settings_repo.set(db, "llm_model", "openai/gpt-4o")
     await settings_repo.set(db, "llm_api_key", "k")
 
@@ -236,3 +244,87 @@ async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path
     # None or empty list — both are fine, the summarizer treats them
     # the same way (no header rendered).
     assert captured.get("playlist_context") in (None, [])
+
+
+async def test_pipeline_refetches_when_segments_missing(db, tmp_path):
+    """Self-healing: a YouTube video that has plain transcript text
+    but no transcript_segments JSON (legacy data from before the
+    timestamps feature) should trigger a fresh fetch so segments get
+    populated. Without this the user would see plain wall-of-text
+    forever even after re-summarizing."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vlegacy", url="https://youtu.be/vlegacy", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    # Simulate legacy state: transcript present, segments missing.
+    await videos_repo.set_transcript(
+        db, "vlegacy",
+        "old plain text",
+        TranscriptSource.AUTO_SUBS,
+        segments_json=None,
+    )
+
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+    await settings_repo.set(db, "whisper_model", "small")
+
+    fresh_segments = [(0.0, "fresh"), (5.0, "and timestamped")]
+    obtain_mock = AsyncMock(
+        return_value=("fresh\nand timestamped", fresh_segments, TranscriptSource.AUTO_SUBS)
+    )
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch("app.pipeline.obtain_transcript", obtain_mock),
+        patch("app.pipeline.summarize", AsyncMock(return_value="S")),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vlegacy", set_step)
+
+    assert obtain_mock.called, "should have re-fetched the transcript"
+    v = await videos_repo.get(db, "vlegacy")
+    assert v is not None
+    assert v.transcript_segments is not None
+    assert "fresh" in (v.transcript or "")
+
+
+async def test_pipeline_skips_fetch_when_segments_already_present(db, tmp_path):
+    """If transcript AND segments are both already stored, the
+    pipeline should not re-fetch — re-summarize stays cheap."""
+    import json as _json
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vfresh", url="https://youtu.be/vfresh", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.set_transcript(
+        db, "vfresh",
+        "already there",
+        TranscriptSource.AUTO_SUBS,
+        segments_json=_json.dumps([{"start": 0.0, "text": "already there"}]),
+    )
+
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+    await settings_repo.set(db, "whisper_model", "small")
+
+    obtain_mock = AsyncMock()
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch("app.pipeline.obtain_transcript", obtain_mock),
+        patch("app.pipeline.summarize", AsyncMock(return_value="S")),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vfresh", set_step)
+
+    assert not obtain_mock.called, "transcript was already complete; no fetch"

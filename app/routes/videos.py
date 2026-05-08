@@ -251,6 +251,22 @@ async def reindex_video(
     return RedirectResponse(f"/v/{video_id}", status_code=303)
 
 
+@router.post("/v/{video_id}/retranscribe")
+async def retranscribe_video(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Throw away the stored transcript + segments so the worker
+    fetches them fresh. Useful when transcript-format improvements
+    ship and you want the new format applied to old videos."""
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    await videos_repo.clear_transcript(db, video_id)
+    await jobs_repo.enqueue(db, video_id)
+    return RedirectResponse(f"/v/{video_id}", status_code=303)
+
+
 @router.get("/v/{video_id}", response_class=HTMLResponse)
 async def video_detail(
     video_id: str,

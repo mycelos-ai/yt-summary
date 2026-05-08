@@ -46,7 +46,23 @@ async def process_video(
 
     cookies = await asyncio.to_thread(_resolve_cookies, config)
 
-    if not video.transcript:
+    # Decide whether to fetch the transcript fresh, or reuse what's
+    # already stored:
+    #
+    # - WEB articles: only fetch if no transcript stored.
+    # - YouTube: fetch if either no transcript at all, OR no segments
+    #   yet. The latter is the self-healing path for videos that were
+    #   transcribed before the timestamps feature shipped — they
+    #   already have plain text but no JSON segments, so we re-fetch
+    #   to populate them.
+    needs_fetch = (
+        not video.transcript
+        or (
+            video.kind == VideoKind.YOUTUBE
+            and not video.transcript_segments
+        )
+    )
+    if needs_fetch:
         if video.kind == VideoKind.WEB:
             await set_step("fetching article")
             article = await fetch_article(video.url)

@@ -14,6 +14,12 @@
           {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %}
         </button>
       </form>
+      {% if video.transcript and video.kind.value != 'web' %}
+        <form method="post" action="/v/{{ video.id }}/retranscribe"
+              onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
+          <button type="submit" class="link-button">Re-transcribe</button>
+        </form>
+      {% endif %}
     </p>
     {% if video_tags %}
       <div class="tag-pills">

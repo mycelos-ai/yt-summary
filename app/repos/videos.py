@@ -94,6 +94,25 @@ async def set_transcript(
     await db.commit()
 
 
+async def clear_transcript(
+    db: aiosqlite.Connection,
+    video_id: str,
+) -> None:
+    """Reset the transcript columns so the next pipeline pass fetches
+    a fresh transcript. Used by the "Re-transcribe" button on the
+    detail page when the stored data is stale (e.g. predates the
+    rolling-window dedup fix).
+    """
+    await db.execute(
+        """
+        UPDATE videos SET transcript=NULL, transcript_segments=NULL,
+        transcript_source=NULL, updated_at=datetime('now') WHERE id=?
+        """,
+        (video_id,),
+    )
+    await db.commit()
+
+
 async def set_summary(
     db: aiosqlite.Connection,
     video_id: str,

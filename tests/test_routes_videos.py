@@ -484,3 +484,59 @@ def test_video_detail_for_web_uses_open_original_label(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "Open original" in resp.text
     assert "Watch on YouTube" not in resp.text
+
+
+def test_retranscribe_clears_and_enqueues(tmp_path, monkeypatch):
+    """The Re-transcribe button wipes transcript + segments, then
+    enqueues a fresh job. Used to repair videos with stale stored
+    data — pre-launch we have a few like that."""
+    import asyncio
+    import json as _json
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+
+        async def setup():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="rt1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            # Plant a stale transcript + segments so we can verify
+            # the route actually clears them.
+            await videos_repo.set_transcript(
+                app.state.db, "rt1",
+                "stale text",
+                TranscriptSource.AUTO_SUBS,
+                segments_json=_json.dumps([{"start": 0.0, "text": "stale"}]),
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post("/v/rt1/retranscribe", follow_redirects=False)
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import videos as videos_repo
+            v = await videos_repo.get(app.state.db, "rt1")
+            assert v is not None
+            assert v.transcript is None
+            assert v.transcript_segments is None
+            assert v.transcript_source is None
+            cursor = await app.state.db.execute(
+                "SELECT COUNT(*) FROM jobs WHERE video_id=?", ("rt1",)
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] >= 1
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_retranscribe_404_unknown_video(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post("/v/nope/retranscribe", follow_redirects=False)
+    assert resp.status_code == 404
