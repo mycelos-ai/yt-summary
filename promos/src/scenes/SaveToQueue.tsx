@@ -73,14 +73,15 @@ export const SaveToQueue: React.FC = () => {
         <h2
           style={{
             color: "white",
-            fontSize: 96,
+            fontSize: 84,
             fontWeight: 600,
             lineHeight: 1.05,
             letterSpacing: "-2px",
             margin: 0,
           }}
         >
-          <span style={{ opacity: a1 }}>Save </span>
+          <span style={{ opacity: a1 }}>Save to playlist.</span>
+          <br />
           <span
             style={{
               opacity: a2,
@@ -88,22 +89,22 @@ export const SaveToQueue: React.FC = () => {
               textShadow: `0 0 32px ${brand.tronGlow}`,
             }}
           >
-            → your queue.
+            → yt-summary does the rest.
           </span>
         </h2>
         <p
           style={{
             opacity: a3,
             color: "rgba(255,255,255,0.75)",
-            fontSize: 26,
+            fontSize: 24,
             fontWeight: 400,
             marginTop: 32,
             lineHeight: 1.4,
             maxWidth: 520,
           }}
         >
-          Tap save while you scroll on your phone or laptop. The
-          summary lands here a few minutes later.
+          Hit ⋯ → Save to playlist on any video. The summary lands
+          here a few minutes later — not on YouTube.
         </p>
       </div>
 
