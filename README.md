@@ -27,10 +27,26 @@ It also works on:
 
 ## Quick start
 
+One command, no git clone, no manual editing:
+
 ```bash
-git clone https://github.com/stefan-kp/yt-summary.git
-cd yt-summary
-docker compose -f docker/docker-compose.yml up -d
+curl -fsSL https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh | sh
+```
+
+That fetches `docker-compose.yml` into `~/yt-summary/`, pulls the
+prebuilt image from GHCR, and starts the container.
+
+Prefer to read the script first?
+
+```bash
+curl -O https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh
+sh install.sh
+```
+
+Install somewhere other than `~/yt-summary` with `YTS_DIR`:
+
+```bash
+YTS_DIR=/opt/yt-summary curl -fsSL https://raw.githubusercontent.com/stefan-kp/yt-summary/main/install.sh | sh
 ```
 
 Open <http://localhost:8200>, click the gear icon, and either:
