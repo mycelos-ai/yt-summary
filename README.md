@@ -58,6 +58,21 @@ Install somewhere other than `~/yt-summary` with `YTS_DIR`:
 YTS_DIR=/opt/yt-summary curl -fsSL mycelos.com/yt-summary/install.sh | sh
 ```
 
+### Updating
+
+Re-run the same one-liner to update. The script detects an existing
+install, refreshes `docker-compose.yml`, pulls the latest image
+from GHCR, and recreates the container only if the image actually
+changed. Your data in `~/yt-summary/data/` is untouched.
+
+```bash
+curl -fsSL mycelos.com/yt-summary/install.sh | sh
+```
+
+After `up -d`, the script polls `/api/v1/health` for ~20 seconds
+and reports back. If the app doesn't respond, you get the exact
+commands to inspect the container.
+
 Open <http://localhost:8200>, click the gear icon, and either:
 
 - **Use Quick Setup** — pick a provider (OpenAI / Anthropic / Gemini /
