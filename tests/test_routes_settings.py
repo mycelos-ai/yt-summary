@@ -243,6 +243,50 @@ def test_generate_api_key_creates_key_and_shows_once(tmp_path, monkeypatch):
     )
 
 
+def test_api_key_reveal_page_includes_curl_and_mcp_snippets(tmp_path, monkeypatch):
+    """After generating, the reveal page should hand the user three
+    ready-to-paste blocks: the key, two curl examples, and an MCP
+    config — all prefilled with the actual key and host."""
+    import re
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/api-key/generate", follow_redirects=False
+        )
+    assert resp.status_code == 200
+    text = resp.text
+    # Pull the actual generated plaintext key out of the response, then
+    # assert the snippets reference it verbatim.
+    m = re.search(r"yts_[a-z0-9]+", text)
+    assert m is not None, "expected a yts_ key in the response"
+    key = m.group(0)
+
+    # 1. The key block stays
+    assert key in text
+
+    # 2. curl health check + submit examples appear, prefilled.
+    assert f"Authorization: Bearer {key}" in text
+    assert "/api/v1/health" in text
+    assert "/api/v1/videos" in text
+
+    # 3. MCP config block — both Claude Desktop JSON and Claude Code CLI.
+    assert "mcp-remote" in text
+    assert "/mcp/sse" in text
+    assert "claude mcp add" in text
+    # Claude Desktop config path hint is shown.
+    assert "claude_desktop_config.json" in text
+
+    # The host the user is reaching us from must be in the URLs. The
+    # TestClient defaults to `testserver`.
+    assert "http://testserver/api/v1/health" in text
+    assert "http://testserver/mcp/sse" in text
+
+    # And the back-to-settings button still goes home.
+    assert 'href="/settings"' in text
+
+
 def test_settings_page_shows_api_key_prefix_when_set(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

@@ -428,10 +428,19 @@ async def generate_api_key_route(
     await users_repo.set_api_key(
         db, user_id=1, key_hash=key_hash, key_prefix=prefix
     )
+    # Build the user-facing base URL (scheme + host:port) so the snippets
+    # on the reveal page point at the same address the user is browsing
+    # us on. request.url.scheme picks up X-Forwarded-Proto when behind a
+    # proxy that sets it; netloc honours the Host header.
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
     return templates.TemplateResponse(
         request,
         "api_key_reveal.html",
-        {"plaintext": plaintext, "prefix": prefix},
+        {
+            "plaintext": plaintext,
+            "prefix": prefix,
+            "base_url": base_url,
+        },
     )
 
 
