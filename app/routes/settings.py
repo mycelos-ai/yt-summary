@@ -20,6 +20,7 @@ from app.services.providers import (
     PROVIDER_PRESETS,
     apply_preset,
     fetch_ollama_models,
+    split_ollama_tags,
 )
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
@@ -189,24 +190,50 @@ async def quick_setup_ollama_models(llm_base_url: str = ""):
             'first.</p>'
         )
 
-    # Build a <select> with each tag prefixed for chat use.
-    options = []
-    for tag in tags:
-        # Default to ollama_chat/ for chat-capable models; nomic-embed
-        # etc still get listed but the embedding card handles those.
-        value = f"ollama_chat/{tag}"
-        options.append(
-            f'<option value="{value}">{tag}</option>'
+    chat_tags, embed_tags = split_ollama_tags(tags)
+
+    # Chat dropdown — every non-embedder model. The /api/tags response
+    # doesn't tell us which are chat-capable, but the heuristic in
+    # split_ollama_tags catches the 3 standard embedders by name.
+    if chat_tags:
+        chat_options = "".join(
+            f'<option value="ollama_chat/{tag}">{tag}</option>'
+            for tag in chat_tags
         )
-    body = (
-        '<label class="settings-field">'
-        '  <span class="settings-label">Model on this server</span>'
-        f'  <select name="llm_model">{"".join(options)}</select>'
-        f'  <small>Found {len(tags)} model{"" if len(tags) == 1 else "s"} '
-        f'on {base_url}.</small>'
-        '</label>'
+        chat_block = (
+            '<label class="settings-field">'
+            '<span class="settings-label">LLM model</span>'
+            f'<select name="llm_model">{chat_options}</select>'
+            '</label>'
+        )
+    else:
+        chat_block = (
+            '<p class="status status-failed">⚠ No chat-capable model '
+            'found. Pull one with <code>ollama pull llama3.1</code>.</p>'
+        )
+
+    # Embedding dropdown — only render if the server has anything that
+    # looks like an embedder. Otherwise the wizard's preset-default
+    # (ollama/nomic-embed-text) is used as-is.
+    embed_block = ""
+    if embed_tags:
+        embed_options = "".join(
+            f'<option value="ollama/{tag}">{tag}</option>'
+            for tag in embed_tags
+        )
+        embed_block = (
+            '<label class="settings-field">'
+            '<span class="settings-label">Embedding model</span>'
+            f'<select name="embedding_model">{embed_options}</select>'
+            '</label>'
+        )
+
+    summary = (
+        f'<small class="settings-test-hint">Found {len(tags)} model'
+        f'{"" if len(tags) == 1 else "s"} on {base_url} — '
+        f'{len(chat_tags)} chat, {len(embed_tags)} embedding.</small>'
     )
-    return HTMLResponse(body)
+    return HTMLResponse(chat_block + embed_block + summary)
 
 
 async def _probe_ollama_reachable(base_url: str) -> str | None:

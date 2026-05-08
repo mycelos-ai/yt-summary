@@ -592,3 +592,63 @@ def test_quick_setup_ollama_models_handles_fetch_error(tmp_path, monkeypatch):
         )
     assert resp.status_code == 200
     assert "Cannot reach Ollama" in resp.text
+
+
+def test_quick_setup_ollama_models_renders_both_dropdowns(tmp_path, monkeypatch):
+    """When the server has both chat and embedding models, render two
+    separate selects so the user can pick each."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.fetch_ollama_models",
+            AsyncMock(return_value=[
+                "llama3.1:latest",
+                "nomic-embed-text:latest",
+                "qwen2.5:14b",
+                "mxbai-embed-large:latest",
+            ]),
+        ),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/ollama-models",
+            params={"llm_base_url": "http://x:11434"},
+        )
+    assert resp.status_code == 200
+    text = resp.text
+    # Two named selects
+    assert 'name="llm_model"' in text
+    assert 'name="embedding_model"' in text
+    # Chat tags appear as ollama_chat/...
+    assert "ollama_chat/llama3.1:latest" in text
+    assert "ollama_chat/qwen2.5:14b" in text
+    # Embedding tags appear as ollama/... (no _chat)
+    assert "ollama/nomic-embed-text:latest" in text
+    assert "ollama/mxbai-embed-large:latest" in text
+
+
+def test_quick_setup_ollama_models_no_embedders(tmp_path, monkeypatch):
+    """If the server has no embedding models, omit that dropdown but
+    still render the chat one."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.fetch_ollama_models",
+            AsyncMock(return_value=["llama3.1", "qwen2.5"]),
+        ),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/ollama-models",
+            params={"llm_base_url": "http://x:11434"},
+        )
+    assert resp.status_code == 200
+    assert 'name="llm_model"' in resp.text
+    # No embedding select rendered
+    assert 'name="embedding_model"' not in resp.text

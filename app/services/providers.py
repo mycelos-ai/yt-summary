@@ -271,3 +271,23 @@ async def fetch_ollama_models(base_url: str) -> list[str]:
         resp.raise_for_status()
         body = resp.json()
     return [m.get("name", "") for m in body.get("models", []) if m.get("name")]
+
+
+def split_ollama_tags(tags: list[str]) -> tuple[list[str], list[str]]:
+    """Split a flat tag list into (chat_models, embedding_models).
+
+    /api/tags doesn't tell us which tag is an embedder, so we use a
+    name heuristic: anything containing "embed" goes in the embedding
+    bucket. Covers the three standard Ollama embedders (nomic-embed,
+    mxbai-embed-large, snowflake-arctic-embed) and any future model
+    that follows the same naming convention. Everything else is
+    classified as chat.
+    """
+    chat: list[str] = []
+    embed: list[str] = []
+    for tag in tags:
+        if "embed" in tag.lower():
+            embed.append(tag)
+        else:
+            chat.append(tag)
+    return chat, embed

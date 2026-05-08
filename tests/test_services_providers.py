@@ -247,3 +247,45 @@ async def test_fetch_ollama_models_raises_on_unreachable():
             return_value=Response(503, json={"error": "down"})
         )
         await fetch_ollama_models("http://nope:11434")
+
+
+def test_split_ollama_tags_separates_embeddings():
+    """Tags whose name contains 'embed' are classified as embedders;
+    everything else is treated as chat."""
+    from app.services.providers import split_ollama_tags
+
+    tags = [
+        "llama3.1:latest",
+        "nomic-embed-text:latest",
+        "qwen2.5:14b",
+        "mxbai-embed-large:latest",
+        "snowflake-arctic-embed:33m",
+        "gemma3:1b",
+    ]
+    chat, embed = split_ollama_tags(tags)
+    assert "llama3.1:latest" in chat
+    assert "qwen2.5:14b" in chat
+    assert "gemma3:1b" in chat
+    assert "nomic-embed-text:latest" in embed
+    assert "mxbai-embed-large:latest" in embed
+    assert "snowflake-arctic-embed:33m" in embed
+    # No overlap
+    assert set(chat) & set(embed) == set()
+
+
+def test_split_ollama_tags_handles_empty():
+    from app.services.providers import split_ollama_tags
+
+    chat, embed = split_ollama_tags([])
+    assert chat == []
+    assert embed == []
+
+
+def test_split_ollama_tags_no_embedders_returns_all_chat():
+    """If no tag looks like an embedder, all go to chat (and the
+    UI will hide the empty embedding dropdown)."""
+    from app.services.providers import split_ollama_tags
+
+    chat, embed = split_ollama_tags(["llama3.1", "qwen3:8b"])
+    assert set(chat) == {"llama3.1", "qwen3:8b"}
+    assert embed == []
