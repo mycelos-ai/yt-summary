@@ -433,6 +433,10 @@ async def generate_api_key_route(
     # us on. request.url.scheme picks up X-Forwarded-Proto when behind a
     # proxy that sets it; netloc honours the Host header.
     base_url = f"{request.url.scheme}://{request.url.netloc}"
+    # mcp-remote refuses non-https URLs unless --allow-http is passed.
+    # yt-summary's primary use case is LAN-only (http://192.168.x.x),
+    # so the reveal page injects --allow-http whenever we're not https.
+    is_https = request.url.scheme == "https"
     return templates.TemplateResponse(
         request,
         "api_key_reveal.html",
@@ -440,6 +444,7 @@ async def generate_api_key_route(
             "plaintext": plaintext,
             "prefix": prefix,
             "base_url": base_url,
+            "is_https": is_https,
         },
     )
 

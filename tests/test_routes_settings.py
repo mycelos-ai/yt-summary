@@ -266,7 +266,8 @@ def test_api_key_reveal_page_includes_curl_and_mcp_snippets(tmp_path, monkeypatc
     # 1. The key block stays
     assert key in text
 
-    # 2. curl health check + submit examples appear, prefilled.
+    # 2. curl health check + submit examples appear, prefilled. curl
+    # itself is fine with the conventional spaced header form.
     assert f"Authorization: Bearer {key}" in text
     assert "/api/v1/health" in text
     assert "/api/v1/videos" in text
@@ -285,6 +286,68 @@ def test_api_key_reveal_page_includes_curl_and_mcp_snippets(tmp_path, monkeypatc
 
     # And the back-to-settings button still goes home.
     assert 'href="/settings"' in text
+
+
+def test_api_key_reveal_mcp_snippets_use_no_space_header(tmp_path, monkeypatch):
+    """mcp-remote splits --header on whitespace and silently drops
+    everything after the first space, leaving an empty header. The
+    space-less form parses correctly. The two MCP snippets (Claude
+    Code CLI and Claude Desktop JSON) must therefore use
+    'Authorization:Bearer <key>' (no space)."""
+    import re
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/api-key/generate", follow_redirects=False
+        )
+    text = resp.text
+    m = re.search(r"yts_[a-z0-9]+", text)
+    assert m is not None
+    key = m.group(0)
+
+    # Both MCP blocks must use the no-space form.
+    assert f"Authorization:Bearer {key}" in text
+    # And neither MCP block may use the spaced form. The curl block
+    # uses the spaced form, so we look only inside the MCP section by
+    # checking that the spaced form doesn't appear next to mcp-remote.
+    # Easier: count how many times the spaced form appears (curl health
+    # + curl submit = 2). If a third creeps in, it's an MCP regression.
+    assert text.count(f"Authorization: Bearer {key}") == 2
+
+
+def test_api_key_reveal_mcp_snippets_pass_allow_http_for_http_host(tmp_path, monkeypatch):
+    """mcp-remote refuses non-https URLs unless --allow-http is passed.
+    Since the TestClient runs over http (testserver), both MCP blocks
+    must include --allow-http."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/api-key/generate", follow_redirects=False
+        )
+    text = resp.text
+    # Claude Code CLI block: --allow-http appears verbatim.
+    assert "--allow-http" in text
+    # JSON args array: each token is its own quoted string, so the
+    # flag shows up as "--allow-http" in the args.
+    assert '"--allow-http"' in text
+
+
+def test_api_key_reveal_claude_cli_uses_mcp_remote_with_double_dash(tmp_path, monkeypatch):
+    """The Claude Code CLI snippet must invoke mcp-remote as a stdio
+    command, which means the form is 'claude mcp add yt-summary --
+    npx -y mcp-remote ...'. The leading -- is what tells claude mcp
+    add to treat the rest as a command-to-run rather than an SSE URL."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/api-key/generate", follow_redirects=False
+        )
+    text = resp.text
+    assert "claude mcp add yt-summary -- npx -y mcp-remote" in text
 
 
 def test_settings_page_shows_api_key_prefix_when_set(tmp_path, monkeypatch):

@@ -114,7 +114,8 @@ curl -X POST {{ base_url }}/api/v1/videos \
       "args": [
         "-y", "mcp-remote",
         "{{ base_url }}/mcp/sse",
-        "--header", "Authorization: Bearer {{ plaintext }}"
+        "--header", "Authorization:Bearer {{ plaintext }}"{% if not is_https %},
+        "--allow-http"{% endif %}
       ]
     }
   }
@@ -130,8 +131,10 @@ curl -X POST {{ base_url }}/api/v1/videos \
     <p style="margin-top: 18px;">For Claude Code, run this one-liner — it writes the right config for you:</p>
     <div class="copyable-block">
       <button type="button" class="copy-btn" data-copy-target="claude-cli">Copy</button>
-      <pre id="claude-cli">claude mcp add yt-summary {{ base_url }}/mcp/sse \
-  --header "Authorization: Bearer {{ plaintext }}"</pre>
+      <pre id="claude-cli">claude mcp add yt-summary -- npx -y mcp-remote \
+  {{ base_url }}/mcp/sse \
+  --header "Authorization:Bearer {{ plaintext }}"{% if not is_https %} \
+  --allow-http{% endif %}</pre>
     </div>
   </section>
 
