@@ -1,15 +1,73 @@
 {% extends "base.html" %}
 {% block title %}Add a playlist — yt-summary{% endblock %}
 {% block content %}
-<div class="settings-page">
-  <h1>Add a playlist</h1>
-  <form method="post" action="/playlists" class="settings-form">
-    <label>
-      Playlist URL
-      <input name="url" type="url" placeholder="https://www.youtube.com/playlist?list=..." required>
-      <small>The latest videos will be imported and summarized. Older entries can be loaded later from the playlist page.</small>
-    </label>
-    <button type="submit">Save</button>
-  </form>
+<div class="playlist-new">
+  <header class="playlist-new-head">
+    <h1>Add a playlist</h1>
+    <p class="playlist-new-sub">
+      Subscribe to a YouTube playlist. The newest videos get summarized
+      automatically, and the scheduler re-checks for new entries every hour.
+      Older videos can be loaded later from the playlist page.
+    </p>
+  </header>
+
+  <section class="playlist-new-card">
+    <form method="post" action="/playlists" class="playlist-new-form">
+      <label class="playlist-new-field">
+        <span class="playlist-new-label">YouTube playlist URL</span>
+        <input id="playlist-url" name="url" type="url"
+               placeholder="https://www.youtube.com/playlist?list=PL..."
+               required autofocus>
+      </label>
+
+      <details class="playlist-new-help">
+        <summary>How do I find a playlist URL?</summary>
+        <ol>
+          <li>On YouTube, open any playlist page.</li>
+          <li>Copy the URL from your browser's address bar.</li>
+          <li>It should contain <code>list=PL…</code> or <code>list=UU…</code>.</li>
+        </ol>
+        <p class="playlist-new-help-note">
+          Channel-uploads "playlists" work too — you can grab them from a
+          channel's <em>Videos</em> tab, then click <em>View as playlist</em>.
+        </p>
+      </details>
+
+      <p class="playlist-new-examples-label">Or try one of these:</p>
+      <div class="playlist-new-examples">
+        <button type="button" class="playlist-new-example"
+                data-url="https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi">
+          <strong>3Blue1Brown</strong>
+          <span>Visual math + ML explainers</span>
+        </button>
+        <button type="button" class="playlist-new-example"
+                data-url="https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf">
+          <strong>Lex Fridman Podcast</strong>
+          <span>Long-form AI &amp; science interviews</span>
+        </button>
+        <button type="button" class="playlist-new-example"
+                data-url="https://www.youtube.com/playlist?list=PLOspHqNVtKABAZoaRKj8yf36HytWPfuRr">
+          <strong>Anthropic</strong>
+          <span>Claude updates and research talks</span>
+        </button>
+      </div>
+
+      <div class="playlist-new-actions">
+        <a href="/" class="btn btn-link">Cancel</a>
+        <button type="submit" class="btn btn-primary">Add playlist</button>
+      </div>
+    </form>
+  </section>
 </div>
+
+<script>
+  // Click an example tile → drop its URL into the input.
+  document.querySelectorAll('.playlist-new-example').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('playlist-url');
+      input.value = btn.dataset.url;
+      input.focus();
+    });
+  });
+</script>
 {% endblock %}

@@ -1143,3 +1143,174 @@ p { margin: 0 0 16px 0; }
   background: rgba(0, 212, 164, 0.85);
   color: var(--ink);
 }
+
+/* Playlist new — dedicated styles, not piggybacking on .settings-page */
+.playlist-new {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.playlist-new-head {
+  margin: 16px 0 32px;
+}
+.playlist-new-head h1 {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin: 0 0 12px;
+}
+.playlist-new-sub {
+  color: var(--steel);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+}
+.playlist-new-card {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  padding: 28px;
+}
+.playlist-new-form { display: block; }
+.playlist-new-field {
+  display: block;
+  margin-bottom: 16px;
+}
+.playlist-new-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.playlist-new-form input[type="url"] {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--canvas);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.playlist-new-form input[type="url"]:focus {
+  border-color: var(--brand-green);
+  box-shadow: 0 0 0 3px rgba(0, 212, 164, 0.12);
+}
+.playlist-new-form input[type="url"]::placeholder {
+  color: var(--stone);
+}
+
+/* Collapsible help section */
+.playlist-new-help {
+  margin: 20px 0 24px;
+  padding: 14px 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--rounded-md);
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.6;
+}
+.playlist-new-help summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 13px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.playlist-new-help summary::-webkit-details-marker { display: none; }
+.playlist-new-help summary::before {
+  content: '▸';
+  display: inline-block;
+  transition: transform 150ms ease;
+  font-size: 10px;
+  color: var(--steel);
+}
+.playlist-new-help[open] summary::before {
+  transform: rotate(90deg);
+}
+.playlist-new-help ol {
+  margin: 12px 0 8px;
+  padding-left: 24px;
+}
+.playlist-new-help ol li { margin-bottom: 4px; }
+.playlist-new-help-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--steel);
+}
+.playlist-new-help code {
+  background: var(--canvas);
+  padding: 1px 6px;
+  border-radius: var(--rounded-xs);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--hairline);
+}
+
+/* Example tiles */
+.playlist-new-examples-label {
+  margin: 20px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--steel);
+}
+.playlist-new-examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.playlist-new-example {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-ui);
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+.playlist-new-example:hover {
+  border-color: var(--brand-green);
+  transform: translateY(-1px);
+}
+.playlist-new-example strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.playlist-new-example span {
+  font-size: 12px;
+  color: var(--steel);
+  line-height: 1.4;
+}
+
+/* Action row at the bottom of the card */
+.playlist-new-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.playlist-new-actions .btn-link {
+  color: var(--steel);
+}
+.playlist-new-actions .btn-link:hover {
+  color: var(--ink);
+}
