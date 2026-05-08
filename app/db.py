@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS videos (
     thumbnail_path TEXT,
     duration_seconds INTEGER,
     transcript TEXT,
+    -- JSON array of {start: float (seconds), text: str} segments. Drives
+    -- the timestamped detail-page rendering. Optional — older rows or
+    -- web articles store NULL here and fall back to plain transcript.
+    transcript_segments TEXT,
     transcript_source TEXT,
     summary TEXT,
     summary_model TEXT,
@@ -171,6 +175,10 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         if "summary_embedded_at" not in video_cols:
             await conn.execute(
                 "ALTER TABLE videos ADD COLUMN summary_embedded_at TEXT"
+            )
+        if "transcript_segments" not in video_cols:
+            await conn.execute(
+                "ALTER TABLE videos ADD COLUMN transcript_segments TEXT"
             )
 
     if await _table_exists(conn, "chat_messages"):

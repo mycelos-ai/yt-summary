@@ -120,34 +120,71 @@ async def _download_text(url: str) -> str:
         return resp.text
 
 
-_VTT_TIMESTAMP = re.compile(r"\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}.*")
+_VTT_CUE_HEAD = re.compile(
+    r"^(\d{2}):(\d{2}):(\d{2})\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}"
+)
 _VTT_TAG = re.compile(r"<[^>]+>")
 
 
-def vtt_to_plain_text(vtt: str) -> str:
-    lines: list[str] = []
+def vtt_to_segments(vtt: str) -> list[tuple[float, str]]:
+    """Parse VTT into a list of (start_seconds, text) cue tuples.
+
+    YouTube's VTT files have one block per spoken phrase, each starting
+    with an HH:MM:SS.mmm --> HH:MM:SS.mmm header followed by one or more
+    lines of text. We keep the start time and concatenate the text
+    lines for each cue, skipping WEBVTT/NOTE/STYLE/REGION blocks and
+    bare numeric cue identifiers.
+
+    Duplicate phrases (auto-captions repeat the rolling window of words
+    several times) are filtered out by remembering the last emitted
+    text — same de-dup intent as the old vtt_to_plain_text.
+    """
+    out: list[tuple[float, str]] = []
+    last_text = ""
+    current_start: float | None = None
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal last_text, current_start, current_lines
+        if current_start is None or not current_lines:
+            current_start = None
+            current_lines = []
+            return
+        text = " ".join(current_lines).strip()
+        if text and text != last_text:
+            out.append((current_start, text))
+            last_text = text
+        current_start = None
+        current_lines = []
+
     for raw in vtt.splitlines():
         line = raw.strip()
         if not line:
+            flush()
             continue
         if line == "WEBVTT":
             continue
         if line.startswith(("NOTE", "STYLE", "REGION")):
             continue
-        if _VTT_TIMESTAMP.match(line):
+        m = _VTT_CUE_HEAD.match(line)
+        if m:
+            flush()
+            hh, mm, ss = (int(g) for g in m.groups())
+            current_start = float(hh * 3600 + mm * 60 + ss)
             continue
         if line.isdigit():
             continue
-        line = _VTT_TAG.sub("", line)
-        if line:
-            lines.append(line)
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for line in lines:
-        if line not in seen:
-            deduped.append(line)
-            seen.add(line)
-    return "\n".join(deduped)
+        clean = _VTT_TAG.sub("", line).strip()
+        if clean:
+            current_lines.append(clean)
+    flush()
+    return out
+
+
+def vtt_to_plain_text(vtt: str) -> str:
+    """Backward-compatible plain-text view of the VTT — derived from
+    vtt_to_segments so we don't drift between the two parsers."""
+    return "\n".join(text for _start, text in vtt_to_segments(vtt))
 
 
 def _pick_subtitle_url(info: dict[str, Any], key: str) -> str | None:
@@ -187,18 +224,27 @@ async def _try_download_subtitle(url: str) -> str | None:
 
 async def fetch_subtitles(
     url: str, cookies_path: Path | None
-) -> tuple[str, SubtitleSource] | None:
+) -> tuple[str, list[tuple[float, str]], SubtitleSource] | None:
+    """Return (plain_text, segments, source) or None.
+
+    `segments` is a list of (start_seconds, text) tuples derived from
+    the VTT cues — used for timestamped detail-page rendering.
+    """
     info = await asyncio.to_thread(_extract_info_with_subs, url, cookies_path)
     manual_url = _pick_subtitle_url(info, "subtitles")
     if manual_url:
-        text = await _try_download_subtitle(manual_url)
-        if text is not None:
-            return vtt_to_plain_text(text), "manual_subs"
+        vtt = await _try_download_subtitle(manual_url)
+        if vtt is not None:
+            segments = vtt_to_segments(vtt)
+            plain = "\n".join(t for _s, t in segments)
+            return plain, segments, "manual_subs"
     auto_url = _pick_subtitle_url(info, "automatic_captions")
     if auto_url:
-        text = await _try_download_subtitle(auto_url)
-        if text is not None:
-            return vtt_to_plain_text(text), "auto_subs"
+        vtt = await _try_download_subtitle(auto_url)
+        if vtt is not None:
+            segments = vtt_to_segments(vtt)
+            plain = "\n".join(t for _s, t in segments)
+            return plain, segments, "auto_subs"
     return None
 
 

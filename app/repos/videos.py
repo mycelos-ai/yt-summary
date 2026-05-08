@@ -12,6 +12,11 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         kind_raw = row["kind"]
     except (IndexError, KeyError):
         kind_raw = None
+    # transcript_segments is V4 — same fallback pattern.
+    try:
+        segments_raw = row["transcript_segments"]
+    except (IndexError, KeyError):
+        segments_raw = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -26,6 +31,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         kind=VideoKind(kind_raw) if kind_raw else VideoKind.YOUTUBE,
+        transcript_segments=segments_raw,
     )
 
 
@@ -69,13 +75,21 @@ async def set_transcript(
     video_id: str,
     transcript: str,
     source: TranscriptSource,
+    segments_json: str | None = None,
 ) -> None:
+    """Save the transcript text plus an optional structured-segments
+    JSON for timestamped rendering.
+
+    `segments_json` is a JSON-serialised list of {"start": float,
+    "text": str} entries. None for web articles or transcribers that
+    don't expose timing.
+    """
     await db.execute(
         """
-        UPDATE videos SET transcript=?, transcript_source=?,
-        updated_at=datetime('now') WHERE id=?
+        UPDATE videos SET transcript=?, transcript_segments=?,
+        transcript_source=?, updated_at=datetime('now') WHERE id=?
         """,
-        (transcript, source.value, video_id),
+        (transcript, segments_json, source.value, video_id),
     )
     await db.commit()
 

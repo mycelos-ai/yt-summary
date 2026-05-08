@@ -415,6 +415,48 @@ p { margin: 0 0 16px 0; }
   border-top: 1px solid var(--hairline);
 }
 
+/* Timestamped transcript blocks (YouTube videos with VTT cues or
+   Whisper segments). Each block: clickable [MM:SS] link → flowing
+   paragraph. Long videos get a scroll cap so the whole detail page
+   stays scrollable. */
+.transcript-body {
+  max-height: 480px;
+  overflow: auto;
+  padding: 16px 20px;
+  border-top: 1px solid var(--hairline);
+  background: var(--canvas);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+.transcript-block {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  column-gap: 16px;
+  padding: 8px 0;
+}
+.transcript-block + .transcript-block {
+  border-top: 1px solid var(--hairline-soft);
+}
+.transcript-ts {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--brand-green-deep);
+  text-decoration: none;
+  padding-top: 3px;
+  white-space: nowrap;
+  user-select: none;
+}
+.transcript-ts:hover {
+  text-decoration: underline;
+  color: var(--brand-green);
+}
+.transcript-text {
+  margin: 0;
+  color: var(--ink);
+}
+
 /* Chat */
 .chat {
   margin-top: 32px;

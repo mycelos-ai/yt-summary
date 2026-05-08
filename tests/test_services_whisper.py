@@ -3,22 +3,28 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-def test_transcribe_returns_concatenated_segments(tmp_path):
+def test_transcribe_returns_text_and_segments(tmp_path):
     from app.services.whisper import transcribe
     fake_audio = tmp_path / "x.m4a"
     fake_audio.write_bytes(b"")
 
     seg1 = MagicMock()
     seg1.text = "Hello and"
+    seg1.start = 0.0
+    seg1.end = 1.5
     seg2 = MagicMock()
     seg2.text = " welcome."
+    seg2.start = 1.5
+    seg2.end = 2.4
 
     fake_model = MagicMock()
     fake_model.transcribe.return_value = (iter([seg1, seg2]), MagicMock())
 
     with patch("app.services.whisper._load_model", return_value=fake_model):
-        result = transcribe(fake_audio, model_name="small")
-    assert result.strip() == "Hello and welcome."
+        text, segments = transcribe(fake_audio, model_name="small")
+    assert text.strip() == "Hello and welcome."
+    # Segments stripped + paired with their start times
+    assert segments == [(0.0, "Hello and"), (1.5, "welcome.")]
 
 
 def test_load_model_caches_per_name():
@@ -59,9 +65,9 @@ def test_transcribe_invokes_progress_callback_per_segment(tmp_path):
         captured.append((current, total))
 
     with patch("app.services.whisper._load_model", return_value=fake_model):
-        result = transcribe(fake_audio, model_name="small", progress=progress)
+        text, _segments = transcribe(fake_audio, model_name="small", progress=progress)
 
-    assert "Hello world" in result
+    assert "Hello world" in text
     # We should have at least one progress report where we're done
     assert (10.0, 10.0) in captured
 
@@ -69,7 +75,8 @@ def test_transcribe_invokes_progress_callback_per_segment(tmp_path):
 async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
     """transcribe_via_api should POST a multipart/form-data request to
     {base_url}/audio/transcriptions in the OpenAI Whisper format and
-    return the transcribed text."""
+    return (text, segments). With verbose_json the response includes
+    segments; we hand those back as (start, text) tuples."""
     import respx
     from httpx import Response
 
@@ -81,10 +88,17 @@ async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
     with respx.mock(base_url="https://api.example.com") as mock:
         route = mock.post("/audio/transcriptions").mock(
             return_value=Response(
-                200, json={"text": "hello world from whisper"}
+                200,
+                json={
+                    "text": "hello world from whisper",
+                    "segments": [
+                        {"start": 0.0, "end": 1.2, "text": "hello world"},
+                        {"start": 1.2, "end": 2.4, "text": "from whisper"},
+                    ],
+                },
             )
         )
-        text = await transcribe_via_api(
+        text, segments = await transcribe_via_api(
             audio,
             base_url="https://api.example.com",
             api_key="sk-test",
@@ -92,13 +106,41 @@ async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
         )
 
     assert text == "hello world from whisper"
+    assert segments == [(0.0, "hello world"), (1.2, "from whisper")]
     assert route.called
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer sk-test"
-    # Multipart body should mention the model name and the audio bytes
+    # Multipart body should mention the model name + verbose_json + audio
     body = request.content
     assert b"whisper-large-v3" in body
+    assert b"verbose_json" in body
     assert b"fakeaudio-bytes" in body
+
+
+async def test_transcribe_via_api_handles_text_only_response(tmp_path):
+    """Older / minimal hosted endpoints reply with just {"text": ...}
+    and no segments array. We accept that and return [] for segments
+    so the caller falls back to plain rendering."""
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "x.m4a"
+    audio.write_bytes(b"x")
+
+    with respx.mock(base_url="https://api.example.com") as mock:
+        mock.post("/audio/transcriptions").mock(
+            return_value=Response(200, json={"text": "plain"}),
+        )
+        text, segments = await transcribe_via_api(
+            audio,
+            base_url="https://api.example.com",
+            api_key="k",
+            model_name="m",
+        )
+    assert text == "plain"
+    assert segments == []
 
 
 async def test_transcribe_via_api_strips_trailing_slash_in_base_url(tmp_path):
@@ -116,7 +158,7 @@ async def test_transcribe_via_api_strips_trailing_slash_in_base_url(tmp_path):
         route = mock.post("/audio/transcriptions").mock(
             return_value=Response(200, json={"text": "ok"})
         )
-        text = await transcribe_via_api(
+        text, _segments = await transcribe_via_api(
             audio,
             base_url="https://api.example.com/",
             api_key="k",

@@ -26,7 +26,7 @@ async def test_pipeline_writes_transcript_and_summary(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("the transcript", TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS)),
         ),
         patch(
             "app.pipeline.summarize",
@@ -60,7 +60,7 @@ async def test_pipeline_transcript_only_when_llm_unset(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("the transcript", TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS)),
         ),
         patch("app.pipeline.summarize") as summarize_mock,
     ):
@@ -186,7 +186,7 @@ async def test_pipeline_passes_playlist_context_to_summarizer(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("text", TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS)),
         ),
         patch("app.pipeline.summarize", side_effect=fake_summarize),
     ):
@@ -226,7 +226,7 @@ async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("text", TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS)),
         ),
         patch("app.pipeline.summarize", side_effect=fake_summarize),
     ):

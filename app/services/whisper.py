@@ -24,8 +24,14 @@ def transcribe(
     model_name: str = "small",
     *,
     progress: ProgressFn | None = None,
-) -> str:
-    """Run Whisper on `audio_path` and return the joined transcript.
+) -> tuple[str, list[tuple[float, str]]]:
+    """Run Whisper on `audio_path`.
+
+    Returns:
+      (joined_text, segments)
+      where segments is a list of (start_seconds, text) tuples — same
+      shape as the VTT parser's output, so downstream code can treat
+      both transcript sources uniformly.
 
     If `progress` is provided, it's called as each segment finishes
     with (segment_end_seconds, total_duration_seconds). Faster-whisper
@@ -37,12 +43,17 @@ def transcribe(
     )
     total = float(getattr(info, "duration", 0.0) or 0.0)
     parts: list[str] = []
+    timed: list[tuple[float, str]] = []
     for seg in segments:
         parts.append(seg.text)
+        start = float(getattr(seg, "start", 0.0) or 0.0)
+        text = (seg.text or "").strip()
+        if text:
+            timed.append((start, text))
         if progress is not None:
             current = float(getattr(seg, "end", 0.0) or 0.0)
             progress(current, total)
-    return "".join(parts).strip()
+    return "".join(parts).strip(), timed
 
 
 # Hosted Whisper services (faster-whisper-server, Groq, OpenAI) all
@@ -55,18 +66,22 @@ async def transcribe_via_api(
     api_key: str,
     model_name: str,
     timeout_s: float = 300.0,
-) -> str:
-    """Send `audio_path` to a hosted Whisper endpoint and return the
-    transcript text.
+) -> tuple[str, list[tuple[float, str]]]:
+    """Send `audio_path` to a hosted Whisper endpoint.
 
-    base_url: the OpenAI-compatible host root, e.g.
-      "https://api.groq.com/openai/v1" or "http://mac-mini.local:8000/v1".
-      A trailing slash is fine.
-    api_key: optional. Empty string disables the Authorization header,
-      which is what local servers usually want.
-    model_name: server-side model name, e.g. "whisper-large-v3" for
-      Groq, "whisper-1" for OpenAI, "Systran/faster-whisper-large-v3"
-      for self-hosted faster-whisper-server.
+    Returns (joined_text, segments). Asks the OpenAI-compatible
+    endpoint for `response_format=verbose_json`, which includes
+    per-segment start times. If the backend ignores that and
+    returns only `{"text": "..."}`, segments comes back empty —
+    the detail-page render falls back to the plain transcript.
+
+    base_url: e.g. "https://api.groq.com/openai/v1" or
+      "http://mac-mini.local:8000/v1". A trailing slash is fine.
+    api_key: optional. Empty disables the Authorization header,
+      which is what most local servers want.
+    model_name: server-side name, e.g. "whisper-large-v3" for Groq,
+      "whisper-1" for OpenAI, "Systran/faster-whisper-large-v3" for
+      self-hosted faster-whisper-server.
     """
     url = f"{base_url.rstrip('/')}/audio/transcriptions"
     headers: dict[str, str] = {}
@@ -82,13 +97,22 @@ async def transcribe_via_api(
     }
     data = {
         "model": model_name,
-        "response_format": "json",
+        # verbose_json gives back a `segments` array with start/end
+        # times. OpenAI + faster-whisper-server both honour it; older
+        # servers fall back to plain `{text}` which we handle below.
+        "response_format": "verbose_json",
     }
 
-    # trust_env=False so we don't route through the user's HTTP_PROXY
-    # — the whisper base_url they configured is explicit and final.
     async with httpx.AsyncClient(timeout=timeout_s, trust_env=False) as client:
         resp = await client.post(url, headers=headers, files=files, data=data)
         resp.raise_for_status()
         body = resp.json()
-        return (body.get("text") or "").strip()
+
+    text = (body.get("text") or "").strip()
+    timed: list[tuple[float, str]] = []
+    for seg in body.get("segments") or []:
+        seg_text = (seg.get("text") or "").strip()
+        if not seg_text:
+            continue
+        timed.append((float(seg.get("start", 0.0) or 0.0), seg_text))
+    return text, timed

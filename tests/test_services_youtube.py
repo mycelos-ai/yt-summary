@@ -84,9 +84,12 @@ async def test_fetch_subtitles_prefers_manual():
     ):
         result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
     assert result is not None
-    text, source = result
+    text, segments, source = result
     assert "FastAPI" in text
     assert source == "manual_subs"
+    # vtt_to_segments yields (start_seconds, text) tuples
+    assert len(segments) > 0
+    assert all(isinstance(s, tuple) and len(s) == 2 for s in segments)
 
 
 async def test_fetch_subtitles_falls_back_to_auto():
@@ -104,7 +107,7 @@ async def test_fetch_subtitles_falls_back_to_auto():
     ):
         result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
     assert result is not None
-    _, source = result
+    _text, _segments, source = result
     assert source == "auto_subs"
 
 

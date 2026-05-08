@@ -41,6 +41,10 @@ class Video:
     created_at: datetime
     updated_at: datetime
     kind: VideoKind = VideoKind.YOUTUBE
+    # JSON-serialised list of {"start": float, "text": str} segments.
+    # YouTube videos transcribed via Whisper or VTT have segments;
+    # web articles + older Whisper rows have None.
+    transcript_segments: str | None = None
 
 
 @dataclass

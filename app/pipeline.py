@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -16,6 +17,7 @@ from app.services.embeddings import embed_text
 from app.services.reader import fetch_article
 from app.services.summarizer import summarize
 from app.services.transcript import obtain_transcript
+from app.services.transcript_format import group_segments
 from app.services.youtube import fetch_metadata
 
 log = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ async def process_video(
             text = article.body
         else:
             await set_step("fetching transcript")
-            text, source = await obtain_transcript(
+            text, segments, source = await obtain_transcript(
                 url=video.url,
                 video_id=video_id,
                 audio_dir=config.audio_dir,
@@ -64,7 +66,17 @@ async def process_video(
                 whisper_base_url=settings.get("whisper_base_url", ""),
                 whisper_api_key=settings.get("whisper_api_key", ""),
             )
-            await videos_repo.set_transcript(db, video_id, text, source)
+            # Group raw cues into 8-second-gap paragraphs and JSON-
+            # serialise — the detail page renders blocks with leading
+            # [MM:SS] timestamps that link back into the YouTube video.
+            segments_json: str | None = None
+            if segments:
+                grouped = group_segments(segments, gap_s=8.0)
+                if grouped:
+                    segments_json = json.dumps(grouped)
+            await videos_repo.set_transcript(
+                db, video_id, text, source, segments_json=segments_json
+            )
     else:
         text = video.transcript
 

@@ -264,6 +264,9 @@ async def video_detail(
     history = await chat_repo.history(db, video_id)
     job = await jobs_repo.latest_for_video(db, video_id)
     video_tags = await tags_repo.tags_for_video(db, video_id)
+    # Parse the JSON-stored transcript segments into render-ready blocks.
+    # The template falls back to the plain transcript if blocks is empty.
+    transcript_blocks = _parse_transcript_blocks(video)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -274,5 +277,42 @@ async def video_detail(
             "job": job,
             "video_tags": video_tags,
             "elapsed_s": _elapsed_seconds(job),
+            "transcript_blocks": transcript_blocks,
         },
     )
+
+
+def _parse_transcript_blocks(video) -> list[dict]:
+    """Decode video.transcript_segments (JSON) into a list of dicts
+    with {start_s, timestamp, text} suitable for the template.
+
+    Returns [] when the video has no segments stored — the template
+    then renders the plain transcript fallback.
+    """
+    raw = getattr(video, "transcript_segments", None)
+    if not raw:
+        return []
+    import json as _json
+
+    from app.services.transcript_format import format_timestamp
+    try:
+        items = _json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    duration = video.duration_seconds or 0
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        start = item.get("start")
+        text = (item.get("text") or "").strip()
+        if start is None or not text:
+            continue
+        out.append({
+            "start_s": float(start),
+            "timestamp": format_timestamp(float(start), total_duration_s=duration),
+            "text": text,
+        })
+    return out

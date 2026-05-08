@@ -39,7 +39,20 @@
           Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
         {% endif %}
       </summary>
-      <pre>{{ video.transcript }}</pre>
+      {% if transcript_blocks and video.kind.value != 'web' %}
+        <div class="transcript-body">
+          {% for block in transcript_blocks %}
+            <div class="transcript-block">
+              <a class="transcript-ts"
+                 href="{{ video.url }}{% if '?' in video.url %}&{% else %}?{% endif %}t={{ block.start_s | int }}"
+                 target="_blank" rel="noopener">{{ block.timestamp }}</a>
+              <p class="transcript-text">{{ block.text }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <pre>{{ video.transcript }}</pre>
+      {% endif %}
     </details>
   {% endif %}
 
