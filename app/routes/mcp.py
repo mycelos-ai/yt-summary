@@ -5,10 +5,12 @@ the REST API on purpose — Claude does best with a focused toolset.
 """
 
 import logging
+import os
 from typing import Any
 
 import aiosqlite
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.config import Config
 from app.services import api as api_svc
@@ -124,7 +126,23 @@ async def _tool_list_recent(
 def build_mcp_server(app_state) -> FastMCP:
     """Wire the tool functions into FastMCP, threading the FastAPI
     app.state.db / app.state.config through."""
-    mcp = FastMCP("yt-summary")
+    # FastMCP's transport-security middleware defaults to host validation
+    # with an empty allowlist (because our default host is "127.0.0.1"),
+    # which 421s every request whose Host header isn't localhost. yt-summary
+    # is a LAN tool with its own API-key auth — DNS-rebinding protection
+    # is both redundant (no key → no access) and a foot-gun (every user
+    # who hits /mcp/sse from another LAN machine sees a confusing error).
+    # Disable it by default; set YTS_MCP_DISABLE_HOST_CHECK=0 to opt into
+    # FastMCP's default behavior.
+    disable_host_check = os.environ.get(
+        "YTS_MCP_DISABLE_HOST_CHECK", "1"
+    ) != "0"
+    transport_security = (
+        TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        if disable_host_check
+        else None
+    )
+    mcp = FastMCP("yt-summary", transport_security=transport_security)
 
     @mcp.tool()
     async def submit_url(
