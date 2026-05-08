@@ -10,3 +10,12 @@ data/
 .env
 .env.local
 *.egg-info/
+
+# OS / dev artifacts that have a habit of leaking into commits
+.DS_Store
+screen.png
+Bildschirmfoto*.png
+Screenshot*.png
+
+# Local-only Claude Code session config (launch.json, settings.local.json)
+.claude/

@@ -16,6 +16,8 @@ full video is actually worth your time.
 
 Your watch-later list, but with a real cost-of-watching filter on top.
 
+![Connect your YouTube queue — guided setup page with the killer pattern explained](docs/screenshots/playlist-new.png)
+
 It also works on:
 - single YouTube URLs (the classic use case)
 - web articles (anything readable, paywalls willing)
@@ -58,6 +60,8 @@ videos to it.
 | Settings test buttons | Round-trip a real request to LLM / Whisper / embedding backend before kicking off a job |
 
 ## Provider Quick Setup
+
+![Quick Setup wizard showing six provider tiles and an 'Applied Groq preset' confirmation](docs/screenshots/quick-setup.png)
 
 The Quick Setup wizard at the top of `/settings` covers six provider
 families with curated defaults:
