@@ -351,3 +351,30 @@ async def test_summarize_empty_playlist_list_treated_as_none():
     user_msg = captured["messages"][1]["content"]
     assert "ADDED TO" not in user_msg
     assert "PLAYLIST" not in user_msg
+
+
+def test_system_prompt_demands_title_answer():
+    """When the video title asks a question or makes a promise, the
+    summary must surface the answer directly. If the speaker dodges,
+    the summary must say so."""
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language="auto", extra_instructions=None)
+    lower = p.lower()
+    # The rule lives under an explicit ANSWER THE TITLE section
+    assert "answer the title" in lower or "title" in lower
+    # Mentions both the question and promise patterns
+    assert "question" in lower
+    # Includes the dodged-question case so the LLM doesn't hide it
+    assert (
+        "dodge" in lower or "doesn't answer" in lower
+        or "side-step" in lower or "sidestep" in lower
+    )
+
+
+def test_reduce_prompt_demands_title_answer():
+    """The reduce step also needs to surface the title-answer when
+    multiple partials mention it differently."""
+    from app.services.summarizer import build_reduce_prompt
+    p = build_reduce_prompt(language="auto", extra_instructions=None)
+    lower = p.lower()
+    assert "title" in lower
