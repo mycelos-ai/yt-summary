@@ -81,3 +81,53 @@ def test_format_timestamp_total_duration_promotes_to_hours():
     H:MM:SS so all timestamps in the transcript are uniform."""
     assert format_timestamp(5.0, total_duration_s=7200.0) == "0:00:05"
     assert format_timestamp(125.0, total_duration_s=7200.0) == "0:02:05"
+
+
+def test_group_segments_speaker_marker_starts_new_block():
+    """`>>` at the start of a cue is YouTube's speaker-change marker.
+    It should always begin a fresh paragraph, even if the gap to the
+    previous cue is below the gap_s threshold. The leading `>>` is
+    stripped from the rendered text since the block break itself
+    signals the speaker change."""
+    cues = [
+        (0.0, "Welcome back."),
+        (3.0, ">> Thank you. Glad to be here."),
+        (5.0, "It's been a while."),
+    ]
+    out = group_segments(cues, gap_s=8.0)
+    assert out == [
+        {"start": 0.0, "text": "Welcome back."},
+        {"start": 3.0, "text": "Thank you. Glad to be here. It's been a while."},
+    ]
+
+
+def test_group_segments_handles_speaker_only_cue():
+    """A bare `>>` cue with no content after it shouldn't produce an
+    empty block."""
+    cues = [
+        (0.0, "Hello."),
+        (3.0, ">>"),
+        (5.0, "And we're back."),
+    ]
+    out = group_segments(cues, gap_s=8.0)
+    assert out == [
+        {"start": 0.0, "text": "Hello."},
+        {"start": 5.0, "text": "And we're back."},
+    ]
+
+
+def test_group_segments_multiple_speaker_changes():
+    """An interview with several speaker swaps produces several
+    paragraphs, regardless of timing."""
+    cues = [
+        (0.0, "Welcome back."),
+        (2.0, ">> Thank you."),
+        (3.0, ">> So my first question is..."),
+        (4.0, "What got you started?"),
+    ]
+    out = group_segments(cues, gap_s=8.0)
+    assert [b["text"] for b in out] == [
+        "Welcome back.",
+        "Thank you.",
+        "So my first question is... What got you started?",
+    ]

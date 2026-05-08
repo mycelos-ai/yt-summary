@@ -270,3 +270,64 @@ async def test_fetch_subtitles_propagates_other_4xx():
         pytest.raises(HTTPStatusError),
     ):
         await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+
+
+def test_vtt_to_segments_decodes_html_entities():
+    """YouTube wraps speaker markers `>>` as `&gt;&gt;` in their VTT.
+    The parser must unescape these, otherwise &gt;&gt; leaks into the
+    rendered transcript as literal characters."""
+    from app.services.youtube import vtt_to_segments
+    sample = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+&gt;&gt; Hello there. Don&#39;t go.
+"""
+    segs = vtt_to_segments(sample)
+    assert segs == [(0.0, ">> Hello there. Don't go.")]
+
+
+def test_vtt_to_segments_collapses_rolling_window_dupes():
+    """YouTube auto-captions emit cumulative cues. Each new cue should
+    only contribute the *new* words, not re-emit the whole window."""
+    from app.services.youtube import vtt_to_segments
+    sample = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Welcome back
+
+00:00:02.000 --> 00:00:04.000
+Welcome back to MIT.
+
+00:00:04.000 --> 00:00:06.000
+to MIT. Thank you.
+"""
+    segs = vtt_to_segments(sample)
+    starts = [s[0] for s in segs]
+    texts = [s[1] for s in segs]
+    # First cue: full opener
+    assert "Welcome back" in texts[0]
+    # Second cue: only the *new* tail "to MIT."
+    # (The first cue contained "Welcome back", so "to MIT." is the new part)
+    assert texts[1] == "to MIT."
+    # Third cue: only "Thank you." — the "to MIT." prefix is the overlap
+    assert texts[2] == "Thank you."
+    # All starts preserved
+    assert starts == [0.0, 2.0, 4.0]
+
+
+def test_vtt_to_segments_drops_fully_duplicate_repeats():
+    """When a cue has no new content compared to the previous one
+    (pure repeat without growth), drop it entirely."""
+    from app.services.youtube import vtt_to_segments
+    sample = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Hello world.
+
+00:00:02.000 --> 00:00:04.000
+Hello world.
+"""
+    segs = vtt_to_segments(sample)
+    # Only one block survives
+    assert len(segs) == 1
+    assert segs[0] == (0.0, "Hello world.")
