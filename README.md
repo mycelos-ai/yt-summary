@@ -30,11 +30,18 @@ It also works on:
 One command, no git clone, no manual editing:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
+curl -fsSL mycelos.com/yt-summary/install.sh | sh
 ```
 
-That fetches `docker-compose.yml` into `~/yt-summary/`, pulls the
-prebuilt image from GHCR, and starts the container.
+That redirects to the install script on GitHub, fetches
+`docker-compose.yml` into `~/yt-summary/`, pulls the prebuilt image
+from GHCR, and starts the container.
+
+Don't trust the redirect? Use the GitHub URL directly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
+```
 
 Prefer to read the script first?
 
@@ -46,7 +53,7 @@ sh install.sh
 Install somewhere other than `~/yt-summary` with `YTS_DIR`:
 
 ```bash
-YTS_DIR=/opt/yt-summary curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
+YTS_DIR=/opt/yt-summary curl -fsSL mycelos.com/yt-summary/install.sh | sh
 ```
 
 Open <http://localhost:8200>, click the gear icon, and either:

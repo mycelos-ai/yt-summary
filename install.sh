@@ -1,7 +1,10 @@
 #!/bin/sh
 # yt-summary one-command installer.
 #
-# Usage:
+# Usage (short, recommended):
+#   curl -fsSL mycelos.com/yt-summary/install.sh | sh
+#
+# Usage (direct, if you don't trust the redirect):
 #   curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh
 #
 # Env vars:
@@ -9,6 +12,9 @@
 
 set -eu
 
+# Internal URL pulls always hit GitHub raw directly — bypasses the
+# vanity redirect so the script keeps working even if mycelos.com is
+# briefly down, and keeps the source-of-truth obviously public.
 REPO_RAW="https://raw.githubusercontent.com/mycelos-ai/yt-summary/main"
 COMPOSE_URL="${REPO_RAW}/docker-compose.yml"
 INSTALL_DIR="${YTS_DIR:-${HOME}/yt-summary}"

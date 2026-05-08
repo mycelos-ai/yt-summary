@@ -25,8 +25,11 @@ export const fonts = {
 /** Repo URL shown in the outro. */
 export const REPO_URL = "github.com/mycelos-ai/yt-summary";
 
-/** One-command installer shown in the outro panel. Kept short by
- *  splitting the pipe onto two lines so it fits at readable size on
- *  1920×1080 without horizontal cramping. */
+/** One-command installer shown in the outro panel.
+ *
+ *  Uses the mycelos.com vanity domain (302-redirected to the GitHub
+ *  raw URL) for brevity and brand consistency in the video. The
+ *  underlying script and repo stay public at github.com/mycelos-ai/
+ *  yt-summary — mycelos.com is just a comfort entry point. */
 export const INSTALL_CMD =
-  "curl -fsSL https://raw.githubusercontent.com/mycelos-ai/yt-summary/main/install.sh | sh";
+  "curl -fsSL mycelos.com/yt-summary/install.sh | sh";
