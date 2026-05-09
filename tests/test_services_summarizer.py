@@ -239,18 +239,25 @@ def test_reduce_prompt_demands_specificity():
     assert "announce" in lower
 
 
-def test_system_prompt_frames_viewer_decision():
-    """The opening frame should plant the 'help me decide whether to
-    watch' job in the LLM's head — that's the actual user intent."""
+def test_system_prompt_frames_viewer_already_committed():
+    """The opening frame should anchor the LLM in the actual user intent:
+    the reader has already decided the video is interesting, they just
+    want to skip watching it. NOT a 'should I watch this?' decision."""
     from app.services.summarizer import build_system_prompt
     p = build_system_prompt(language="auto", extra_instructions=None)
     # Frame-setting headline is intentionally caps-styled like the
     # other section headers in the prompt.
     assert "THINK LIKE THE VIEWER" in p
-    # Anti-hype signal — verifies "report it, don't sell it" is present
-    # so a future edit doesn't accidentally turn the tool into a hype
-    # machine.
-    assert "don't sell" in p.lower() or "do not sell" in p.lower()
+    # The committed-reader frame: the user has already decided the video
+    # is interesting. Verifies the core stance, so a future edit doesn't
+    # accidentally drift back to a "help me decide" frame.
+    lower = p.lower()
+    assert "already decided" in lower
+    assert "saving" in lower and "time" in lower
+    # The link to the inline-timestamps feature must be in the frame —
+    # the timestamps are how we point the reader at moments worth
+    # watching anyway.
+    assert "timestamp" in lower
 
 
 def test_system_prompt_marks_optional_sections_skip_silently():
