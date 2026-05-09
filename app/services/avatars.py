@@ -31,12 +31,15 @@ class Avatar:
 
 # Pastel palette used across the library. Centralised so theme tweaks
 # stay coherent — change `_BLUE` once and every Scientist re-skins.
-_BLUE   = "#e7f1fa"  # cool, scientific
-_GREY   = "#f0f0f1"  # neutral, urban (tech reviewer)
-_PEACH  = "#fdebd0"  # warm, outdoorsy (athlete / cars)
-_SAGE   = "#ebf2e3"  # earthy (explorer / researcher)
-_LILAC  = "#ebe7f3"  # creative, gaming
-_CREAM  = "#fef0db"  # warm yellow (maker / dino)
+# These are tuned to be ~25% more saturated than soft pastel so they
+# stay visible on big screens (5K monitors absorb very-pale tints
+# into the surrounding white) without becoming aggressive.
+_BLUE   = "#c5dff2"  # cool, scientific
+_GREY   = "#dcdce0"  # neutral, urban (tech reviewer)
+_PEACH  = "#fdd9a8"  # warm, outdoorsy (athlete / cars)
+_SAGE   = "#d3e3c0"  # earthy (explorer / researcher)
+_LILAC  = "#d4cae8"  # creative, gaming
+_CREAM  = "#fde0b3"  # warm yellow (maker / dino)
 
 
 AVATARS: list[Avatar] = [

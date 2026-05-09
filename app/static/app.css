@@ -839,7 +839,7 @@ summary.section-heading {
    without re-rendering, and dark-mode / brand changes only need a
    CSS tweak — not 24 PNG re-exports. */
 .profile-avatar {
-  --avatar-bg: #e7f1fa;  /* default soft blue if no per-avatar value */
+  --avatar-bg: #c5dff2;  /* default soft blue if no per-avatar value */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -848,14 +848,32 @@ summary.section-heading {
   border-radius: 50%;
   overflow: hidden;
   vertical-align: middle;
+  /* Subtle lift so the avatar feels like it sits on the page rather
+     than being absorbed into the background. Stays gentle on light
+     surfaces, invisible on already-dark surfaces. */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 .profile-avatar--emoji {
   /* Emoji has no PNG behind it, so neutral background. */
   background: var(--surface, #f6f6f6);
 }
-.profile-avatar--small  { width: 28px; height: 28px; }
-.profile-avatar--medium { width: 40px; height: 40px; }
-.profile-avatar--large  { width: 120px; height: 120px; }
+/* Sizing uses clamp() so the avatar scales with viewport width:
+   readable on a Pi-attached small screen, properly sized on a
+   5K monitor, but never absurd in either direction. The middle
+   value is `Nvw` — N% of viewport width — and the min/max cap
+   the extremes. */
+.profile-avatar--small  {
+  width:  clamp(32px, 1.4vw, 48px);
+  height: clamp(32px, 1.4vw, 48px);
+}
+.profile-avatar--medium {
+  width:  clamp(40px, 2vw, 64px);
+  height: clamp(40px, 2vw, 64px);
+}
+.profile-avatar--large  {
+  width:  clamp(120px, 8vw, 200px);
+  height: clamp(120px, 8vw, 200px);
+}
 .profile-avatar--image img {
   /* Image sits inside the pastel circle with breathing room — the
      line-art is roughly 78% of the avatar element so the colored
@@ -867,11 +885,15 @@ summary.section-heading {
   display: block;
 }
 .profile-avatar--emoji .profile-avatar-emoji {
-  font-size: 18px;
+  font-size: clamp(20px, 1vw, 32px);
   line-height: 1;
 }
-.profile-avatar--small.profile-avatar--emoji .profile-avatar-emoji  { font-size: 16px; }
-.profile-avatar--large.profile-avatar--emoji .profile-avatar-emoji  { font-size: 64px; }
+.profile-avatar--small.profile-avatar--emoji .profile-avatar-emoji  {
+  font-size: clamp(16px, 0.8vw, 24px);
+}
+.profile-avatar--large.profile-avatar--emoji .profile-avatar-emoji  {
+  font-size: clamp(64px, 4vw, 100px);
+}
 .settings-hint-inline {
   font-weight: 400;
   color: var(--steel);
