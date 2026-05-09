@@ -17,6 +17,14 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         segments_raw = row["transcript_segments"]
     except (IndexError, KeyError):
         segments_raw = None
+    try:
+        user_id = row["user_id"]
+    except (IndexError, KeyError):
+        user_id = 1
+    try:
+        youtube_id = row["youtube_id"]
+    except (IndexError, KeyError):
+        youtube_id = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -32,6 +40,8 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         updated_at=datetime.fromisoformat(row["updated_at"]),
         kind=VideoKind(kind_raw) if kind_raw else VideoKind.YOUTUBE,
         transcript_segments=segments_raw,
+        user_id=user_id,
+        youtube_id=youtube_id,
     )
 
 
@@ -46,25 +56,27 @@ async def upsert_metadata(
     duration_seconds: int | None,
     user_id: int = 1,
     kind: VideoKind = VideoKind.YOUTUBE,
+    youtube_id: str | None = None,
 ) -> None:
     await db.execute(
         """
         INSERT INTO videos (
             id, user_id, kind, url, title, description,
-            thumbnail_path, duration_seconds
+            thumbnail_path, duration_seconds, youtube_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url=excluded.url,
             title=excluded.title,
             description=excluded.description,
             thumbnail_path=COALESCE(excluded.thumbnail_path, videos.thumbnail_path),
             duration_seconds=COALESCE(excluded.duration_seconds, videos.duration_seconds),
+            youtube_id=COALESCE(excluded.youtube_id, videos.youtube_id),
             updated_at=datetime('now')
         """,
         (
             video_id, user_id, kind.value, url, title, description,
-            thumbnail_path, duration_seconds,
+            thumbnail_path, duration_seconds, youtube_id,
         ),
     )
     await db.commit()
@@ -146,18 +158,20 @@ async def list_recent(
     *,
     tag: str | None = None,
     offset: int = 0,
+    user_id: int = 1,
 ) -> list[Video]:
     if tag:
         cursor = await db.execute(
-            "SELECT * FROM videos WHERE 1=1"
+            "SELECT * FROM videos WHERE user_id = ?"
             + _TAG_FILTER_SQL
             + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
-            (tag, limit, offset),
+            (user_id, tag, limit, offset),
         )
     else:
         cursor = await db.execute(
-            "SELECT * FROM videos ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            "SELECT * FROM videos WHERE user_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
         )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]
@@ -175,6 +189,7 @@ async def search_fts(
     limit: int = 50,
     *,
     tag: str | None = None,
+    user_id: int = 1,
 ) -> list[str]:
     """Return video ids ranked by FTS5 relevance to `query`."""
     if tag:
@@ -183,6 +198,7 @@ async def search_fts(
             SELECT v.id FROM videos v
             JOIN videos_fts f ON v.rowid = f.rowid
             WHERE videos_fts MATCH ?
+              AND v.user_id = ?
               AND EXISTS (
                 SELECT 1 FROM video_tags vt
                 JOIN tags t ON t.id = vt.tag_id
@@ -191,18 +207,18 @@ async def search_fts(
             ORDER BY rank
             LIMIT ?
             """,
-            (_quote_fts_query(query), tag, limit),
+            (_quote_fts_query(query), user_id, tag, limit),
         )
     else:
         cursor = await db.execute(
             """
             SELECT v.id FROM videos v
             JOIN videos_fts f ON v.rowid = f.rowid
-            WHERE videos_fts MATCH ?
+            WHERE videos_fts MATCH ? AND v.user_id = ?
             ORDER BY rank
             LIMIT ?
             """,
-            (_quote_fts_query(query), limit),
+            (_quote_fts_query(query), user_id, limit),
         )
     rows = await cursor.fetchall()
     return [row[0] for row in rows]
@@ -246,32 +262,52 @@ async def search(
     *,
     tag: str | None = None,
     vector_ids: list[str] | None = None,
+    user_id: int = 1,
 ) -> list[Video]:
     """Hybrid search: FTS5 + optional pre-computed vector ranking.
 
     The route layer is responsible for embedding the query and passing
     `vector_ids` (id list ordered most-similar-first). When `vector_ids`
-    is None or empty, the result is the FTS-only ranking.
+    is None or empty, the result is the FTS-only ranking. Results are
+    always scoped to `user_id`.
     """
-    fts_ids = await search_fts(db, query, limit=limit, tag=tag)
+    fts_ids = await search_fts(
+        db, query, limit=limit, tag=tag, user_id=user_id
+    )
 
     if vector_ids:
+        # The vector index is global (not partitioned by user), so we
+        # have to intersect against the current profile's video set.
+        if vector_ids:
+            placeholders = ",".join("?" * len(vector_ids))
+            user_cursor = await db.execute(
+                f"SELECT id FROM videos WHERE user_id = ? "
+                f"AND id IN ({placeholders})",
+                (user_id, *vector_ids),
+            )
+            allowed_user = {r[0] for r in await user_cursor.fetchall()}
+            vector_ids = [vid for vid in vector_ids if vid in allowed_user]
+
         if tag:
             allowed = set(fts_ids)  # FTS already filtered by tag
             # vector path didn't see the tag; intersect by id existence.
             # Cheaper: query video_tags directly to filter.
-            tag_cursor = await db.execute(
-                """
-                SELECT v.id FROM videos v
-                WHERE v.id IN ({}) AND EXISTS (
-                    SELECT 1 FROM video_tags vt
-                    JOIN tags t ON t.id = vt.tag_id
-                    WHERE vt.video_id = v.id AND t.name = ? COLLATE NOCASE
+            if vector_ids:
+                placeholders = ",".join("?" * len(vector_ids))
+                tag_cursor = await db.execute(
+                    f"""
+                    SELECT v.id FROM videos v
+                    WHERE v.id IN ({placeholders}) AND EXISTS (
+                        SELECT 1 FROM video_tags vt
+                        JOIN tags t ON t.id = vt.tag_id
+                        WHERE vt.video_id = v.id AND t.name = ? COLLATE NOCASE
+                    )
+                    """,
+                    (*vector_ids, tag),
                 )
-                """.format(",".join("?" * len(vector_ids))),
-                (*vector_ids, tag),
-            )
-            tag_ok = {r[0] for r in await tag_cursor.fetchall()}
+                tag_ok = {r[0] for r in await tag_cursor.fetchall()}
+            else:
+                tag_ok = set()
             vec_filtered = [vid for vid in vector_ids if vid in tag_ok]
             # Still keep FTS hits even if not in vector results.
             fused = reciprocal_rank_fuse(fts_ids, vec_filtered)
@@ -286,3 +322,56 @@ async def search(
     by_id = await get_many(db, fused)
     # Preserve the fused order (get_many returns unordered dict).
     return [by_id[vid] for vid in fused if vid in by_id]
+
+
+async def find_other_with_transcript(
+    db: aiosqlite.Connection,
+    *,
+    youtube_id: str,
+    exclude_user_id: int,
+) -> Video | None:
+    """Return any other profile's row for the same YouTube video that
+    already has a transcript stored. Used by the pipeline to skip
+    Whisper when a household member transcribed the same video first.
+
+    Returns the most-recently-updated match so we get the freshest
+    self-healing transcript (e.g. one that already has segments).
+    """
+    cursor = await db.execute(
+        """
+        SELECT * FROM videos
+        WHERE youtube_id = ?
+          AND user_id != ?
+          AND transcript IS NOT NULL
+          AND transcript != ''
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (youtube_id, exclude_user_id),
+    )
+    row = await cursor.fetchone()
+    return _row_to_video(row) if row else None
+
+
+async def find_other_with_transcript_by_url(
+    db: aiosqlite.Connection,
+    *,
+    url: str,
+    exclude_user_id: int,
+) -> Video | None:
+    """Same as find_other_with_transcript but matches by URL (web
+    articles share by URL since they have no youtube_id)."""
+    cursor = await db.execute(
+        """
+        SELECT * FROM videos
+        WHERE url = ?
+          AND user_id != ?
+          AND transcript IS NOT NULL
+          AND transcript != ''
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (url, exclude_user_id),
+    )
+    row = await cursor.fetchone()
+    return _row_to_video(row) if row else None

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from markupsafe import escape
 
-from app.main import get_db
+from app.main import get_current_user_id, get_db
 from app.repos import chat as chat_repo
 from app.repos import settings as settings_repo
 from app.repos import videos as videos_repo
@@ -43,9 +43,12 @@ async def post_chat(
     video_id: str,
     content: str = Form(...),
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     video = await videos_repo.get(db, video_id)
     if video is None or video.transcript is None:
+        raise HTTPException(404, "Video or transcript not found")
+    if video.user_id != current_user_id:
         raise HTTPException(404, "Video or transcript not found")
     settings = await settings_repo.get_all(db)
     model = settings.get("llm_model")
@@ -54,7 +57,9 @@ async def post_chat(
     api_key = settings.get("llm_api_key") or ""
 
     history = await chat_repo.history(db, video_id)
-    await chat_repo.append(db, video_id, "user", content)
+    await chat_repo.append(
+        db, video_id, "user", content, user_id=current_user_id
+    )
 
     collected: list[str] = []
     error: str | None = None
@@ -73,7 +78,9 @@ async def post_chat(
 
     answer = "".join(collected)
     await chat_repo.append(
-        db, video_id, "assistant", answer if answer else f"[error: {error}]"
+        db, video_id, "assistant",
+        answer if answer else f"[error: {error}]",
+        user_id=current_user_id,
     )
 
     parts = [_msg_html("user", content)]

@@ -31,7 +31,8 @@ def test_post_videos_async_returns_pending(tmp_path, monkeypatch):
         )
     assert resp.status_code == 202
     body = resp.json()
-    assert body["video_id"] == "apivid12345"
+    # Composite id under the household admin (id=1)
+    assert body["video_id"] == "1:apivid12345"
     assert body["summary_ready"] is False
     assert body["kind"] == "youtube"
 

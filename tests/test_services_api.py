@@ -64,7 +64,8 @@ async def test_submit_video_async_returns_pending(db, tmp_path):
             db, config, url="https://youtu.be/newvid12345",
             user_id=1, wait=False, wait_timeout=0,
         )
-    assert result["id"] == "newvid12345"
+    # Composite id under the seeded admin (user 1)
+    assert result["id"] == "1:newvid12345"
     assert result["summary_ready"] is False
     assert result["kind"] == "youtube"
 

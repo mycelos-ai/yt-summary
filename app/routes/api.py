@@ -84,6 +84,7 @@ async def api_list_videos(
 ):
     videos = await api_svc.list_videos(
         db, limit=limit, offset=offset, tag=tag, playlist_id=playlist_id,
+        user_id=user_id,
     )
     return {"videos": videos}
 
@@ -196,7 +197,9 @@ async def api_search(
     user_id: int = Depends(current_user),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    hits = await api_svc.search_videos(db, q, limit=limit, tag=tag)
+    hits = await api_svc.search_videos(
+        db, q, limit=limit, tag=tag, user_id=user_id
+    )
     return {"hits": hits}
 
 

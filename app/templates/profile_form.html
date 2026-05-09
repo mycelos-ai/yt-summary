@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}{% if profile %}Edit profile{% else %}New profile{% endif %} — yt-summary{% endblock %}
+{% block content %}
+<div class="profile-form-page">
+  <h1>{% if profile %}Edit profile{% else %}New profile{% endif %}</h1>
+
+  <form method="post" action="{{ form_action }}" class="profile-form" x-data="{ emoji: '{{ (profile.avatar_emoji if profile else '👤')|e }}' }">
+    <label class="profile-form-field">
+      <span class="profile-form-label">Avatar</span>
+      <div class="profile-form-emoji-row">
+        <span class="profile-form-emoji-preview" x-text="emoji"></span>
+        <input name="avatar_emoji" type="text" maxlength="8"
+               x-model="emoji"
+               placeholder="👤"
+               class="profile-form-emoji-input">
+      </div>
+      <small>Pick any single emoji or short string. The dropdown and profile picker show this in front of the name.</small>
+      <div class="profile-form-emoji-suggest">
+        {% for e in ['👤','🦊','🐼','🐉','🐱','🐶','🦁','🐯','🐰','🐸','🐢','🐙','🦄','🌸','🌟','🍕','🎮','🎧','🎬','📚','🚀','🪐','🌈','🔥'] %}
+          <button type="button" class="profile-form-emoji-pick" x-on:click="emoji = '{{ e }}'">{{ e }}</button>
+        {% endfor %}
+      </div>
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Name</span>
+      <input name="name" type="text" required maxlength="50"
+             value="{{ profile.name if profile else '' }}"
+             placeholder="e.g. Stefan, Kids, Work">
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Summarizer prompt</span>
+      <textarea name="custom_summary_prompt" rows="14"
+                placeholder="Submit empty to reset to the standard prompt.">{{ profile.custom_summary_prompt if profile and profile.custom_summary_prompt else '' }}</textarea>
+      <small>
+        This is the system prompt the LLM gets when summarizing videos in this profile.
+        {% if profile %}
+          Edit freely — change tone, add audience-specific instructions ("explain like for a 9-year-old"), add format rules.
+          Submitting an empty value resets it to the standard prompt.
+        {% else %}
+          New profiles start with a copy of the active profile's prompt; you can edit it now or later.
+        {% endif %}
+      </small>
+    </label>
+
+    <div class="profile-form-actions">
+      <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
+      <a href="/profiles" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<style>
+  .profile-form-page {
+    max-width: 640px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+  .profile-form-page h1 {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+  .profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .profile-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .profile-form-label {
+    font-weight: 500;
+    font-size: 14px;
+  }
+  .profile-form-hint {
+    color: var(--steel, #666);
+    font-weight: 400;
+  }
+  .profile-form-field input[type="text"],
+  .profile-form-field textarea {
+    padding: 8px 12px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    font: inherit;
+    background: var(--canvas, #fff);
+  }
+  .profile-form-field textarea {
+    font-family: var(--mono, "Geist Mono", monospace);
+    resize: vertical;
+  }
+  .profile-form-emoji-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .profile-form-emoji-preview {
+    font-size: 48px;
+    line-height: 1;
+    width: 64px;
+    height: 64px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-md, 12px);
+    background: var(--surface, #f6f6f6);
+  }
+  .profile-form-emoji-input {
+    flex: 1;
+    max-width: 200px;
+  }
+  .profile-form-emoji-suggest {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .profile-form-emoji-pick {
+    background: none;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    padding: 4px 8px;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  .profile-form-emoji-pick:hover {
+    background: var(--surface, #f6f6f6);
+  }
+  .profile-form-actions {
+    display: flex;
+    gap: 10px;
+  }
+</style>
+{% endblock %}

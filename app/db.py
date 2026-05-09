@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS videos (
     summary TEXT,
     summary_model TEXT,
     summary_embedded_at TEXT,
+    -- Bare YouTube id (the 11-char slug from the URL). Stored separately
+    -- from `id` so we can dedupe imports across profiles: when user A
+    -- already transcribed YouTube video X, user B can reuse that
+    -- transcript instead of re-running Whisper. NULL for web articles —
+    -- they dedupe by `url` instead.
+    youtube_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -102,8 +108,17 @@ CREATE TABLE IF NOT EXISTS users (
     api_key_hash TEXT,
     api_key_prefix TEXT,
     api_key_created_at TEXT,
+    -- Profile-specific cosmetic + behaviour fields. avatar_emoji is the
+    -- header-dropdown / picker tile glyph; custom_summary_prompt
+    -- (NULL = use the standard summarizer prompt) lets each profile
+    -- tweak how summaries are written without affecting other profiles.
+    avatar_emoji TEXT NOT NULL DEFAULT '👤',
+    custom_summary_prompt TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_videos_youtube_user
+    ON videos(youtube_id, user_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
     video_id TEXT PRIMARY KEY,
@@ -180,6 +195,19 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             await conn.execute(
                 "ALTER TABLE videos ADD COLUMN transcript_segments TEXT"
             )
+        if "youtube_id" not in video_cols:
+            # Multi-profile (V5) migration: split the bare YouTube id off
+            # from `videos.id` so we can dedupe transcripts across
+            # profiles. Old rows had id == youtube_id (single user only),
+            # so backfill that. Web rows already have id like
+            # 'web-abc...' which we leave NULL — web dedup uses URL.
+            await conn.execute(
+                "ALTER TABLE videos ADD COLUMN youtube_id TEXT"
+            )
+            await conn.execute(
+                "UPDATE videos SET youtube_id = id "
+                "WHERE youtube_id IS NULL AND kind = 'youtube'"
+            )
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
@@ -194,6 +222,34 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 "ALTER TABLE chat_messages"
                 " ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))"
             )
+
+    if await _table_exists(conn, "users"):
+        # V5: per-profile cosmetic + behaviour fields.
+        user_cols = await _table_columns(conn, "users")
+        if "avatar_emoji" not in user_cols:
+            await conn.execute(
+                "ALTER TABLE users ADD COLUMN avatar_emoji TEXT NOT NULL "
+                "DEFAULT '👤'"
+            )
+        if "custom_summary_prompt" not in user_cols:
+            await conn.execute(
+                "ALTER TABLE users ADD COLUMN custom_summary_prompt TEXT"
+            )
+
+        # Seed the standard summarizer prompt onto every existing
+        # profile. After this migration runs, every user has a
+        # concrete prompt stored — the runtime no longer falls back
+        # to a hardcoded default. Idempotent: only NULL rows get
+        # touched, so re-running this migration (e.g. after a code
+        # update that tweaks the standard prompt) does NOT clobber
+        # any user-edited prompts.
+        from app.services.summarizer import build_system_prompt
+        seed_prompt = build_system_prompt(language=None)
+        await conn.execute(
+            "UPDATE users SET custom_summary_prompt = ? "
+            "WHERE custom_summary_prompt IS NULL",
+            (seed_prompt,),
+        )
 
     if await _table_exists(conn, "settings"):
         # Settings: PK migration. SQLite cannot change a PK in place, so we

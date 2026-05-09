@@ -54,7 +54,10 @@ def test_post_videos_browser_redirects_to_detail(tmp_path, monkeypatch):
             follow_redirects=False,
         )
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/v/xyz98765432"
+    # New imports use composite ids `{user_id}:{youtube_id}` so the
+    # same video can live in multiple profiles' libraries without
+    # colliding on videos.id.
+    assert resp.headers["location"] == "/v/1:xyz98765432"
 
 
 def test_post_videos_invalid_url_renders_error_page(tmp_path, monkeypatch):
@@ -470,7 +473,8 @@ def test_post_videos_persists_tags(tmp_path, monkeypatch):
 
         async def check():
             from app.repos import tags as tags_repo
-            tags = await tags_repo.tags_for_video(app.state.db, "taggedvid01")
+            # Composite id under the default profile (id=1)
+            tags = await tags_repo.tags_for_video(app.state.db, "1:taggedvid01")
             assert sorted(tags) == ["fastapi", "python", "tutorial"]
 
         asyncio.get_event_loop().run_until_complete(check())
@@ -527,7 +531,8 @@ def test_post_videos_with_web_url_creates_web_kind(tmp_path, monkeypatch):
         )
         assert resp.status_code == 303
         location = resp.headers["location"]
-        assert location.startswith("/v/web-")
+        # Composite id: `{user_id}:web-…` for new web imports
+        assert location.startswith("/v/1:web-")
 
         import asyncio
         async def check():

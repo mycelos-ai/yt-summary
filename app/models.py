@@ -45,6 +45,12 @@ class Video:
     # YouTube videos transcribed via Whisper or VTT have segments;
     # web articles + older Whisper rows have None.
     transcript_segments: str | None = None
+    # Owning profile (multi-profile feature). All existing rows on
+    # pre-V5 installs default to user_id=1 via the schema migration.
+    user_id: int = 1
+    # Bare 11-char YouTube id (separate from `id` so we can dedupe
+    # transcripts across profiles). NULL for web articles.
+    youtube_id: str | None = None
 
 
 @dataclass
@@ -87,3 +93,8 @@ class User:
     api_key_prefix: str | None
     api_key_created_at: datetime | None
     created_at: datetime
+    # Profile-specific fields. avatar_emoji is the header / picker glyph.
+    # custom_summary_prompt overrides the standard summarizer system
+    # prompt for this profile (None → use the standard prompt).
+    avatar_emoji: str = "👤"
+    custom_summary_prompt: str | None = None

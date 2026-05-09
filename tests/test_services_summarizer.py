@@ -152,7 +152,7 @@ async def test_summarize_does_not_call_on_partial_in_single_shot():
 
 def test_build_system_prompt_with_auto_language():
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     assert "match the transcript" in p
     assert "TL;DR" in p
     assert "Mentioned resources" in p
@@ -161,28 +161,39 @@ def test_build_system_prompt_with_auto_language():
 
 def test_build_system_prompt_with_explicit_language():
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="de", extra_instructions=None)
+    p = build_system_prompt(language="de")
     assert "German" in p
 
 
-def test_build_system_prompt_with_extra_instructions():
+def test_build_system_prompt_with_custom_system_prompt_replaces_body():
+    """Per-profile custom prompts replace the entire instructions
+    block — only the language directive and the timestamp-format
+    instruction stay wrapped around them."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(
-        language=None, extra_instructions="Keep it under 200 words."
-    )
-    assert "ADDITIONAL USER INSTRUCTIONS" in p
-    assert "Keep it under 200 words." in p
+    custom = "You are a pirate. Summarize like a pirate."
+    p = build_system_prompt(language="en", custom_system_prompt=custom)
+    assert custom in p
+    # Standard body sections must NOT appear when a custom prompt
+    # takes over.
+    assert "TL;DR" not in p
+    assert "THINK LIKE THE VIEWER" not in p
+    # Language directive still wraps it.
+    assert "English" in p
 
 
-def test_build_system_prompt_omits_extra_block_when_empty():
+def test_build_system_prompt_falls_back_to_standard_when_no_custom():
+    """When no custom prompt is given, the standard body is used —
+    relevant for the boot path before the migration seeded prompts
+    onto every profile."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language=None, extra_instructions="   ")
-    assert "ADDITIONAL USER INSTRUCTIONS" not in p
+    p = build_system_prompt(language=None)
+    assert "TL;DR" in p
+    assert "THINK LIKE THE VIEWER" in p
 
 
 def test_build_reduce_prompt_includes_language_and_resources():
     from app.services.summarizer import build_reduce_prompt
-    p = build_reduce_prompt(language="en", extra_instructions=None)
+    p = build_reduce_prompt(language="en")
     assert "English" in p
     assert "Mentioned resources" in p
 
@@ -222,7 +233,7 @@ def test_system_prompt_demands_specificity():
     """Generic LinkedIn-style summaries are the failure mode. The
     prompt must explicitly demand concrete names / numbers / quotes."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     lower = p.lower()
     assert "specific" in lower or "concrete" in lower
     # Must explicitly call out announcements as a target
@@ -233,7 +244,7 @@ def test_system_prompt_demands_specificity():
 
 def test_reduce_prompt_demands_specificity():
     from app.services.summarizer import build_reduce_prompt
-    p = build_reduce_prompt(language="auto", extra_instructions=None)
+    p = build_reduce_prompt(language="auto")
     lower = p.lower()
     assert "specific" in lower or "concrete" in lower
     assert "announce" in lower
@@ -244,7 +255,7 @@ def test_system_prompt_frames_viewer_already_committed():
     the reader has already decided the video is interesting, they just
     want to skip watching it. NOT a 'should I watch this?' decision."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     # Frame-setting headline is intentionally caps-styled like the
     # other section headers in the prompt.
     assert "THINK LIKE THE VIEWER" in p
@@ -265,7 +276,7 @@ def test_system_prompt_marks_optional_sections_skip_silently():
     without the LLM writing acknowledgment sentences. This prevents
     'No product launches were announced' filler on educational videos."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     lower = p.lower()
     # "Skip silently" or equivalent must appear so the LLM knows not
     # to render a placeholder when there's nothing to say.
@@ -277,7 +288,7 @@ def test_system_prompt_marks_optional_sections_skip_silently():
 
 def test_reduce_prompt_marks_optional_sections_skip_silently():
     from app.services.summarizer import build_reduce_prompt
-    p = build_reduce_prompt(language="auto", extra_instructions=None)
+    p = build_reduce_prompt(language="auto")
     lower = p.lower()
     assert "skip silently" in lower or "skip silent" in lower
     assert "**Specifics**" in p
@@ -402,7 +413,7 @@ def test_system_prompt_demands_title_answer():
     summary must surface the answer directly. If the speaker dodges,
     the summary must say so."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     lower = p.lower()
     # The rule lives under an explicit ANSWER THE TITLE section
     assert "answer the title" in lower or "title" in lower
@@ -419,7 +430,7 @@ def test_reduce_prompt_demands_title_answer():
     """The reduce step also needs to surface the title-answer when
     multiple partials mention it differently."""
     from app.services.summarizer import build_reduce_prompt
-    p = build_reduce_prompt(language="auto", extra_instructions=None)
+    p = build_reduce_prompt(language="auto")
     lower = p.lower()
     assert "title" in lower
 
@@ -436,7 +447,6 @@ def test_build_system_prompt_includes_timestamp_instruction_when_segments_presen
     from app.services.summarizer import build_system_prompt
     p = build_system_prompt(
         language="auto",
-        extra_instructions=None,
         with_timestamps=True,
     )
     # The exact format pattern the LLM must emit
@@ -454,7 +464,6 @@ def test_build_system_prompt_omits_timestamp_instruction_by_default():
     from app.services.summarizer import build_system_prompt
     p = build_system_prompt(
         language="auto",
-        extra_instructions=None,
         with_timestamps=False,
     )
     assert "(#t=SECONDS)" not in p
@@ -465,7 +474,7 @@ def test_build_system_prompt_default_with_timestamps_is_off():
     """The new with_timestamps kwarg must default to False so existing
     callers that don't pass segments stay silent on the topic."""
     from app.services.summarizer import build_system_prompt
-    p = build_system_prompt(language="auto", extra_instructions=None)
+    p = build_system_prompt(language="auto")
     assert "(#t=SECONDS)" not in p
 
 

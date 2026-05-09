@@ -104,12 +104,15 @@ async def list_videos(
     *,
     tag: str | None = None,
     playlist_id: str | None = None,
+    user_id: int = 1,
 ) -> list[VideoResource]:
     if playlist_id:
         videos = await playlists_repo.videos_for_playlist(db, playlist_id)
         videos = videos[offset : offset + limit]
     else:
-        videos = await videos_repo.list_recent(db, limit=limit + offset, tag=tag)
+        videos = await videos_repo.list_recent(
+            db, limit=limit + offset, tag=tag, user_id=user_id
+        )
         videos = videos[offset : offset + limit]
     if not videos:
         return []
@@ -148,12 +151,13 @@ async def submit_video(
 
     if classify_url(url) == "youtube":
         meta = await fetch_metadata(url, cookies_path=cookies)
-        thumb_target = config.thumbnails_dir / f"{meta.id}.jpg"
+        item_id = f"{user_id}:{meta.id}"
+        thumb_target = config.thumbnails_dir / f"{item_id}.jpg"
         await download_thumbnail(meta.thumbnail_url, thumb_target)
         thumb_db_path = str(thumb_target) if thumb_target.exists() else None
         await videos_repo.upsert_metadata(
             db,
-            video_id=meta.id,
+            video_id=item_id,
             url=meta.url,
             title=meta.title,
             description=meta.description,
@@ -161,14 +165,15 @@ async def submit_video(
             duration_seconds=meta.duration_seconds,
             user_id=user_id,
             kind=VideoKind.YOUTUBE,
+            youtube_id=meta.id,
         )
         if meta.tags:
-            await _tags_repo.set_tags_for_video(db, meta.id, list(meta.tags))
-        await jobs_repo.enqueue(db, meta.id)
-        item_id = meta.id
+            await _tags_repo.set_tags_for_video(db, item_id, list(meta.tags))
+        await jobs_repo.enqueue(db, item_id)
     else:
         article = await fetch_article(url)
-        item_id = web_id_from_url(article.url)
+        base_id = web_id_from_url(article.url)
+        item_id = f"{user_id}:{base_id}"
         thumb_target = config.thumbnails_dir / f"{item_id}.jpg"
         thumb_db_path: str | None = None
         if article.thumbnail_url:
@@ -222,11 +227,14 @@ async def search_videos(
     limit: int = 20,
     *,
     tag: str | None = None,
+    user_id: int = 1,
 ) -> list[VideoResource]:
     """FTS-only search (the route layer is responsible for fusing in
     embeddings if it has the embedding service available, see
     routes/home.py for the pattern)."""
-    videos = await videos_repo.search(db, query, limit=limit, tag=tag)
+    videos = await videos_repo.search(
+        db, query, limit=limit, tag=tag, user_id=user_id
+    )
     if not videos:
         return []
     ids = [v.id for v in videos]

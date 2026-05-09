@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.main import get_db
+from app.main import get_current_user, get_current_user_id, get_db
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
@@ -63,19 +63,24 @@ async def home(
     q: str | None = None,
     tag: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     tag = tag.strip() if tag else None
     if q:
         # Search results aren't paginated — they're already capped at
         # the search ranker's limit and tend to be small.
         vector_ids = await _vector_ids_for_query(db, q)
-        videos = await videos_repo.search(db, q, tag=tag, vector_ids=vector_ids)
+        videos = await videos_repo.search(
+            db, q, tag=tag, vector_ids=vector_ids, user_id=current_user_id
+        )
         has_more_videos = False
     else:
         # +1 trick: ask for one extra row so we can tell whether there's
         # another batch behind this one without a separate COUNT query.
         rows = await videos_repo.list_recent(
-            db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag
+            db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag,
+            user_id=current_user_id,
         )
         has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
         videos = rows[:HOME_VIDEO_PAGE_SIZE]
@@ -83,7 +88,7 @@ async def home(
     # Same +1 trick for playlists: limit to 5 on home, but ask for 6
     # so the template knows whether to show the "More →" link.
     playlists_plus_one = await playlists_repo.list_for_user(
-        db, 1, limit=HOME_PLAYLIST_LIMIT + 1
+        db, current_user_id, limit=HOME_PLAYLIST_LIMIT + 1
     )
     has_more_playlists = len(playlists_plus_one) > HOME_PLAYLIST_LIMIT
     playlists = playlists_plus_one[:HOME_PLAYLIST_LIMIT]
@@ -104,6 +109,7 @@ async def home(
             "has_more_videos": has_more_videos,
             "has_more_playlists": has_more_playlists,
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
+            "current_user": current_user,
         },
     )
 
@@ -114,6 +120,7 @@ async def load_more_videos(
     offset: int = 0,
     tag: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """Return the next page of video cards as an HTML fragment.
 
@@ -127,7 +134,8 @@ async def load_more_videos(
     tag = tag.strip() if tag else None
     offset = max(0, offset)
     rows = await videos_repo.list_recent(
-        db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag, offset=offset
+        db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag, offset=offset,
+        user_id=current_user_id,
     )
     has_more = len(rows) > HOME_VIDEO_PAGE_SIZE
     videos = rows[:HOME_VIDEO_PAGE_SIZE]

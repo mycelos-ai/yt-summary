@@ -7,11 +7,12 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import Config
-from app.models import TranscriptSource, VideoKind
+from app.models import TranscriptSource, Video, VideoKind
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
+from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
 from app.services.reader import fetch_article
@@ -63,7 +64,39 @@ async def process_video(
         )
     )
     if needs_fetch:
-        if video.kind == VideoKind.WEB:
+        # Cross-profile transcript reuse: if another profile in this
+        # household already transcribed the same YouTube video (or
+        # fetched the same article), copy the transcript over instead
+        # of running Whisper / yt-dlp again. Saves both wall-clock
+        # time (Whisper on Pi5 is slow) and API cost (Groq Whisper
+        # would re-bill). Each profile still summarises with its own
+        # custom prompt — only the underlying transcript is shared.
+        donor: Video | None = None
+        if video.kind == VideoKind.YOUTUBE:
+            yt_id = (
+                getattr(video, "youtube_id", None)
+                or video.id.split(":", 1)[-1]
+            )
+            if yt_id:
+                donor = await videos_repo.find_other_with_transcript(
+                    db, youtube_id=yt_id, exclude_user_id=video.user_id,
+                )
+        else:
+            donor = await videos_repo.find_other_with_transcript_by_url(
+                db, url=video.url, exclude_user_id=video.user_id,
+            )
+
+        if donor and donor.transcript:
+            await set_step("transcript reused from another profile")
+            await videos_repo.set_transcript(
+                db,
+                video_id,
+                donor.transcript,
+                donor.transcript_source or TranscriptSource.AUTO_SUBS,
+                segments_json=donor.transcript_segments,
+            )
+            text = donor.transcript
+        elif video.kind == VideoKind.WEB:
             await set_step("fetching article")
             article = await fetch_article(video.url)
             await videos_repo.set_transcript(
@@ -144,6 +177,15 @@ async def process_video(
     # gated on via `needs_fetch`). Reassure the type checker.
     assert text is not None, "text must be set before summarization"
 
+    # The summarizer's system prompt is per-profile. Each user's
+    # custom_summary_prompt is seeded from the standard prompt when
+    # the profile is created (or via the migration for the seeded
+    # admin user), and is fully editable from the profile page.
+    # There's no longer a hardcoded fallback inside the summarizer
+    # itself — what's stored on the user IS the prompt.
+    profile = await users_repo.get_by_id(db, video.user_id)
+    custom_prompt = profile.custom_summary_prompt if profile else None
+
     summary = await summarize(
         transcript=text,
         model=model,
@@ -152,7 +194,7 @@ async def process_video(
         title=video.title,
         description=video.description,
         language=settings.get("summary_language"),
-        extra_instructions=settings.get("summary_extra_instructions"),
+        custom_system_prompt=custom_prompt,
         playlist_context=playlist_context or None,
         transcript_segments=segments,
         progress=set_step,

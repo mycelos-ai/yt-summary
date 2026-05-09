@@ -4,13 +4,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import Config
 from app.db import connect, init_schema
 from app.repos import jobs as jobs_repo
+from app.repos import users as users_repo
+
+# Cookie carrying the active profile id. Single integer, no signing —
+# this is a single-user-self-hosted family tool, not a SaaS app. The
+# attacker model is "nobody on the LAN" and the cookie is local-only.
+PROFILE_COOKIE = "yts_user_id"
 
 
 @asynccontextmanager
@@ -65,6 +71,51 @@ def get_config(request: Request) -> Config:
     return request.app.state.config
 
 
+async def get_current_user_id(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> int:
+    """Resolve the active profile id from the ``yts_user_id`` cookie.
+
+    Falls back to ``1`` (the seeded default profile) for missing or
+    malformed cookies, deleted profiles, or when the seeded user is
+    somehow gone too. There's no auth here on purpose — the spec
+    calls for "anyone with browser access can switch profiles" and
+    the cookie is just bookkeeping.
+    """
+    raw = request.cookies.get(PROFILE_COOKIE)
+    try:
+        uid = int(raw) if raw else 1
+    except (TypeError, ValueError):
+        uid = 1
+    user = await users_repo.get_by_id(db, uid)
+    if user is None:
+        return 1
+    return uid
+
+
+async def get_current_user(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Return the full User row for the active profile.
+
+    Convenience wrapper around get_current_user_id that the templates
+    and routes need (the header dropdown shows the avatar + name, the
+    settings page shows the custom prompt). Falls back to id=1 the
+    same way.
+    """
+    raw = request.cookies.get(PROFILE_COOKIE)
+    try:
+        uid = int(raw) if raw else 1
+    except (TypeError, ValueError):
+        uid = 1
+    user = await users_repo.get_by_id(db, uid)
+    if user is None:
+        user = await users_repo.get_by_id(db, 1)
+    return user
+
+
 def create_app() -> FastAPI:
     from app.routes.home import router as home_router
 
@@ -88,6 +139,8 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     from app.routes.playlists import router as playlists_router
     app.include_router(playlists_router)
+    from app.routes.profiles import router as profiles_router
+    app.include_router(profiles_router)
     from app.routes.api import router as api_router
     app.include_router(api_router)
     from app.routes.mcp import build_mcp_server

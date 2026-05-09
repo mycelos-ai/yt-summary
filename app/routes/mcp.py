@@ -54,8 +54,12 @@ async def _tool_search(
     db: aiosqlite.Connection,
     query: str,
     limit: int = 10,
+    *,
+    user_id: int = 1,
 ) -> list[dict[str, Any]]:
-    hits = await api_svc.search_videos(db, query, limit=limit)
+    hits = await api_svc.search_videos(
+        db, query, limit=limit, user_id=user_id
+    )
     out: list[dict[str, Any]] = []
     for h in hits:
         excerpt = ""
@@ -110,8 +114,12 @@ async def _tool_list_recent(
     db: aiosqlite.Connection,
     limit: int = 20,
     tag: str | None = None,
+    *,
+    user_id: int = 1,
 ) -> list[dict[str, Any]]:
-    videos = await api_svc.list_videos(db, limit=limit, tag=tag)
+    videos = await api_svc.list_videos(
+        db, limit=limit, tag=tag, user_id=user_id
+    )
     return [
         {
             "video_id": v["id"],

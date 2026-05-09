@@ -60,12 +60,32 @@ _TIMESTAMP_INSTRUCTION = (
 def build_system_prompt(
     *,
     language: str | None,
-    extra_instructions: str | None,
+    custom_system_prompt: str | None = None,
     with_timestamps: bool = False,
 ) -> str:
-    extra = (extra_instructions or "").strip()
-    extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    """Build the system prompt for single-shot summarization.
+
+    `custom_system_prompt`, when set (the per-profile prompt loaded
+    from `users.custom_summary_prompt`), REPLACES the standard
+    instructions block entirely. We still wrap it with the language
+    directive (so model selection respects user preference) and the
+    timestamp-format instruction (which the player JS depends on for
+    inline seek-to-moment links). Everything else — the SPECIFICITY,
+    THINK LIKE THE VIEWER, ANSWER THE TITLE, STRUCTURE blocks — is
+    the user's responsibility once they've taken control.
+    """
+    custom = (custom_system_prompt or "").strip()
     timestamp_block = _TIMESTAMP_INSTRUCTION if with_timestamps else ""
+
+    if custom:
+        return (
+            f"{_language_directive(language)}\n"
+            "OUTPUT FORMAT: Markdown. Tables with `| col | col |` "
+            "syntax (plus a `|---|---|` separator row) render as "
+            "proper HTML tables.\n\n"
+            f"{custom}\n\n"
+            f"{timestamp_block}"
+        ).rstrip() + "\n"
     return (
         "You analyze YouTube videos and extract their substance for someone "
         "who doesn't have time to watch.\n\n"
@@ -153,17 +173,19 @@ def build_system_prompt(
         "- Self-promotion (\"subscribe\", \"like the video\", merch, "
         "Patreon plugs).\n"
         "- Filler words and repeated transitions.\n"
-    ) + extra_block
+    )
 
 
 def build_reduce_prompt(
     *,
     language: str | None,
-    extra_instructions: str | None,
     with_timestamps: bool = False,
 ) -> str:
-    extra = (extra_instructions or "").strip()
-    extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    """Reduce prompt is intentionally NOT user-customizable — it's an
+    internal map-reduce mechanic, not a user-facing summary style. The
+    final output respects whatever schema/tone the per-profile system
+    prompt established because the LLM applies it to the merged
+    result."""
     timestamp_block = (
         "PRESERVE INLINE TIMESTAMP LINKS:\n"
         "Partial summaries may contain [MM:SS](#t=SECONDS) markdown "
@@ -221,7 +243,7 @@ def build_reduce_prompt(
         "summary mentions sponsors, do not surface them in the final "
         "result.\n\n"
         f"{timestamp_block}"
-    ).rstrip() + extra_block
+    ).rstrip()
 
 
 def _build_user_message(
@@ -365,7 +387,7 @@ async def summarize(
     title: str = "",
     description: str = "",
     language: str | None = None,
-    extra_instructions: str | None = None,
+    custom_system_prompt: str | None = None,
     playlist_context: list[str] | None = None,
     transcript_segments: list[dict] | None = None,
     progress: ProgressCb | None = None,
@@ -378,8 +400,12 @@ async def summarize(
         description).
     language: BCP-47-ish code ("auto", "de", "en", ...). "auto" means
         match the transcript's language.
-    extra_instructions: free-form addendum appended to the system prompt
-        (user preference for tone, length, style, etc.).
+    custom_system_prompt: per-profile system prompt loaded from
+        `users.custom_summary_prompt`. When set, it replaces the
+        standard instructions block — only the language directive
+        and the timestamp-format instruction stay wrapped around it.
+        Each profile owns its prompt; there's no global default left
+        in the runtime.
     playlist_context: names of the user's own playlists this video is
         in. Surfaced to the model as topic hints — the user organises
         their queue thematically, so naming the bucket helps the
@@ -402,12 +428,11 @@ async def summarize(
     has_segments = bool(transcript_segments)
     system_prompt = build_system_prompt(
         language=language,
-        extra_instructions=extra_instructions,
+        custom_system_prompt=custom_system_prompt,
         with_timestamps=has_segments,
     )
     reduce_prompt = build_reduce_prompt(
         language=language,
-        extra_instructions=extra_instructions,
         with_timestamps=has_segments,
     )
 

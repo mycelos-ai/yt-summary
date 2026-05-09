@@ -10,6 +10,63 @@
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ asset_version() }}">
   <script src="{{ url_for('static', path='htmx.min.js') }}" defer></script>
   <script src="{{ url_for('static', path='alpine.min.js') }}" defer></script>
+  <style>
+    .profile-menu {
+      position: relative;
+    }
+    .profile-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: var(--rounded-md, 8px);
+      cursor: pointer;
+      padding: 4px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: inherit;
+    }
+    .profile-trigger:hover {
+      border-color: var(--hairline, #e0e0e0);
+      background: var(--surface, #f6f6f6);
+    }
+    .profile-trigger-emoji {
+      font-size: 18px;
+      line-height: 1;
+    }
+    .profile-trigger-name {
+      font-weight: 500;
+    }
+    .profile-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      min-width: 180px;
+      background: var(--canvas, #fff);
+      border: 1px solid var(--hairline, #e0e0e0);
+      border-radius: var(--rounded-md, 8px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      padding: 6px 0;
+      z-index: 100;
+    }
+    .profile-dropdown a {
+      display: block;
+      padding: 8px 14px;
+      color: inherit;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .profile-dropdown a:hover {
+      background: var(--surface, #f6f6f6);
+    }
+    .profile-dropdown-sep {
+      height: 1px;
+      background: var(--hairline, #e0e0e0);
+      margin: 4px 0;
+    }
+    [x-cloak] { display: none !important; }
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -17,7 +74,22 @@
       <img class="brand-logo" src="{{ url_for('static', path='icons/logo-alt.png') }}?v={{ asset_version() }}" alt="">
       yt-summary
     </a>
-    <a href="/settings" class="gear" aria-label="Settings">⚙</a>
+    {% if current_user %}
+      <div class="profile-menu" x-data="{ open: false }" x-on:click.outside="open = false">
+        <button type="button" class="profile-trigger" x-on:click="open = !open" aria-haspopup="true" aria-expanded="false" x-bind:aria-expanded="open">
+          <span class="profile-trigger-emoji">{{ current_user.avatar_emoji }}</span>
+          <span class="profile-trigger-name">{{ current_user.name }}</span>
+        </button>
+        <div class="profile-dropdown" x-show="open" x-cloak x-transition.opacity>
+          <a href="/profiles">Switch profile</a>
+          <a href="/profiles/{{ current_user.id }}/edit">Edit profile</a>
+          <div class="profile-dropdown-sep" role="separator"></div>
+          <a href="/settings">⚙ Settings</a>
+        </div>
+      </div>
+    {% else %}
+      <a href="/settings" class="gear" aria-label="Settings">⚙</a>
+    {% endif %}
   </header>
   <main>
     {% block content %}{% endblock %}

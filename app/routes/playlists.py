@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import Config
-from app.main import get_config, get_db
+from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.services.playlist import fetch_playlist
@@ -33,23 +33,30 @@ def _parse_playlist_id(url: str) -> str:
 async def list_playlists(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     """Dedicated playlists page: every playlist with stats.
 
     Pulls per-playlist video counts in a single LEFT JOIN + GROUP BY
     so the page scales with N playlists, not N+1 queries.
     """
-    rows = await playlists_repo.list_with_stats(db, 1)
+    rows = await playlists_repo.list_with_stats(db, current_user_id)
     return templates.TemplateResponse(
         request,
         "playlists.html",
-        {"rows": rows},
+        {"rows": rows, "current_user": current_user},
     )
 
 
 @router.get("/playlists/new", response_class=HTMLResponse)
-async def new_playlist_form(request: Request):
-    return templates.TemplateResponse(request, "playlist_new.html", {})
+async def new_playlist_form(
+    request: Request,
+    current_user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        request, "playlist_new.html", {"current_user": current_user}
+    )
 
 
 @router.post("/playlists")
@@ -57,6 +64,7 @@ async def submit_playlist(
     url: str = Form(...),
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     try:
         _parse_playlist_id(url)
@@ -75,7 +83,7 @@ async def submit_playlist(
     await playlists_repo.create(
         db,
         playlist_id=meta.id,
-        user_id=1,
+        user_id=current_user_id,
         url=meta.url,
         title=meta.title,
         description=meta.description,
@@ -98,15 +106,26 @@ async def playlist_detail(
     playlist_id: str,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     playlist = await playlists_repo.get(db, playlist_id)
     if playlist is None:
+        raise HTTPException(404)
+    # Hide playlists owned by other profiles. The cookie-based current
+    # user mirrors how `videos_repo.list_recent` already scopes results;
+    # this keeps the playlist routes consistent.
+    if playlist.user_id != current_user_id:
         raise HTTPException(404)
     videos = await playlists_repo.videos_for_playlist(db, playlist_id)
     return templates.TemplateResponse(
         request,
         "playlist_detail.html",
-        {"playlist": playlist, "videos": videos},
+        {
+            "playlist": playlist,
+            "videos": videos,
+            "current_user": current_user,
+        },
     )
 
 

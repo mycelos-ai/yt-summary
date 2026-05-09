@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import Config
-from app.main import get_config, get_db
+from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.models import VideoKind
 from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
@@ -52,6 +52,7 @@ async def submit_video(
     url: str = Form(...),
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     submitted = url
     url = url.strip().strip("'\"")
@@ -68,9 +69,9 @@ async def submit_video(
     kind = classify_url(url)
     try:
         if kind == "youtube":
-            item_id = await _import_youtube(url, db, config)
+            item_id = await _import_youtube(url, db, config, current_user_id)
         else:
-            item_id = await _import_web(url, db, config)
+            item_id = await _import_web(url, db, config, current_user_id)
     except ValueError as e:
         return _import_error_response(
             request,
@@ -97,40 +98,61 @@ async def submit_video(
     return RedirectResponse(f"/v/{item_id}", status_code=303)
 
 
+
+def _composite_id(user_id: int, base_id: str) -> str:
+    """Build the per-profile video id used for new imports.
+
+    Existing rows on a single-user install keep their bare ids; new
+    rows get the user_id prefix so the same YouTube video can live in
+    multiple profiles' libraries without colliding on the videos PK.
+    """
+    return f"{user_id}:{base_id}"
+
+
 async def _import_youtube(
-    url: str, db: aiosqlite.Connection, config: Config
+    url: str,
+    db: aiosqlite.Connection,
+    config: Config,
+    user_id: int,
 ) -> str:
     cookies = config.cookies_path if config.cookies_path.exists() else None
     meta = await fetch_metadata(url, cookies_path=cookies)
 
-    thumb_target = config.thumbnails_dir / f"{meta.id}.jpg"
+    item_id = _composite_id(user_id, meta.id)
+    thumb_target = config.thumbnails_dir / f"{item_id}.jpg"
     await download_thumbnail(meta.thumbnail_url, thumb_target)
     thumb_db_path = str(thumb_target) if thumb_target.exists() else None
 
     await videos_repo.upsert_metadata(
         db,
-        video_id=meta.id,
+        video_id=item_id,
         url=meta.url,
         title=meta.title,
         description=meta.description,
         thumbnail_path=thumb_db_path,
         duration_seconds=meta.duration_seconds,
         kind=VideoKind.YOUTUBE,
+        user_id=user_id,
+        youtube_id=meta.id,
     )
     if meta.tags:
-        await tags_repo.set_tags_for_video(db, meta.id, list(meta.tags))
-    await jobs_repo.enqueue(db, meta.id)
-    return meta.id
+        await tags_repo.set_tags_for_video(db, item_id, list(meta.tags))
+    await jobs_repo.enqueue(db, item_id)
+    return item_id
 
 
 async def _import_web(
-    url: str, db: aiosqlite.Connection, config: Config
+    url: str,
+    db: aiosqlite.Connection,
+    config: Config,
+    user_id: int,
 ) -> str:
     """Fetch the article body up-front so the user gets a fast 400 if
     extraction fails, rather than a confusing 'queued' state followed
     by a failed job."""
     article = await fetch_article(url)
-    item_id = web_id_from_url(article.url)
+    base_id = web_id_from_url(article.url)
+    item_id = _composite_id(user_id, base_id)
 
     thumb_db_path: str | None = None
     if article.thumbnail_url:
@@ -152,6 +174,7 @@ async def _import_web(
         thumbnail_path=thumb_db_path,
         duration_seconds=None,
         kind=VideoKind.WEB,
+        user_id=user_id,
     )
     # Persist the body now so the pipeline doesn't refetch (article
     # text is stable; refetch is only useful when the user clicks
@@ -180,15 +203,22 @@ async def video_status(
     video_id: str,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     video = await videos_repo.get(db, video_id)
-    if video is None:
+    if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
     job = await jobs_repo.latest_for_video(db, video_id)
     return templates.TemplateResponse(
         request,
         "video_status.html",
-        {"video": video, "job": job, "elapsed_s": _elapsed_seconds(job)},
+        {
+            "video": video,
+            "job": job,
+            "elapsed_s": _elapsed_seconds(job),
+            "current_user": current_user,
+        },
     )
 
 
@@ -197,9 +227,11 @@ async def video_summary_fragment(
     video_id: str,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     video = await videos_repo.get(db, video_id)
-    if video is None:
+    if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
     job = await jobs_repo.latest_for_video(db, video_id)
 
@@ -220,6 +252,7 @@ async def video_summary_fragment(
             "job": job,
             "summary_html": summary_html,
             "elapsed_s": _elapsed_seconds(job),
+            "current_user": current_user,
         },
     )
 
@@ -302,9 +335,10 @@ async def video_transcript_markdown(
 async def reindex_video(
     video_id: str,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     video = await videos_repo.get(db, video_id)
-    if video is None:
+    if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
     await jobs_repo.enqueue(db, video_id)
     return RedirectResponse(f"/v/{video_id}", status_code=303)
@@ -314,12 +348,13 @@ async def reindex_video(
 async def retranscribe_video(
     video_id: str,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """Throw away the stored transcript + segments so the worker
     fetches them fresh. Useful when transcript-format improvements
     ship and you want the new format applied to old videos."""
     video = await videos_repo.get(db, video_id)
-    if video is None:
+    if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
     await videos_repo.clear_transcript(db, video_id)
     await jobs_repo.enqueue(db, video_id)
@@ -331,9 +366,11 @@ async def video_detail(
     video_id: str,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     video = await videos_repo.get(db, video_id)
-    if video is None:
+    if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
     summary_html = render_markdown(video.summary or "")
     history = await chat_repo.history(db, video_id)
@@ -353,6 +390,7 @@ async def video_detail(
             "video_tags": video_tags,
             "elapsed_s": _elapsed_seconds(job),
             "transcript_blocks": transcript_blocks,
+            "current_user": current_user,
         },
     )
 

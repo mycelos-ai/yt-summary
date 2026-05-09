@@ -303,12 +303,11 @@
         <small>Output language. "Auto" mirrors whatever language the transcript is in.</small>
       </label>
 
-      <label class="settings-field">
-        <span class="settings-label">Extra summary instructions</span>
-        <textarea name="summary_extra_instructions" rows="4"
-                  placeholder="e.g. 'Keep it under 200 words.' or 'Be skeptical of unsourced claims.'">{{ settings.get('summary_extra_instructions', '') }}</textarea>
-        <small>Free-form instructions appended to the summarizer system prompt. Empty for the default behavior.</small>
-      </label>
+      <p class="settings-field-note">
+        Need to tweak how summaries are written? Each profile has its
+        own summarizer prompt — fully editable on the
+        <a href="/profiles/{{ current_user.id }}/edit">profile page</a>.
+      </p>
     </section>
 
     <!-- ── Embeddings ──────────────────────────────────────────── -->

@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import Config
-from app.main import get_config, get_db
+from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
@@ -42,6 +42,7 @@ async def settings_page(
     applied: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
+    current_user=Depends(get_current_user),
 ):
     settings = await settings_repo.get_all(db)
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
@@ -51,6 +52,9 @@ async def settings_page(
         k: v for k, v in settings.items()
         if k not in ("llm_api_key", "whisper_api_key")
     }
+    # API keys live on user_id=1 (the seeded admin) regardless of which
+    # profile is active — they're a household credential, not a per-
+    # profile thing. Pull from there for the API access card.
     user = await users_repo.get_default_user(db)
 
     # Build preset dropdown data for the Quick Setup wizard.
@@ -94,6 +98,7 @@ async def settings_page(
             "has_cookies": has_cookies,
             "api_key_prefix": user.api_key_prefix if user else None,
             "api_key_created_at": user.api_key_created_at if user else None,
+            "current_user": current_user,
         },
     )
 
@@ -107,7 +112,6 @@ async def save_settings(
     whisper_base_url: str = Form(""),
     whisper_api_key: str = Form(""),
     summary_language: str = Form("auto"),
-    summary_extra_instructions: str = Form(""),
     embedding_model: str = Form(""),
     embedding_base_url: str = Form(""),
     playlist_refresh_interval_hours: str = Form("1"),
@@ -126,7 +130,6 @@ async def save_settings(
         ("whisper_model", whisper_model.strip() or "small"),
         ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
-        ("summary_extra_instructions", summary_extra_instructions.strip()),
         ("embedding_model", embedding_model.strip()),
         ("embedding_base_url", embedding_base_url),
         ("playlist_refresh_interval_hours", playlist_refresh_interval_hours.strip()),
@@ -432,6 +435,7 @@ async def clear_curl(config: Config = Depends(get_config)):
 async def generate_api_key_route(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     plaintext, key_hash, prefix = _gen_key()
     await users_repo.set_api_key(
@@ -454,6 +458,7 @@ async def generate_api_key_route(
             "prefix": prefix,
             "base_url": base_url,
             "is_https": is_https,
+            "current_user": current_user,
         },
     )
 
@@ -463,4 +468,26 @@ async def revoke_api_key_route(
     db: aiosqlite.Connection = Depends(get_db),
 ):
     await users_repo.clear_api_key(db, user_id=1)
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/custom-prompt")
+async def save_custom_prompt(
+    custom_summary_prompt: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Update the active profile's custom summary prompt.
+
+    Empty string clears the prompt (falls back to the standard
+    summarizer prompt). Per-profile, scoped via the cookie-resolved
+    current_user_id — provider/model settings stay global.
+    """
+    text = custom_summary_prompt.strip()
+    await users_repo.update(
+        db,
+        current_user_id,
+        custom_summary_prompt=text or None,
+        custom_summary_prompt_set=True,
+    )
     return RedirectResponse("/settings", status_code=303)
