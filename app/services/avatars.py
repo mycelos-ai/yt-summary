@@ -1,16 +1,21 @@
 """Curated avatar library.
 
 Each entry maps a stable id (used as the filename under
-`app/static/avatars/`) to a human-readable label and a logical group
-for the picker grid. Adding a new avatar is a one-liner here plus a
-PNG drop-in — no DB migration needed.
+`app/static/avatars/`) to a human-readable label, a logical group
+for the picker grid, and a pastel background color. The PNGs are
+transparent line-art; the pastel circle behind each character is
+drawn by CSS using the per-avatar `bg_color`. This means the
+visual identity of an avatar is the line-art plus its color — and
+both are owned by us, no per-render Photoshop step.
 
-Stylistic note: the line art was generated locally and is the
-property of the project. The PNGs ship with their pastel circle
-backgrounds intact for now; a future iteration may switch to
-transparent line art so the background becomes a CSS variable
-(`--avatar-bg`) and users can recolor per-profile. The CSS already
-declares the variable so that change lands as a pure asset swap.
+Adding a new avatar: one Avatar() entry plus a transparent line-art
+PNG drop-in. To change the palette: edit the hex values here. To
+let a user pick a custom color per profile (Phase 3): expose
+`bg_color` as a settable form field and pipe it through to the
+template's inline `style="--avatar-bg: ..."`.
+
+Color palette: the values were sampled from the original generated
+quartets, so each avatar keeps the pastel it was conceived with.
 """
 
 from dataclasses import dataclass
@@ -20,36 +25,47 @@ from dataclasses import dataclass
 class Avatar:
     id: str
     label: str
-    group: str  # 'adult' or 'kid'
+    group: str            # 'adult' or 'kid'
+    bg_color: str         # pastel hex for the CSS circle behind the line-art
+
+
+# Pastel palette used across the library. Centralised so theme tweaks
+# stay coherent — change `_BLUE` once and every Scientist re-skins.
+_BLUE   = "#e7f1fa"  # cool, scientific
+_GREY   = "#f0f0f1"  # neutral, urban (tech reviewer)
+_PEACH  = "#fdebd0"  # warm, outdoorsy (athlete / cars)
+_SAGE   = "#ebf2e3"  # earthy (explorer / researcher)
+_LILAC  = "#ebe7f3"  # creative, gaming
+_CREAM  = "#fef0db"  # warm yellow (maker / dino)
 
 
 AVATARS: list[Avatar] = [
     # Adults — 8 themes × 2 (m/f) = 16
-    Avatar("adult-scientist-m",     "Scientist",     "adult"),
-    Avatar("adult-scientist-f",     "Scientist",     "adult"),
-    Avatar("adult-techreviewer-m",  "Tech reviewer", "adult"),
-    Avatar("adult-techreviewer-f",  "Tech reviewer", "adult"),
-    Avatar("adult-researcher-m",    "Researcher",    "adult"),
-    Avatar("adult-researcher-f",    "Researcher",    "adult"),
-    Avatar("adult-maker-m",         "Maker",         "adult"),
-    Avatar("adult-maker-f",         "Maker",         "adult"),
-    Avatar("adult-gamer-m",         "Gamer",         "adult"),
-    Avatar("adult-gamer-f",         "Gamer",         "adult"),
-    Avatar("adult-athlete-m",       "Athlete",       "adult"),
-    Avatar("adult-athlete-f",       "Athlete",       "adult"),
-    Avatar("adult-explorer-m",      "Explorer",      "adult"),
-    Avatar("adult-explorer-f",      "Explorer",      "adult"),
-    Avatar("adult-cars-m",          "Car enthusiast","adult"),
-    Avatar("adult-cars-f",          "Car enthusiast","adult"),
+    Avatar("adult-scientist-m",     "Scientist",      "adult", _BLUE),
+    Avatar("adult-scientist-f",     "Scientist",      "adult", _BLUE),
+    Avatar("adult-techreviewer-m",  "Tech reviewer",  "adult", _GREY),
+    Avatar("adult-techreviewer-f",  "Tech reviewer",  "adult", _GREY),
+    Avatar("adult-researcher-m",    "Researcher",     "adult", _CREAM),
+    Avatar("adult-researcher-f",    "Researcher",     "adult", _CREAM),
+    Avatar("adult-maker-m",         "Maker",          "adult", _SAGE),
+    Avatar("adult-maker-f",         "Maker",          "adult", _SAGE),
+    Avatar("adult-gamer-m",         "Gamer",          "adult", _LILAC),
+    Avatar("adult-gamer-f",         "Gamer",          "adult", _LILAC),
+    Avatar("adult-athlete-m",       "Athlete",        "adult", _BLUE),
+    Avatar("adult-athlete-f",       "Athlete",        "adult", _BLUE),
+    Avatar("adult-explorer-m",      "Explorer",       "adult", _SAGE),
+    Avatar("adult-explorer-f",      "Explorer",       "adult", _SAGE),
+    Avatar("adult-cars-m",          "Car enthusiast", "adult", _PEACH),
+    Avatar("adult-cars-f",          "Car enthusiast", "adult", _PEACH),
     # Kids — 4 themes × 2 (boy/girl) = 8
-    Avatar("kid-gamer-boy",         "Young gamer",   "kid"),
-    Avatar("kid-gamer-girl",        "Young gamer",   "kid"),
-    Avatar("kid-dino-boy",          "Dino fan",      "kid"),
-    Avatar("kid-dino-girl",         "Dino fan",      "kid"),
-    Avatar("kid-soccer-boy",        "Soccer kid",    "kid"),
-    Avatar("kid-soccer-girl",       "Soccer kid",    "kid"),
-    Avatar("kid-explorer-boy",      "Young explorer","kid"),
-    Avatar("kid-explorer-girl",     "Young explorer","kid"),
+    Avatar("kid-gamer-boy",         "Young gamer",    "kid",   _LILAC),
+    Avatar("kid-gamer-girl",        "Young gamer",    "kid",   _LILAC),
+    Avatar("kid-dino-boy",          "Dino fan",       "kid",   _SAGE),
+    Avatar("kid-dino-girl",         "Dino fan",       "kid",   _SAGE),
+    Avatar("kid-soccer-boy",        "Soccer kid",     "kid",   _BLUE),
+    Avatar("kid-soccer-girl",       "Soccer kid",     "kid",   _BLUE),
+    Avatar("kid-explorer-boy",      "Young explorer", "kid",   _CREAM),
+    Avatar("kid-explorer-girl",     "Young explorer", "kid",   _CREAM),
 ]
 
 
@@ -65,6 +81,23 @@ def is_valid_id(avatar_id: str) -> bool:
 
 def get(avatar_id: str) -> Avatar | None:
     return _BY_ID.get(avatar_id)
+
+
+# Default fallback bg used when an avatar id is not in the library
+# (which shouldn't happen because is_valid_id() gates input — but
+# defensive). Matches the CSS default in app.css.
+DEFAULT_BG = "#e7f1fa"
+
+
+def bg_color_for(avatar_id: str) -> str:
+    """Return the CSS background hex for the given avatar id.
+
+    Resilient: unknown id → DEFAULT_BG. Templates can use this from
+    a Jinja filter to set `style="--avatar-bg: ..."` on the avatar
+    element without dropping into Python.
+    """
+    av = _BY_ID.get(avatar_id)
+    return av.bg_color if av else DEFAULT_BG
 
 
 def grouped() -> dict[str, list[Avatar]]:

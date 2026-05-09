@@ -35,6 +35,10 @@ def register_filters(templates: "Jinja2Templates") -> None:
     # template-only routes (settings, status fragments) snappy.
     from app.services.markdown import render_markdown
     templates.env.filters["render_markdown"] = render_markdown
+    # avatar_bg(avatar_id) → "#hex" — drives the per-avatar pastel
+    # CSS variable in the _avatar.html macro.
+    from app.services.avatars import bg_color_for
+    templates.env.filters["avatar_bg"] = bg_color_for
     # Expose as a callable so each render reads the current mtime.
     templates.env.globals["asset_version"] = _asset_version
 

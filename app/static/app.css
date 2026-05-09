@@ -832,39 +832,39 @@ summary.section-heading {
    profile-edit form. Renders either an image (curated library) or
    an emoji.
 
-   The PNG avatars carry their own pastel circle inside a roughly
-   square frame. We do NOT add a CSS-driven `border-radius: 50%`
-   crop on the image itself — that would slice off the pastel ring
-   that gives each avatar its character. The element is square,
-   the visible roundness comes from the PNG. (For the emoji
-   variant we still want a circle, so that gets the radius.)
-
-   `--avatar-bg` is reserved for the future where avatar PNGs
-   become transparent line art; CSS will then own the pastel
-   circle. For now it defaults to transparent (PNGs handle it). */
+   The PNG avatars are transparent line-art (alpha background); the
+   pastel circle comes from CSS via `--avatar-bg`, set per-avatar
+   from the library's bg_color via the avatar_bg Jinja filter. This
+   means the household can recolor the same avatar per-profile
+   without re-rendering, and dark-mode / brand changes only need a
+   CSS tweak — not 24 PNG re-exports. */
 .profile-avatar {
-  --avatar-bg: transparent;
+  --avatar-bg: #e7f1fa;  /* default soft blue if no per-avatar value */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   background: var(--avatar-bg);
+  border-radius: 50%;
+  overflow: hidden;
   vertical-align: middle;
+}
+.profile-avatar--emoji {
+  /* Emoji has no PNG behind it, so neutral background. */
+  background: var(--surface, #f6f6f6);
 }
 .profile-avatar--small  { width: 28px; height: 28px; }
 .profile-avatar--medium { width: 40px; height: 40px; }
 .profile-avatar--large  { width: 120px; height: 120px; }
 .profile-avatar--image img {
-  width: 100%;
-  height: 100%;
+  /* Image sits inside the pastel circle with breathing room — the
+     line-art is roughly 78% of the avatar element so the colored
+     ring around it stays visible. Tweak this if the avatars feel
+     cramped or floaty. */
+  width: 78%;
+  height: 78%;
   object-fit: contain;
   display: block;
-}
-/* Emoji variant: we render the circle here because the emoji has
-   no background of its own. */
-.profile-avatar--emoji {
-  border-radius: 50%;
-  background: var(--surface, #f6f6f6);
 }
 .profile-avatar--emoji .profile-avatar-emoji {
   font-size: 18px;

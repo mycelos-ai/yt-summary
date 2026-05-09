@@ -55,3 +55,26 @@ def test_grouped_keeps_declaration_order_within_group():
     adult_ids = [a.id for a in grouped.get("adult", [])]
     declared_adult_ids = [a.id for a in avatars.AVATARS if a.group == "adult"]
     assert adult_ids == declared_adult_ids
+
+
+def test_every_avatar_has_a_pastel_bg_color():
+    """Per-avatar pastel hex feeds the CSS --avatar-bg variable.
+    A missing or malformed value would render an unstyled circle."""
+    import re
+    hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
+    bad = [a.id for a in avatars.AVATARS if not hex_re.match(a.bg_color)]
+    assert not bad, f"avatars with non-hex bg_color: {bad}"
+
+
+def test_bg_color_for_returns_library_value():
+    av = avatars.AVATARS[0]
+    assert avatars.bg_color_for(av.id) == av.bg_color
+
+
+def test_bg_color_for_unknown_returns_default():
+    """Defensive: an unknown id falls back to the default pastel
+    rather than raising or returning empty (which would render an
+    invalid CSS value)."""
+    out = avatars.bg_color_for("does-not-exist")
+    assert out == avatars.DEFAULT_BG
+    assert out.startswith("#")

@@ -4,22 +4,34 @@
 <div class="profile-form-page">
   <h1>{% if profile %}Edit profile{% else %}New profile{% endif %}</h1>
 
+  {#- Build a flat {id: color} dict so Alpine can resolve the right
+      pastel for the live preview as the user clicks through the
+      picker. This is the only place we need it; other render sites
+      use the avatar_bg Jinja filter. -#}
+  {%- set _avatar_bg_pairs = [] -%}
+  {%- for items in avatar_groups.values() -%}
+    {%- for av in items -%}
+      {%- set _ = _avatar_bg_pairs.append([av.id, av.bg_color]) -%}
+    {%- endfor -%}
+  {%- endfor -%}
   <form method="post" action="{{ form_action }}" class="profile-form"
         x-data="{
           emoji: '{{ (profile.avatar_emoji if profile else '👤')|e }}',
-          image: '{{ (profile.avatar_image if profile else '')|e }}'
+          image: '{{ (profile.avatar_image if profile else '')|e }}',
+          bgFor: Object.fromEntries({{ _avatar_bg_pairs | tojson }})
         }">
     <fieldset class="profile-form-field">
       <legend class="profile-form-label">Avatar</legend>
 
       <div class="profile-form-avatar-preview">
-        <span class="profile-avatar"
+        <span class="profile-avatar profile-avatar--emoji"
               x-show="!image">
           <span class="profile-avatar-emoji" x-text="emoji"></span>
         </span>
         <span class="profile-avatar profile-avatar--image"
               x-show="image"
-              x-cloak>
+              x-cloak
+              x-bind:style="image ? '--avatar-bg: ' + (bgFor[image] || '#e7f1fa') : ''">
           <img x-bind:src="image ? '/static/avatars/' + image + '.png' : ''"
                alt="">
         </span>
@@ -37,6 +49,7 @@
             {% for av in items %}
               <button type="button"
                       class="profile-form-image-pick"
+                      style="--avatar-bg: {{ av.bg_color }};"
                       x-on:click="image = '{{ av.id }}'"
                       x-bind:class="image === '{{ av.id }}' ? 'is-selected' : ''"
                       title="{{ av.label }}">
@@ -209,26 +222,35 @@
     margin-bottom: 8px;
   }
   .profile-form-image-pick {
-    background: none;
-    border: 2px solid transparent;
-    border-radius: var(--rounded-md, 12px);
-    padding: 2px;
+    /* The pastel circle for each avatar comes from --avatar-bg
+       (set inline per-avatar from the library). The button itself
+       is a circle so the colored ring is visible on hover/select. */
+    background: var(--avatar-bg, #e7f1fa);
+    border: 3px solid transparent;
+    border-radius: 50%;
+    padding: 0;
     cursor: pointer;
     aspect-ratio: 1 / 1;
-    transition: border-color 120ms;
+    transition: border-color 120ms, transform 120ms;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .profile-form-image-pick:hover {
     border-color: var(--hairline, #e0e0e0);
+    transform: scale(1.05);
   }
   .profile-form-image-pick.is-selected {
     border-color: var(--brand-green, #00d4a4);
   }
   .profile-form-image-pick img {
-    width: 100%;
-    height: 100%;
+    /* Match the .profile-avatar--image sizing (78%) so the picker
+       and the live preview look identical. */
+    width: 78%;
+    height: 78%;
     display: block;
-    object-fit: cover;
-    border-radius: calc(var(--rounded-md, 12px) - 4px);
+    object-fit: contain;
   }
 </style>
 {% endblock %}

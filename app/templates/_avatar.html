@@ -6,14 +6,15 @@ Usage:
   {{ avatar(user) }}
   {{ avatar(user, size='small') }}
 
-`size` controls the visual size via CSS (small / medium / large).
-Default size = 'medium' (32px). The base `.profile-avatar` styles
-live in app.css; sizing modifiers are in the same place. This way
-adding a new render site doesn't require new template HTML.
+The PNG avatars are transparent line-art; the pastel circle comes
+from CSS via `--avatar-bg`, set inline per-avatar from the
+library's `bg_color`. Recoloring an avatar is a one-line edit in
+`app/services/avatars.py` — no PNG re-export.
 -#}
 {% macro avatar(user, size='medium') %}
   {%- if user and user.avatar_image -%}
-    <span class="profile-avatar profile-avatar--image profile-avatar--{{ size }}">
+    <span class="profile-avatar profile-avatar--image profile-avatar--{{ size }}"
+          style="--avatar-bg: {{ user.avatar_image | avatar_bg }};">
       <img src="/static/avatars/{{ user.avatar_image }}.png"
            alt=""
            loading="lazy">
