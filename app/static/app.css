@@ -827,6 +827,40 @@ summary.section-heading {
 .settings-show-all:hover {
   color: var(--ink);
 }
+
+/* Profile avatar component — used in the header, profile picker,
+   profile-edit form. Renders either an image (curated library) or
+   an emoji. Three sizes: small (24px), medium (32px), large (96px).
+   The `--avatar-bg` variable is reserved for the future where the
+   avatar PNGs become transparent line art and CSS controls the
+   pastel circle behind them; for now the PNGs ship with their
+   own backgrounds so `--avatar-bg` defaults to transparent. */
+.profile-avatar {
+  --avatar-bg: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--avatar-bg);
+  vertical-align: middle;
+}
+.profile-avatar--small  { width: 24px; height: 24px; }
+.profile-avatar--medium { width: 32px; height: 32px; }
+.profile-avatar--large  { width: 96px; height: 96px; }
+.profile-avatar--image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.profile-avatar--emoji .profile-avatar-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+.profile-avatar--small.profile-avatar--emoji .profile-avatar-emoji  { font-size: 14px; }
+.profile-avatar--large.profile-avatar--emoji .profile-avatar-emoji  { font-size: 56px; }
 .settings-hint-inline {
   font-weight: 400;
   color: var(--steel);

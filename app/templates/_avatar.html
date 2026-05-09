@@ -1,0 +1,26 @@
+{#-
+Render the avatar for `user`. Image takes precedence over emoji.
+
+Usage:
+  {% from "_avatar.html" import avatar %}
+  {{ avatar(user) }}
+  {{ avatar(user, size='small') }}
+
+`size` controls the visual size via CSS (small / medium / large).
+Default size = 'medium' (32px). The base `.profile-avatar` styles
+live in app.css; sizing modifiers are in the same place. This way
+adding a new render site doesn't require new template HTML.
+-#}
+{% macro avatar(user, size='medium') %}
+  {%- if user and user.avatar_image -%}
+    <span class="profile-avatar profile-avatar--image profile-avatar--{{ size }}">
+      <img src="/static/avatars/{{ user.avatar_image }}.png"
+           alt=""
+           loading="lazy">
+    </span>
+  {%- else -%}
+    <span class="profile-avatar profile-avatar--emoji profile-avatar--{{ size }}">
+      <span class="profile-avatar-emoji">{{ user.avatar_emoji if user else '👤' }}</span>
+    </span>
+  {%- endif -%}
+{% endmacro %}

@@ -97,4 +97,9 @@ class User:
     # custom_summary_prompt overrides the standard summarizer system
     # prompt for this profile (None → use the standard prompt).
     avatar_emoji: str = "👤"
+    # Image-based avatar — name of a file (without extension) under
+    # app/static/avatars/. Empty string → use avatar_emoji instead.
+    # The picker on the profile form lets the user choose from the
+    # curated library; the emoji input is a fallback / quick option.
+    avatar_image: str = ""
     custom_summary_prompt: str | None = None

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_avatar.html" import avatar %}
 {% block title %}Profiles — yt-summary{% endblock %}
 {% block content %}
 <div class="profiles-page">
@@ -11,7 +12,7 @@
         <form method="post" action="/profiles/switch" class="profile-tile-form">
           <input type="hidden" name="user_id" value="{{ profile.id }}">
           <button type="submit" class="profile-tile {% if profile.id == current_user.id %}profile-tile-current{% endif %}">
-            <span class="profile-tile-emoji">{{ profile.avatar_emoji }}</span>
+            <span class="profile-tile-avatar">{{ avatar(profile, size='large') }}</span>
             <span class="profile-tile-name">{{ profile.name }}</span>
             {% if profile.id == current_user.id %}
               <span class="profile-tile-badge">current</span>
@@ -31,7 +32,7 @@
       </div>
     {% endfor %}
     <a href="/profiles/new" class="profile-tile profile-tile-add">
-      <span class="profile-tile-emoji">+</span>
+      <span class="profile-tile-plus">+</span>
       <span class="profile-tile-name">Add profile</span>
     </a>
   </div>
@@ -91,9 +92,13 @@
     border-color: var(--accent, #2563eb);
     border-width: 2px;
   }
-  .profile-tile-emoji {
+  .profile-tile-avatar {
+    display: inline-flex;
+  }
+  .profile-tile-plus {
     font-size: 56px;
     line-height: 1;
+    color: var(--steel, #666);
   }
   .profile-tile-name {
     font-weight: 500;

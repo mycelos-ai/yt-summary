@@ -71,12 +71,14 @@ async def profile_new_form(
     request: Request,
     current_user=Depends(get_current_user),
 ):
+    from app.services import avatars as avatars_service
     return templates.TemplateResponse(
         request,
         "profile_form.html",
         {
             "profile": None,
             "current_user": current_user,
+            "avatar_groups": avatars_service.grouped(),
             "form_action": "/profiles/new",
             "submit_label": "Create profile",
         },
@@ -87,6 +89,7 @@ async def profile_new_form(
 async def profile_new(
     name: str = Form(...),
     avatar_emoji: str = Form("👤"),
+    avatar_image: str = Form(""),
     custom_summary_prompt: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
@@ -102,11 +105,20 @@ async def profile_new(
         active = await users_repo.get_by_id(db, current_user_id)
         if active and active.custom_summary_prompt:
             submitted_prompt = active.custom_summary_prompt
+
+    # avatar_image must be in the curated library — reject anything
+    # else so users can't write arbitrary strings into the column.
+    from app.services import avatars as avatars_service
+    img = avatar_image.strip()
+    if img and not avatars_service.is_valid_id(img):
+        img = ""
+
     try:
         user = await users_repo.create(
             db,
             name=name,
             avatar_emoji=avatar_emoji or "👤",
+            avatar_image=img,
             custom_summary_prompt=submitted_prompt or None,
         )
     except ValueError as e:
@@ -132,12 +144,14 @@ async def profile_edit_form(
     profile = await users_repo.get_by_id(db, user_id)
     if profile is None:
         raise HTTPException(404, detail="Profile not found")
+    from app.services import avatars as avatars_service
     return templates.TemplateResponse(
         request,
         "profile_form.html",
         {
             "profile": profile,
             "current_user": current_user,
+            "avatar_groups": avatars_service.grouped(),
             "form_action": f"/profiles/{user_id}/edit",
             "submit_label": "Save changes",
         },
@@ -149,6 +163,7 @@ async def profile_edit(
     user_id: int,
     name: str = Form(...),
     avatar_emoji: str = Form("👤"),
+    avatar_image: str = Form(""),
     custom_summary_prompt: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
@@ -166,12 +181,20 @@ async def profile_edit(
         from app.services.summarizer import build_system_prompt
         submitted = build_system_prompt(language=None)
 
+    # Validate avatar_image against the curated library; empty string
+    # is allowed (= clear the image, fall back to emoji).
+    from app.services import avatars as avatars_service
+    img = avatar_image.strip()
+    if img and not avatars_service.is_valid_id(img):
+        img = profile.avatar_image  # silent fallback to existing value
+
     try:
         await users_repo.update(
             db,
             user_id,
             name=name,
             avatar_emoji=avatar_emoji or "👤",
+            avatar_image=img,
             custom_summary_prompt=submitted,
             custom_summary_prompt_set=True,
         )

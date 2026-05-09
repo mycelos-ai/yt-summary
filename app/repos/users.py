@@ -7,12 +7,17 @@ from app.models import User
 
 def _row_to_user(row: aiosqlite.Row) -> User:
     created_at = row["api_key_created_at"]
-    # avatar_emoji / custom_summary_prompt landed in V5; tolerate older
-    # row shapes during partial migrations / tests that mock the table.
+    # avatar_emoji / avatar_image / custom_summary_prompt landed in V5;
+    # tolerate older row shapes during partial migrations / tests that
+    # mock the table.
     try:
         avatar = row["avatar_emoji"] or "👤"
     except (IndexError, KeyError):
         avatar = "👤"
+    try:
+        avatar_img = row["avatar_image"] or ""
+    except (IndexError, KeyError):
+        avatar_img = ""
     try:
         custom_prompt = row["custom_summary_prompt"]
     except (IndexError, KeyError):
@@ -25,6 +30,7 @@ def _row_to_user(row: aiosqlite.Row) -> User:
         api_key_created_at=datetime.fromisoformat(created_at) if created_at else None,
         created_at=datetime.fromisoformat(row["created_at"]),
         avatar_emoji=avatar,
+        avatar_image=avatar_img,
         custom_summary_prompt=custom_prompt,
     )
 
@@ -63,18 +69,22 @@ async def create(
     *,
     name: str,
     avatar_emoji: str = "👤",
+    avatar_image: str = "",
     custom_summary_prompt: str | None = None,
 ) -> User:
     name = name.strip()
     if not name:
         raise ValueError("Profile name must be non-empty")
     avatar_emoji = (avatar_emoji or "👤").strip() or "👤"
+    avatar_image = (avatar_image or "").strip()
     cursor = await db.execute(
         """
-        INSERT INTO users (name, avatar_emoji, custom_summary_prompt)
-        VALUES (?, ?, ?)
+        INSERT INTO users (
+            name, avatar_emoji, avatar_image, custom_summary_prompt
+        )
+        VALUES (?, ?, ?, ?)
         """,
-        (name, avatar_emoji, custom_summary_prompt),
+        (name, avatar_emoji, avatar_image, custom_summary_prompt),
     )
     await db.commit()
     new_id = cursor.lastrowid
@@ -90,6 +100,7 @@ async def update(
     *,
     name: str | None = None,
     avatar_emoji: str | None = None,
+    avatar_image: str | None = None,
     custom_summary_prompt: str | None = None,
     custom_summary_prompt_set: bool = False,
 ) -> None:
@@ -99,6 +110,9 @@ async def update(
     written (including to NULL) — needed for the "reset to default"
     path which writes NULL explicitly. Without it, passing
     custom_summary_prompt=None means "leave it alone."
+
+    For `avatar_image`, the empty string IS a meaningful value
+    (clear the image, fall back to emoji). None means "don't touch."
     """
     sets: list[str] = []
     args: list[object] = []
@@ -112,6 +126,9 @@ async def update(
         clean_emoji = avatar_emoji.strip() or "👤"
         sets.append("avatar_emoji = ?")
         args.append(clean_emoji)
+    if avatar_image is not None:
+        sets.append("avatar_image = ?")
+        args.append(avatar_image.strip())
     if custom_summary_prompt_set:
         sets.append("custom_summary_prompt = ?")
         args.append(custom_summary_prompt)

@@ -231,6 +231,15 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 "ALTER TABLE users ADD COLUMN avatar_emoji TEXT NOT NULL "
                 "DEFAULT '👤'"
             )
+        if "avatar_image" not in user_cols:
+            # Path-suffix into app/static/avatars/ (e.g.
+            # 'adult-techreviewer-m'). Empty string = "use the emoji
+            # instead". Per-profile choice from the curated avatar
+            # library; users without an image fall back to the emoji.
+            await conn.execute(
+                "ALTER TABLE users ADD COLUMN avatar_image TEXT NOT NULL "
+                "DEFAULT ''"
+            )
         if "custom_summary_prompt" not in user_cols:
             await conn.execute(
                 "ALTER TABLE users ADD COLUMN custom_summary_prompt TEXT"

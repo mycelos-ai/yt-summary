@@ -4,23 +4,67 @@
 <div class="profile-form-page">
   <h1>{% if profile %}Edit profile{% else %}New profile{% endif %}</h1>
 
-  <form method="post" action="{{ form_action }}" class="profile-form" x-data="{ emoji: '{{ (profile.avatar_emoji if profile else '👤')|e }}' }">
-    <label class="profile-form-field">
-      <span class="profile-form-label">Avatar</span>
+  <form method="post" action="{{ form_action }}" class="profile-form"
+        x-data="{
+          emoji: '{{ (profile.avatar_emoji if profile else '👤')|e }}',
+          image: '{{ (profile.avatar_image if profile else '')|e }}'
+        }">
+    <fieldset class="profile-form-field">
+      <legend class="profile-form-label">Avatar</legend>
+
+      <div class="profile-form-avatar-preview">
+        <span class="profile-avatar"
+              x-show="!image">
+          <span class="profile-avatar-emoji" x-text="emoji"></span>
+        </span>
+        <span class="profile-avatar profile-avatar--image"
+              x-show="image"
+              x-cloak>
+          <img x-bind:src="image ? '/static/avatars/' + image + '.png' : ''"
+               alt="">
+        </span>
+      </div>
+
+      <input type="hidden" name="avatar_image" x-model="image">
+
+      <p class="profile-form-section-title">Pick from the library</p>
+      <div class="profile-form-image-grid">
+        {% for group_name, items in avatar_groups.items() %}
+          <div class="profile-form-image-group-label">
+            {% if group_name == 'adult' %}Adults{% elif group_name == 'kid' %}Kids{% else %}{{ group_name|title }}{% endif %}
+          </div>
+          <div class="profile-form-image-group">
+            {% for av in items %}
+              <button type="button"
+                      class="profile-form-image-pick"
+                      x-on:click="image = '{{ av.id }}'"
+                      x-bind:class="image === '{{ av.id }}' ? 'is-selected' : ''"
+                      title="{{ av.label }}">
+                <img src="/static/avatars/{{ av.id }}.png" alt="{{ av.label }}" loading="lazy">
+              </button>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <p class="profile-form-section-title">…or use an emoji instead</p>
       <div class="profile-form-emoji-row">
-        <span class="profile-form-emoji-preview" x-text="emoji"></span>
         <input name="avatar_emoji" type="text" maxlength="8"
                x-model="emoji"
                placeholder="👤"
                class="profile-form-emoji-input">
+        <button type="button" class="link-button"
+                x-on:click="image = ''"
+                x-show="image" x-cloak>Clear image, use emoji</button>
       </div>
-      <small>Pick any single emoji or short string. The dropdown and profile picker show this in front of the name.</small>
       <div class="profile-form-emoji-suggest">
         {% for e in ['👤','🦊','🐼','🐉','🐱','🐶','🦁','🐯','🐰','🐸','🐢','🐙','🦄','🌸','🌟','🍕','🎮','🎧','🎬','📚','🚀','🪐','🌈','🔥'] %}
-          <button type="button" class="profile-form-emoji-pick" x-on:click="emoji = '{{ e }}'">{{ e }}</button>
+          <button type="button" class="profile-form-emoji-pick"
+                  x-on:click="emoji = '{{ e }}'; image = ''">{{ e }}</button>
         {% endfor %}
       </div>
-    </label>
+      <small>Either pick an image from the library or set an emoji. Picking from the library overrides the emoji.</small>
+    </fieldset>
 
     <label class="profile-form-field">
       <span class="profile-form-label">Name</span>
@@ -132,6 +176,59 @@
   .profile-form-actions {
     display: flex;
     gap: 10px;
+  }
+
+  /* Avatar picker — image grid + emoji fallback */
+  .profile-form-section-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--steel, #666);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 16px 0 8px;
+  }
+  .profile-form-avatar-preview {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0 4px;
+  }
+  .profile-form-avatar-preview .profile-avatar {
+    width: 96px;
+    height: 96px;
+  }
+  .profile-form-image-group-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--steel, #666);
+    margin: 12px 0 6px;
+  }
+  .profile-form-image-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .profile-form-image-pick {
+    background: none;
+    border: 2px solid transparent;
+    border-radius: var(--rounded-md, 12px);
+    padding: 2px;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+    transition: border-color 120ms;
+  }
+  .profile-form-image-pick:hover {
+    border-color: var(--hairline, #e0e0e0);
+  }
+  .profile-form-image-pick.is-selected {
+    border-color: var(--brand-green, #00d4a4);
+  }
+  .profile-form-image-pick img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    border-radius: calc(var(--rounded-md, 12px) - 4px);
   }
 </style>
 {% endblock %}
