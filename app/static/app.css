@@ -830,37 +830,48 @@ summary.section-heading {
 
 /* Profile avatar component — used in the header, profile picker,
    profile-edit form. Renders either an image (curated library) or
-   an emoji. Three sizes: small (24px), medium (32px), large (96px).
-   The `--avatar-bg` variable is reserved for the future where the
-   avatar PNGs become transparent line art and CSS controls the
-   pastel circle behind them; for now the PNGs ship with their
-   own backgrounds so `--avatar-bg` defaults to transparent. */
+   an emoji.
+
+   The PNG avatars carry their own pastel circle inside a roughly
+   square frame. We do NOT add a CSS-driven `border-radius: 50%`
+   crop on the image itself — that would slice off the pastel ring
+   that gives each avatar its character. The element is square,
+   the visible roundness comes from the PNG. (For the emoji
+   variant we still want a circle, so that gets the radius.)
+
+   `--avatar-bg` is reserved for the future where avatar PNGs
+   become transparent line art; CSS will then own the pastel
+   circle. For now it defaults to transparent (PNGs handle it). */
 .profile-avatar {
   --avatar-bg: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border-radius: 50%;
-  overflow: hidden;
   background: var(--avatar-bg);
   vertical-align: middle;
 }
-.profile-avatar--small  { width: 24px; height: 24px; }
-.profile-avatar--medium { width: 32px; height: 32px; }
-.profile-avatar--large  { width: 96px; height: 96px; }
+.profile-avatar--small  { width: 28px; height: 28px; }
+.profile-avatar--medium { width: 40px; height: 40px; }
+.profile-avatar--large  { width: 120px; height: 120px; }
 .profile-avatar--image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
+}
+/* Emoji variant: we render the circle here because the emoji has
+   no background of its own. */
+.profile-avatar--emoji {
+  border-radius: 50%;
+  background: var(--surface, #f6f6f6);
 }
 .profile-avatar--emoji .profile-avatar-emoji {
   font-size: 18px;
   line-height: 1;
 }
-.profile-avatar--small.profile-avatar--emoji .profile-avatar-emoji  { font-size: 14px; }
-.profile-avatar--large.profile-avatar--emoji .profile-avatar-emoji  { font-size: 56px; }
+.profile-avatar--small.profile-avatar--emoji .profile-avatar-emoji  { font-size: 16px; }
+.profile-avatar--large.profile-avatar--emoji .profile-avatar-emoji  { font-size: 64px; }
 .settings-hint-inline {
   font-weight: 400;
   color: var(--steel);
