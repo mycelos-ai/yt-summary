@@ -48,7 +48,7 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="openai",
         name="OpenAI",
         litellm_provider="openai",
-        default_llm="openai/gpt-4o",
+        default_llm="openai/gpt-5.5",
         api_key_url="https://platform.openai.com/api-keys",
         default_embedding="openai/text-embedding-3-small",
         whisper_base_url="https://api.openai.com/v1",
@@ -72,7 +72,7 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="gemini",
         name="Google Gemini",
         litellm_provider="gemini",
-        default_llm="gemini/gemini-2.5-flash",
+        default_llm="gemini/gemini-3.1-flash-lite-preview",
         api_key_url="https://aistudio.google.com/apikey",
         default_embedding="gemini/text-embedding-004",
     ),
@@ -80,9 +80,10 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="groq",
         name="Groq",
         litellm_provider="groq",
-        # Kimi K2 (Moonshot) is excellent at long-form summarization.
-        # 262k context, ~9× larger than Llama 4 Maverick (128k).
-        default_llm="groq/moonshotai/kimi-k2-instruct-0905",
+        # Llama 4 Maverick: 128k context, current Groq flagship for
+        # long-form summarization. (Kimi K2 used to live here but was
+        # delisted by Groq.)
+        default_llm="groq/meta-llama/llama-4-maverick-17b-128e-instruct",
         api_key_url="https://console.groq.com/keys",
         # Groq has no first-party embedding model.
         default_embedding=None,
@@ -124,6 +125,54 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
             "openrouter/ prefix."
         ),
     ),
+}
+
+
+# Curated chat-model lists per provider. The Quick Setup wizard shows
+# these by default; "Show all" exposes the full LiteLLM cost-map list.
+#
+# Why curated: the cost map carries hundreds of legacy / preview /
+# regional / fine-tune entries that bury the few models a user
+# actually wants. We pre-pick a small set of current flagships +
+# trustworthy mid-tier options per provider.
+#
+# Maintenance: bumping these is a one-line edit when a new model
+# ships. Verify the id exists in `litellm.model_cost` before adding,
+# or the dropdown will show a dead entry.
+CURATED_CHAT_MODELS: dict[str, list[str]] = {
+    "openai": [
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-mini",
+        "openai/gpt-5.4-nano",
+    ],
+    "anthropic": [
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-sonnet-4-6",
+        "anthropic/claude-haiku-4-5",
+    ],
+    "gemini": [
+        "gemini/gemini-3.1-pro-preview",
+        "gemini/gemini-3-flash-preview",
+        "gemini/gemini-3.1-flash-lite-preview",
+        "gemini/gemini-2.5-flash",
+    ],
+    "groq": [
+        "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
+        "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+        "groq/openai/gpt-oss-120b",
+        "groq/qwen/qwen3-32b",
+        "groq/llama-3.3-70b-versatile",
+    ],
+    "openrouter": [
+        "openrouter/anthropic/claude-opus-4-7",
+        "openrouter/anthropic/claude-sonnet-4-6",
+        "openrouter/anthropic/claude-haiku-4-5",
+        "openrouter/openai/gpt-5.2",
+        "openrouter/google/gemini-3-pro-preview",
+        "openrouter/deepseek/deepseek-v3.2",
+    ],
+    # Ollama is dynamic (hits the user's server) — no curation here.
 }
 
 
@@ -196,29 +245,56 @@ def apply_preset(
     return out
 
 
-def list_chat_models(provider_id: str) -> list[str]:
-    """Return chat-capable model ids from the LiteLLM cost map for the
-    given provider, with the preset's default model first.
+def list_chat_models(
+    provider_id: str, *, include_legacy: bool = False
+) -> list[str]:
+    """Return chat-capable model ids for the given provider.
 
-    Excludes fine-tune entries and non-chat modes. Used to populate the
-    wizard's model dropdown.
+    By default returns only the curated short-list defined in
+    `CURATED_CHAT_MODELS` (current flagships + a few useful mid-tier
+    options). Pass `include_legacy=True` to fall back to the full
+    LiteLLM cost map — used by the wizard's "Show all" toggle for
+    power users who want a specific older or specialized model.
+
+    The preset's default model is always first. Models in the curated
+    list float to the top when include_legacy=True, so the dropdown
+    still leads with the recommended choices.
     """
     try:
         preset = get_preset(provider_id)
     except KeyError:
         return []
 
-    # litellm imports are slow; do it lazily.
+    curated = CURATED_CHAT_MODELS.get(provider_id, [])
+
+    if not include_legacy:
+        # Curated path: just the hand-picked list, default first.
+        if not curated:
+            # Fallback for providers without a curation (e.g. ollama,
+            # though ollama hits a separate code path).
+            return [preset.default_llm]
+        return _sort_with_default_first(curated, preset.default_llm)
+
+    # Legacy path: full LiteLLM list, with curated models surfaced
+    # at the top in their preferred order, then everything else
+    # reverse-alphabetically (newer suffixes tend to sort higher).
     import litellm
 
     target = preset.litellm_provider
-    raw = [
+    raw = {
         m for m, info in litellm.model_cost.items()
         if info.get("litellm_provider") == target
         and info.get("mode") == "chat"
         and not m.startswith("ft:")
-    ]
-    return _sort_with_default_first(raw, preset.default_llm)
+    }
+    # Curated entries that exist in LiteLLM, in the order we curated.
+    curated_present = [m for m in curated if m in raw]
+    # Default first if it's present anywhere; keep curated order otherwise.
+    head = _sort_with_default_first(curated_present, preset.default_llm)
+    # The rest, reverse-alphabetical, excluding anything already at the top.
+    used = set(head)
+    tail = sorted([m for m in raw if m not in used], reverse=True)
+    return [*head, *tail]
 
 
 def list_embedding_models(provider_id: str) -> list[str]:

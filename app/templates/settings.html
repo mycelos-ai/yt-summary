@@ -19,7 +19,7 @@
 
   <!-- ── Quick setup wizard ──────────────────────────────────── -->
   <section class="settings-card settings-quicksetup"
-           x-data="{ provider: '' }">
+           x-data="{ provider: '', showAll: {} }">
     <header class="settings-card-head">
       <span class="settings-card-icon" aria-hidden="true">⚡</span>
       <div class="settings-card-head-text">
@@ -99,11 +99,26 @@
                known model list, default selected. User can pick any
                other model the provider exposes without typing. #}
             {% set chat_models = preset_chat_models.get(p.id, []) %}
+            {% set chat_models_full = preset_chat_models_full.get(p.id, []) %}
             {% if chat_models %}
               <label class="settings-field">
-                <span class="settings-label">LLM model</span>
+                <span class="settings-label">
+                  LLM model
+                  {% if chat_models_full and chat_models_full|length > chat_models|length %}
+                    <button type="button" class="link-button settings-show-all"
+                            x-on:click="showAll['{{ p.id }}'] = !showAll['{{ p.id }}']"
+                            x-text="showAll['{{ p.id }}'] ? 'Show curated' : 'Show all'">
+                      Show all
+                    </button>
+                  {% endif %}
+                </span>
+                {# Two parallel <select>s — only one is rendered into the
+                   form on submit, the other gets `name=""` so it's ignored.
+                   Simpler than rebuilding the option list at runtime. #}
                 <select name="llm_model"
-                        x-bind:disabled="provider !== '{{ p.id }}'">
+                        x-bind:name="showAll['{{ p.id }}'] ? '' : 'llm_model'"
+                        x-bind:disabled="provider !== '{{ p.id }}'"
+                        x-show="!showAll['{{ p.id }}']">
                   {% for m in chat_models %}
                     <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
                             {% if m == p.default_llm or m == p.default_llm.split('/', 1)[-1] %}selected{% endif %}>
@@ -111,9 +126,21 @@
                     </option>
                   {% endfor %}
                 </select>
-                <small>Default for {{ p.name }} pre-selected. Pick any
-                  other model the provider exposes — the list is from
-                  LiteLLM's static model map.</small>
+                {% if chat_models_full and chat_models_full|length > chat_models|length %}
+                  <select x-bind:name="showAll['{{ p.id }}'] ? 'llm_model' : ''"
+                          x-bind:disabled="provider !== '{{ p.id }}'"
+                          x-show="showAll['{{ p.id }}']" x-cloak>
+                    {% for m in chat_models_full %}
+                      <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
+                              {% if m == p.default_llm or m == p.default_llm.split('/', 1)[-1] %}selected{% endif %}>
+                        {{ m }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                {% endif %}
+                <small>Curated list of current flagships. Click "Show all"
+                  for the full LiteLLM model map (legacy + preview entries
+                  included).</small>
               </label>
             {% endif %}
             {% set embed_models = preset_embed_models.get(p.id, []) %}

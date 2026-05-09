@@ -804,11 +804,28 @@ summary.section-heading {
 }
 .settings-field:last-of-type { margin-bottom: 0; }
 .settings-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 6px;
+}
+.settings-show-all {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--steel);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.settings-show-all:hover {
+  color: var(--ink);
 }
 .settings-hint-inline {
   font-weight: 400;

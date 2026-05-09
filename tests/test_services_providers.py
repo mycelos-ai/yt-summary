@@ -176,6 +176,39 @@ def test_list_chat_models_default_first():
     assert models[0] in (default_bare, preset.default_llm)
 
 
+def test_list_chat_models_curated_short_by_default():
+    """Default behavior returns the curated short list — not hundreds
+    of legacy entries from the LiteLLM cost map."""
+    models = list_chat_models("openai")
+    # Curated lists are intentionally small (under 10).
+    assert len(models) < 10
+    # All curated OpenAI entries are 5.x — no legacy 4o, no o1/o3 leak.
+    assert all("gpt-5" in m for m in models)
+
+
+def test_list_chat_models_include_legacy_returns_more():
+    """include_legacy=True falls back to the full LiteLLM map for
+    power users."""
+    short = list_chat_models("openai")
+    full = list_chat_models("openai", include_legacy=True)
+    assert len(full) > len(short)
+    # The curated entries still come first in the full list.
+    preset = get_preset("openai")
+    assert full[0] in (
+        preset.default_llm,
+        preset.default_llm.removeprefix("openai/"),
+    )
+
+
+def test_list_chat_models_curated_excludes_kimi_for_groq():
+    """Kimi K2 was delisted by Groq — it must not appear in the
+    curated Groq list (or it'd be a dead default option)."""
+    models = list_chat_models("groq")
+    assert not any("kimi" in m.lower() for m in models)
+    # Llama 4 Maverick is the new default
+    assert any("llama-4-maverick" in m for m in models)
+
+
 def test_apply_preset_ollama_with_custom_base_url():
     """Ollama wizard lets the user override the base URL (Docker
     default is rarely right). Custom base URL should win."""

@@ -63,11 +63,19 @@ async def settings_page(
     # Ollama gets its list dynamically from /api/tags via HTMX, so we
     # don't pre-fill those here.
     preset_chat_models: dict[str, list[str]] = {}
+    preset_chat_models_full: dict[str, list[str]] = {}
     preset_embed_models: dict[str, list[str]] = {}
     for p in presets:
         if p.id == "ollama":
             continue
+        # Curated short list — what the dropdown shows by default.
         preset_chat_models[p.id] = list_chat_models(p.id)
+        # Full LiteLLM-backed list — surfaced by the "Show all" toggle
+        # so power users can pick a specific older / specialized model
+        # without us shipping a release for every preference.
+        preset_chat_models_full[p.id] = list_chat_models(
+            p.id, include_legacy=True
+        )
         if p.default_embedding:
             preset_embed_models[p.id] = list_embedding_models(p.id)
 
@@ -77,6 +85,7 @@ async def settings_page(
         {
             "presets": presets,
             "preset_chat_models": preset_chat_models,
+            "preset_chat_models_full": preset_chat_models_full,
             "preset_embed_models": preset_embed_models,
             "applied_preset": applied_preset,
             "settings": safe_settings,

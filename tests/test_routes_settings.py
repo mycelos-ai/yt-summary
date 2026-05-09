@@ -598,8 +598,11 @@ def test_quick_setup_blank_key_keeps_existing(tmp_path, monkeypatch):
             s = await settings_repo.get_all(app.state.db)
             # llm_api_key kept
             assert s["llm_api_key"] == "old-existing-key"
-            # llm_model still got swapped though
-            assert s["llm_model"] == "openai/gpt-4o"
+            # llm_model still got swapped to the OpenAI preset's
+            # current default (without hard-coding which one — bumping
+            # the default shouldn't churn tests).
+            from app.services.providers import get_preset
+            assert s["llm_model"] == get_preset("openai").default_llm
 
         asyncio.get_event_loop().run_until_complete(check())
 
@@ -771,12 +774,12 @@ def test_settings_page_renders_cloud_provider_dropdowns(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     text = resp.text
-    # Groq's curated default — currently Kimi K2 (long context, strong
-    # at summarization). Updating this default is a one-line change in
-    # PROVIDER_PRESETS, so this test is intentionally loose.
-    assert "kimi-k2-instruct" in text
-    # Other Groq models also in the dropdown
+    # Groq's curated default — currently Llama 4 Maverick (128k context,
+    # current Groq flagship after Kimi K2 was delisted). Updating this
+    # default is a one-line change in PROVIDER_PRESETS.
     assert "llama-4-maverick" in text
+    # Other curated Groq models also in the dropdown
+    assert "qwen3-32b" in text
     # Cloud presets render real selects; Anthropic shows Claude variants
     assert "claude" in text.lower()
 
