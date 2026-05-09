@@ -1,11 +1,23 @@
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import litellm
 
 from app.services.model_info import get_context_window
+from app.services.transcript_format import format_timestamp
 
 ProgressCb = Callable[[str], Awaitable[None]]
+
+# Matches inline summary timestamp links produced by the LLM.
+# Format: [MM:SS](#t=SECONDS) or [HH:MM:SS](#t=SECONDS)
+_TIMESTAMP_LINK_RE = re.compile(r"\[\d{1,2}(?::\d{2}){1,2}\]\(#t=(\d+)\)")
+
+# Tolerance (seconds) when matching an LLM-emitted timestamp against a
+# real segment start. The LLM may pick the closest segment to the
+# actual moment rather than the cue's start, so we allow a few seconds
+# of slack in either direction before counting it as an anomaly.
+_TIMESTAMP_TOLERANCE_S = 5
 
 # Language code → human label used in the prompt. "auto" means: don't
 # fix a language; let the model match the transcript's language.
@@ -29,11 +41,29 @@ def _language_directive(code: str | None) -> str:
     return f"OUTPUT LANGUAGE: {label}."
 
 
+_TIMESTAMP_INSTRUCTION = (
+    "INLINE TIMESTAMP LINKS:\n"
+    "The user message includes a list of transcript paragraphs each "
+    "prefixed with [MM:SS]. When you reference a specific moment from "
+    "the transcript, include a clickable timestamp in this exact "
+    "format: [MM:SS](#t=SECONDS). Use timestamps for: (1) the speaker's "
+    "main thesis or pivot point, (2) any concrete example, "
+    "demonstration, or surprising claim, (3) anything a viewer would "
+    "want to verify or re-watch. Aim for 3-7 high-value timestamps "
+    "total — don't sprinkle them. Always pick from the timestamps "
+    "shown in the transcript paragraphs above; never invent your own.\n\n"
+)
+
+
 def build_system_prompt(
-    *, language: str | None, extra_instructions: str | None
+    *,
+    language: str | None,
+    extra_instructions: str | None,
+    with_timestamps: bool = False,
 ) -> str:
     extra = (extra_instructions or "").strip()
     extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    timestamp_block = _TIMESTAMP_INSTRUCTION if with_timestamps else ""
     return (
         "You analyze YouTube videos and extract their substance for someone "
         "who doesn't have time to watch.\n\n"
@@ -88,6 +118,7 @@ def build_system_prompt(
         "agent runs that prompt Claude on a schedule).\"\n"
         "- ✅ \"Stripe migrated 50,000 lines of Scala to Java in 4 days "
         "with Claude (originally estimated at 10 engineering weeks).\"\n\n"
+        f"{timestamp_block}"
         "WHAT TO IGNORE:\n"
         "- Sponsor reads and ad segments — skip them entirely.\n"
         "- Self-promotion (\"subscribe\", \"like the video\", merch, "
@@ -97,10 +128,21 @@ def build_system_prompt(
 
 
 def build_reduce_prompt(
-    *, language: str | None, extra_instructions: str | None
+    *,
+    language: str | None,
+    extra_instructions: str | None,
+    with_timestamps: bool = False,
 ) -> str:
     extra = (extra_instructions or "").strip()
     extra_block = f"\n\nADDITIONAL USER INSTRUCTIONS:\n{extra}" if extra else ""
+    timestamp_block = (
+        "PRESERVE INLINE TIMESTAMP LINKS:\n"
+        "Partial summaries may contain [MM:SS](#t=SECONDS) markdown "
+        "links pointing into the transcript. Keep them intact in the "
+        "merged result — do not rewrite, drop, or invent new ones.\n\n"
+        if with_timestamps
+        else ""
+    )
     return (
         "You merge several partial summaries of a single YouTube video into "
         "one cohesive Markdown summary.\n\n"
@@ -132,8 +174,9 @@ def build_reduce_prompt(
         "below) as the primary source for exact URLs.\n\n"
         "Drop sponsor reads, self-promotion, and filler. If a partial "
         "summary mentions sponsors, do not surface them in the final "
-        "result."
-    ) + extra_block
+        "result.\n\n"
+        f"{timestamp_block}"
+    ).rstrip() + extra_block
 
 
 def _build_user_message(
@@ -166,6 +209,59 @@ def _build_user_message(
     parts.append("---")
     parts.append(body)
     return "\n\n".join(parts)
+
+
+def _format_segments_for_prompt(
+    segments: list[dict],
+    *,
+    total_duration_s: float | None = None,
+) -> str:
+    """Render JSON-ish segments as `[MM:SS] text` lines so the LLM has
+    a fixed inventory of timestamps to choose from.
+
+    The picked-from-here list also tells the model exactly which
+    `t=SECONDS` values are legal for inline summary links.
+    """
+    lines: list[str] = []
+    for seg in segments:
+        start = seg.get("start")
+        text = (seg.get("text") or "").strip()
+        if start is None or not text:
+            continue
+        ts = format_timestamp(float(start), total_duration_s=total_duration_s)
+        lines.append(f"[{ts}] {text}")
+    return "\n".join(lines)
+
+
+def _verify_summary_timestamps(
+    summary: str,
+    segments: list[dict] | None,
+) -> tuple[int, int]:
+    """Verify each [MM:SS](#t=SECONDS) link in `summary` matches a
+    real segment start within ±5 s. Pure function — does not mutate
+    the summary.
+
+    Returns (verified, anomalies).
+    """
+    if not summary:
+        return (0, 0)
+    matches = _TIMESTAMP_LINK_RE.findall(summary)
+    if not matches:
+        return (0, 0)
+    starts = [float(s["start"]) for s in (segments or []) if s.get("start") is not None]
+    verified = 0
+    anomalies = 0
+    for raw in matches:
+        try:
+            t = int(raw)
+        except ValueError:
+            anomalies += 1
+            continue
+        if any(abs(t - s) <= _TIMESTAMP_TOLERANCE_S for s in starts):
+            verified += 1
+        else:
+            anomalies += 1
+    return (verified, anomalies)
 
 
 async def _noop(_: str) -> None:
@@ -226,6 +322,7 @@ async def summarize(
     language: str | None = None,
     extra_instructions: str | None = None,
     playlist_context: list[str] | None = None,
+    transcript_segments: list[dict] | None = None,
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
@@ -243,17 +340,30 @@ async def summarize(
         their queue thematically, so naming the bucket helps the
         summary lean into that angle. Empty list / None omits the
         section entirely.
+    transcript_segments: list of {"start": float, "text": str} dicts.
+        When provided, the user prompt body is rendered as `[MM:SS] …`
+        lines and the system prompt instructs the LLM to embed
+        clickable [MM:SS](#t=SECONDS) links for key moments. None /
+        empty list → behave exactly as before (no timestamp
+        instruction). Currently only honoured in the single-shot path —
+        map-reduce chunks raw text by word count, which discards
+        segment alignment, so we fall back to plain transcript there.
     on_partial: optional async callback invoked after each completed chunk
         in the map-reduce path. Receives a Markdown-formatted "live"
         summary that combines the partial summaries produced so far.
         Not called in the single-shot path (no intermediate state).
     """
     progress = progress or _noop
+    has_segments = bool(transcript_segments)
     system_prompt = build_system_prompt(
-        language=language, extra_instructions=extra_instructions
+        language=language,
+        extra_instructions=extra_instructions,
+        with_timestamps=has_segments,
     )
     reduce_prompt = build_reduce_prompt(
-        language=language, extra_instructions=extra_instructions
+        language=language,
+        extra_instructions=extra_instructions,
+        with_timestamps=has_segments,
     )
 
     max_tokens = await get_context_window(model, base_url)
@@ -265,6 +375,16 @@ async def summarize(
             f"summarizing (single-shot, ~{transcript_tokens} tokens, "
             f"model context {max_tokens})"
         )
+        if has_segments:
+            assert transcript_segments is not None
+            body = (
+                "TRANSCRIPT (each paragraph prefixed with [MM:SS] from the "
+                "video — pick from these timestamps when emitting inline "
+                "[MM:SS](#t=SECONDS) summary links):\n\n"
+                + _format_segments_for_prompt(transcript_segments)
+            )
+        else:
+            body = f"TRANSCRIPT:\n{transcript}"
         return await _completion(
             model=model,
             messages=[
@@ -274,7 +394,7 @@ async def summarize(
                     "content": _build_user_message(
                         title=title,
                         description=description,
-                        body=f"TRANSCRIPT:\n{transcript}",
+                        body=body,
                         playlist_context=playlist_context,
                     ),
                 },

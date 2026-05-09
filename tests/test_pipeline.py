@@ -293,6 +293,138 @@ async def test_pipeline_refetches_when_segments_missing(db, tmp_path):
     assert "fresh" in (v.transcript or "")
 
 
+async def test_pipeline_passes_segments_to_summarizer_for_youtube(db, tmp_path):
+    """YouTube videos with cached segments must surface them to
+    summarize() so the LLM can pick real timestamps."""
+    import json as _json
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vseg", url="https://youtu.be/vseg", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    segs = [
+        {"start": 0.0, "text": "intro"},
+        {"start": 30.0, "text": "middle"},
+        {"start": 90.0, "text": "punchline"},
+    ]
+    await videos_repo.set_transcript(
+        db, "vseg", "intro middle punchline",
+        TranscriptSource.AUTO_SUBS,
+        segments_json=_json.dumps(segs),
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+
+    captured: dict = {}
+
+    async def fake_summarize(**kwargs):
+        captured.update(kwargs)
+        return "OUT"
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch("app.pipeline.obtain_transcript") as obtain_mock,
+        patch("app.pipeline.summarize", side_effect=fake_summarize),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vseg", set_step)
+
+    obtain_mock.assert_not_called()
+    assert captured.get("transcript_segments") is not None
+    passed = captured["transcript_segments"]
+    # Same number of segments, same starts (compare on starts only —
+    # implementation may pass them through as-is or normalised).
+    starts = sorted(s["start"] for s in passed)
+    assert starts == [0.0, 30.0, 90.0]
+
+
+async def test_pipeline_does_not_pass_segments_for_web_kind(db, tmp_path):
+    """Web articles have no concept of time. The pipeline must NOT
+    surface segments (even legacy / accidental ones) to summarize for
+    web kind, so the timestamp instruction stays out of the prompt."""
+    from app.services.reader import ArticleMetadata
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    from app.models import VideoKind
+    await videos_repo.upsert_metadata(
+        db, video_id="web-aaaaaaa1111",
+        url="https://example.com/x",
+        title="Web post", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.WEB,
+    )
+
+    article = ArticleMetadata(
+        url="https://example.com/x", title="Web post", description="",
+        body="The article body.", thumbnail_url=None,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+
+    captured: dict = {}
+
+    async def fake_summarize(**kwargs):
+        captured.update(kwargs)
+        return "OUT"
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch("app.pipeline.fetch_article", AsyncMock(return_value=article)),
+        patch("app.pipeline.summarize", side_effect=fake_summarize),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "web-aaaaaaa1111", set_step)
+
+    assert captured.get("transcript_segments") in (None, [])
+
+
+async def test_pipeline_reports_timestamp_verification_step(db, tmp_path):
+    """After summarizing a YouTube video with segments, the pipeline
+    surfaces a 'timestamps verified' progress step including counts."""
+    import json as _json
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vverify", url="https://youtu.be/vverify", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    segs = [{"start": 0.0, "text": "x"}, {"start": 60.0, "text": "y"}]
+    await videos_repo.set_transcript(
+        db, "vverify", "x y",
+        TranscriptSource.AUTO_SUBS,
+        segments_json=_json.dumps(segs),
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+
+    steps: list[str] = []
+
+    async def set_step(s: str) -> None:
+        steps.append(s)
+
+    summary = "Look at [00:00](#t=0) and [01:00](#t=60)."
+    with (
+        patch("app.pipeline.obtain_transcript"),
+        patch("app.pipeline.summarize", AsyncMock(return_value=summary)),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vverify", set_step)
+
+    # A step mentioning timestamp verification should have been emitted
+    assert any("timestamp" in s.lower() for s in steps)
+
+
 async def test_pipeline_skips_fetch_when_segments_already_present(db, tmp_path):
     """If transcript AND segments are both already stored, the
     pipeline should not re-fetch — re-summarize stays cheap."""

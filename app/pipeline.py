@@ -15,7 +15,7 @@ from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
 from app.services.reader import fetch_article
-from app.services.summarizer import summarize
+from app.services.summarizer import _verify_summary_timestamps, summarize
 from app.services.transcript import obtain_transcript
 from app.services.transcript_format import group_segments
 from app.services.youtube import fetch_metadata
@@ -129,6 +129,21 @@ async def process_video(
     playlist_links = await playlists_repo.playlists_for_videos(db, [video_id])
     playlist_context = [title for _id, title in playlist_links.get(video_id, [])]
 
+    # Surface segments to the summarizer ONLY for YouTube videos —
+    # web articles have no notion of time, so timestamp links would be
+    # nonsense there. Re-load the video so we pick up segments that
+    # were just persisted by the fetch branch above.
+    if needs_fetch:
+        video = await videos_repo.get(db, video_id)
+        if video is None:
+            raise RuntimeError(f"Video {video_id} disappeared mid-pipeline")
+    segments = _segments_for_summarizer(video)
+
+    # We're here only if `text` was set above — either from a fresh
+    # fetch (always str) or from `video.transcript` (which we already
+    # gated on via `needs_fetch`). Reassure the type checker.
+    assert text is not None, "text must be set before summarization"
+
     summary = await summarize(
         transcript=text,
         model=model,
@@ -139,11 +154,57 @@ async def process_video(
         language=settings.get("summary_language"),
         extra_instructions=settings.get("summary_extra_instructions"),
         playlist_context=playlist_context or None,
+        transcript_segments=segments,
         progress=set_step,
         on_partial=_persist_partial,
     )
     await videos_repo.set_summary(db, video_id, summary, model)
+
+    # Validate any inline [MM:SS](#t=SECONDS) links in the summary
+    # against the segment inventory. Anomalies are logged but the
+    # summary is NOT mutated — future iterations can decide policy.
+    if segments:
+        verified, anomalies = _verify_summary_timestamps(summary, segments)
+        await set_step(
+            f"timestamps verified — {verified} ok, {anomalies} anomalies"
+        )
+        if anomalies:
+            log.warning(
+                "video %s summary has %d timestamp anomalies "
+                "(%d verified)",
+                video_id,
+                anomalies,
+                verified,
+            )
+
     await _try_embed_summary(db, video_id, summary, settings, set_step)
+
+
+def _segments_for_summarizer(video) -> list[dict] | None:
+    """Decode the JSON-stored transcript_segments into a list of
+    {start, text} dicts suitable for `summarize()`. Web videos
+    return None unconditionally — they have no time concept."""
+    if video.kind == VideoKind.WEB:
+        return None
+    raw = getattr(video, "transcript_segments", None)
+    if not raw:
+        return None
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(items, list):
+        return None
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        start = item.get("start")
+        text = (item.get("text") or "").strip()
+        if start is None or not text:
+            continue
+        out.append({"start": float(start), "text": text})
+    return out or None
 
 
 async def _try_embed_summary(

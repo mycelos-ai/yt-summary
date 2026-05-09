@@ -30,7 +30,31 @@
     {% endif %}
   </header>
 
-  {% if video.thumbnail_path %}
+  {% if video.kind.value != 'web' %}
+    {# Lazy player: thumbnail + play overlay until first interaction.
+       On the first click of the thumbnail OR any [data-yt-timestamp]
+       link in the summary / transcript we swap in an iframe pointed
+       at youtube-nocookie.com (privacy: no contact with youtube.com
+       until the user opts in). Subsequent clicks reuse the same
+       iframe via the YouTube iframe API. #}
+    <div id="yt-player-placeholder" class="yt-player-placeholder"
+         data-video-id="{{ video.id }}">
+      {% if video.thumbnail_path %}
+        <img class="yt-player-thumb" src="/thumbnails/{{ video.id }}.jpg"
+             alt="" data-yt-timestamp="0">
+      {% else %}
+        <div class="yt-player-thumb yt-player-thumb-blank"
+             data-yt-timestamp="0"></div>
+      {% endif %}
+      <button type="button" class="yt-player-play"
+              data-yt-timestamp="0" aria-label="Play video">
+        <svg viewBox="0 0 68 48" width="68" height="48" aria-hidden="true">
+          <path d="M66.52 7.74A8.5 8.5 0 0 0 60.55 1.7C55.41.36 34 .36 34 .36s-21.41 0-26.55 1.34A8.5 8.5 0 0 0 1.48 7.74C.14 12.88.14 24 .14 24s0 11.12 1.34 16.26a8.5 8.5 0 0 0 5.97 6.04C12.59 47.64 34 47.64 34 47.64s21.41 0 26.55-1.34a8.5 8.5 0 0 0 5.97-6.04C67.86 35.12 67.86 24 67.86 24s0-11.12-1.34-16.26z" fill="#f00"/>
+          <path d="M27 34l18-10-18-10z" fill="#fff"/>
+        </svg>
+      </button>
+    </div>
+  {% elif video.thumbnail_path %}
     <img src="/thumbnails/{{ video.id }}.jpg" alt="">
   {% endif %}
 
@@ -51,6 +75,7 @@
             <div class="transcript-block">
               <a class="transcript-ts"
                  href="{{ video.url }}{% if '?' in video.url %}&{% else %}?{% endif %}t={{ block.start_s | int }}"
+                 data-yt-timestamp="{{ block.start_s | int }}"
                  target="_blank" rel="noopener">{{ block.timestamp }}</a>
               <p class="transcript-text">{{ block.text }}</p>
             </div>
@@ -91,4 +116,86 @@
     </section>
   {% endif %}
 </article>
+
+{% if video.kind.value != 'web' %}
+<script>
+  (function () {
+    "use strict";
+    const placeholder = document.getElementById("yt-player-placeholder");
+    if (!placeholder) return;
+    const VIDEO_ID = placeholder.dataset.videoId;
+    let player = null;
+    let apiPromise = null;
+
+    function loadAPI() {
+      if (apiPromise) return apiPromise;
+      if (window.YT && window.YT.Player) {
+        apiPromise = Promise.resolve();
+        return apiPromise;
+      }
+      apiPromise = new Promise(function (resolve) {
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = function () {
+          if (typeof prev === "function") prev();
+          resolve();
+        };
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
+      });
+      return apiPromise;
+    }
+
+    function ensurePlayer(startSeconds) {
+      if (player) return Promise.resolve(player);
+      return loadAPI().then(function () {
+        return new Promise(function (resolve) {
+          placeholder.innerHTML = '<div id="yt-player"></div>';
+          player = new YT.Player("yt-player", {
+            videoId: VIDEO_ID,
+            host: "https://www.youtube-nocookie.com",
+            playerVars: {
+              autoplay: 1,
+              start: startSeconds || 0,
+              enablejsapi: 1,
+              rel: 0,
+            },
+            events: {
+              onReady: function () { resolve(player); },
+            },
+          });
+        });
+      });
+    }
+
+    function scrollPlayerIntoView() {
+      const rect = placeholder.getBoundingClientRect();
+      const onscreen = rect.top >= 0 && rect.bottom <= window.innerHeight;
+      if (!onscreen) {
+        placeholder.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
+    document.addEventListener("click", function (e) {
+      const target = e.target.closest(
+        "[data-yt-timestamp], .yt-player-thumb, .yt-player-play"
+      );
+      if (!target) return;
+      // Only intercept clicks that belong to this detail page's player
+      // surface — the placeholder, the summary, and the transcript.
+      const article = target.closest(".video-detail");
+      if (!article) return;
+      e.preventDefault();
+      const seconds = parseInt(target.dataset.ytTimestamp || "0", 10) || 0;
+      if (!player) {
+        ensurePlayer(seconds).then(scrollPlayerIntoView);
+      } else {
+        player.seekTo(seconds, true);
+        player.playVideo();
+        scrollPlayerIntoView();
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

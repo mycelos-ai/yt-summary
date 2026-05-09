@@ -363,6 +363,72 @@ p { margin: 0 0 16px 0; }
   border: 1px solid var(--hairline-soft);
 }
 
+/* Lazy YouTube player. Until the user clicks, this is a thumbnail
+   with a centered play button — no iframe, no contact with
+   youtube.com. After click, JS replaces the contents with an
+   iframe pointed at youtube-nocookie.com. */
+.yt-player-placeholder {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 32px;
+  border-radius: var(--rounded-lg);
+  overflow: hidden;
+  background: var(--surface-code);
+  border: 1px solid var(--hairline-soft);
+  cursor: pointer;
+}
+.yt-player-placeholder iframe,
+.yt-player-placeholder #yt-player {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.yt-player-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+}
+.yt-player-thumb-blank {
+  background: linear-gradient(135deg, #1c1c1e 0%, #3a3a3c 100%);
+}
+.yt-player-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.92;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.yt-player-placeholder:hover .yt-player-play {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.05);
+}
+
+/* Inline timestamp links produced by the LLM in the summary. They
+   look like the surrounding prose but are clickable seeks. */
+.summary a.yt-ts {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  color: var(--brand-green-deep);
+  text-decoration: none;
+  background: rgba(0, 212, 164, 0.08);
+  padding: 1px 5px;
+  border-radius: var(--rounded-xs);
+}
+.summary a.yt-ts:hover {
+  color: var(--brand-green);
+  background: rgba(0, 212, 164, 0.16);
+}
+
 .summary {
   margin-bottom: 32px;
   padding: 32px;

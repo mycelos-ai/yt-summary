@@ -378,3 +378,179 @@ def test_reduce_prompt_demands_title_answer():
     p = build_reduce_prompt(language="auto", extra_instructions=None)
     lower = p.lower()
     assert "title" in lower
+
+
+# ---------------------------------------------------------------------------
+# Inline timestamp links in summary
+# ---------------------------------------------------------------------------
+
+
+def test_build_system_prompt_includes_timestamp_instruction_when_segments_present():
+    """When the summarizer is told there are transcript segments
+    available, the system prompt MUST instruct the LLM to emit
+    [MM:SS](#t=SECONDS) links for key moments."""
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(
+        language="auto",
+        extra_instructions=None,
+        with_timestamps=True,
+    )
+    # The exact format pattern the LLM must emit
+    assert "[MM:SS](#t=SECONDS)" in p
+    # Must reference a budget / cap so the model doesn't sprinkle
+    assert "3" in p and ("7" in p or "high-value" in p.lower())
+    # Must forbid invented timestamps
+    assert "never invent" in p.lower() or "do not invent" in p.lower() \
+        or "pick from" in p.lower()
+
+
+def test_build_system_prompt_omits_timestamp_instruction_by_default():
+    """No segments → no timestamp instruction. Web articles never have
+    segments, so the prompt should stay clean for them."""
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(
+        language="auto",
+        extra_instructions=None,
+        with_timestamps=False,
+    )
+    assert "(#t=SECONDS)" not in p
+    assert "[MM:SS]" not in p
+
+
+def test_build_system_prompt_default_with_timestamps_is_off():
+    """The new with_timestamps kwarg must default to False so existing
+    callers that don't pass segments stay silent on the topic."""
+    from app.services.summarizer import build_system_prompt
+    p = build_system_prompt(language="auto", extra_instructions=None)
+    assert "(#t=SECONDS)" not in p
+
+
+async def test_summarize_includes_segments_in_user_message():
+    """When segments are passed, the user prompt body should list each
+    one prefixed with its [MM:SS] timestamp so the model can reference
+    real timestamps from the transcript."""
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("S")
+
+    segments = [
+        {"start": 0.0, "text": "Hello and welcome."},
+        {"start": 42.5, "text": "Today we discuss specifics."},
+        {"start": 135.0, "text": "Here is the punchline."},
+    ]
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="Hello and welcome. Today we discuss specifics. "
+                       "Here is the punchline.",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            transcript_segments=segments,
+        )
+
+    user_msg = captured["messages"][1]["content"]
+    sys_msg = captured["messages"][0]["content"]
+    # User msg lists timestamps
+    assert "[00:00]" in user_msg
+    assert "[00:42]" in user_msg
+    assert "[02:15]" in user_msg
+    # System prompt picked up the timestamp instruction
+    assert "(#t=SECONDS)" in sys_msg
+
+
+async def test_summarize_omits_timestamp_instruction_when_no_segments():
+    from app.services.summarizer import summarize
+
+    captured: dict = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return _completion_response("S")
+
+    with (
+        patch("app.services.summarizer.litellm.acompletion", side_effect=fake_completion),
+        patch("app.services.summarizer.litellm.token_counter", return_value=10),
+        patch("app.services.model_info.litellm.get_max_tokens", return_value=8000),
+    ):
+        await summarize(
+            transcript="some text",
+            model="openai/gpt-4o",
+            api_key="k",
+            base_url=None,
+            transcript_segments=None,
+        )
+
+    sys_msg = captured["messages"][0]["content"]
+    user_msg = captured["messages"][1]["content"]
+    assert "(#t=SECONDS)" not in sys_msg
+    # No segment header sneaking into the user prompt either
+    assert "[00:00]" not in user_msg
+
+
+def test_verify_summary_timestamps_all_match():
+    """Every [MM:SS](#t=N) in the summary corresponds to a real segment
+    start (within ±5 s tolerance) → all verified, zero anomalies."""
+    from app.services.summarizer import _verify_summary_timestamps
+
+    segments = [
+        {"start": 0.0, "text": "intro"},
+        {"start": 60.0, "text": "middle"},
+        {"start": 754.0, "text": "highlight"},
+    ]
+    summary = (
+        "TL;DR.\n\n"
+        "See [00:00](#t=0) for the intro and [12:34](#t=754) for the "
+        "highlight."
+    )
+    verified, anomalies = _verify_summary_timestamps(summary, segments)
+    assert verified == 2
+    assert anomalies == 0
+
+
+def test_verify_summary_timestamps_off_by_more_than_five_is_anomaly():
+    from app.services.summarizer import _verify_summary_timestamps
+
+    segments = [{"start": 0.0, "text": "intro"}, {"start": 100.0, "text": "x"}]
+    # 200 has no neighbouring segment within 5 s → anomaly
+    summary = "Look at [03:20](#t=200)."
+    verified, anomalies = _verify_summary_timestamps(summary, segments)
+    assert verified == 0
+    assert anomalies == 1
+
+
+def test_verify_summary_timestamps_within_five_seconds_counts_as_verified():
+    from app.services.summarizer import _verify_summary_timestamps
+
+    segments = [{"start": 100.0, "text": "x"}]
+    # 104 is within 5s of 100 → verified
+    summary = "[01:44](#t=104)"
+    verified, anomalies = _verify_summary_timestamps(summary, segments)
+    assert verified == 1
+    assert anomalies == 0
+
+
+def test_verify_summary_timestamps_empty_summary():
+    from app.services.summarizer import _verify_summary_timestamps
+
+    verified, anomalies = _verify_summary_timestamps("", [{"start": 0.0, "text": "x"}])
+    assert verified == 0
+    assert anomalies == 0
+
+
+def test_verify_summary_timestamps_no_segments_treats_all_as_anomaly():
+    """With no segments to validate against, every link is unverified."""
+    from app.services.summarizer import _verify_summary_timestamps
+
+    verified, anomalies = _verify_summary_timestamps(
+        "[00:00](#t=0) [01:00](#t=60)", []
+    )
+    assert verified == 0
+    assert anomalies == 2
