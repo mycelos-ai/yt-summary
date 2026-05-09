@@ -1055,6 +1055,51 @@ summary.section-heading {
   margin-bottom: 24px;
   font-size: 14px;
 }
+
+/* Collapsible "Advanced — manually configure LLM/Whisper/Embedding"
+   block. Closed by default so first-time users see only the Quick
+   Setup wizard plus the high-signal cards (Summary language,
+   Playlists, Cookies, API access). Power users with custom setups
+   click to expand. */
+.settings-advanced {
+  margin-bottom: 24px;
+}
+.settings-advanced-summary {
+  cursor: pointer;
+  padding: 14px 18px;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--surface-soft, #fafafa);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  list-style: none;
+  font-size: 14px;
+  user-select: none;
+  transition: border-color 120ms, background 120ms;
+}
+.settings-advanced-summary::-webkit-details-marker { display: none; }
+.settings-advanced-summary:hover {
+  border-color: var(--steel);
+  background: var(--surface, #f6f6f6);
+}
+.settings-advanced[open] .settings-advanced-summary {
+  border-style: solid;
+  margin-bottom: 16px;
+}
+.settings-advanced-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  color: var(--steel);
+}
+.settings-advanced-hint {
+  display: block;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--steel);
+  margin-top: 4px;
+  line-height: 1.4;
+}
 .settings-quicksetup {
   border-color: var(--brand-green);
   background: linear-gradient(180deg, rgba(0, 212, 164, 0.04), transparent 60%);

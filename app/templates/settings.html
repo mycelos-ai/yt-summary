@@ -193,6 +193,65 @@
 
   <form method="post" action="/settings" class="settings-form">
 
+    <!-- ── Summary output ──────────────────────────────────────── -->
+    <section class="settings-card">
+      <header class="settings-card-head">
+        <span class="settings-card-icon" aria-hidden="true">
+          <img src="{{ url_for('static', path='icons/summary.png') }}?v={{ asset_version() }}" alt="">
+        </span>
+        <div class="settings-card-head-text">
+          <h2>Summary output</h2>
+          <p class="settings-card-sub">Per-video defaults applied when the LLM produces a summary.</p>
+        </div>
+      </header>
+
+      <label class="settings-field">
+        <span class="settings-label">Summary language</span>
+        <select name="summary_language">
+          {% set langs = [
+              ('auto', 'Auto (match transcript)'),
+              ('de', 'German'),
+              ('en', 'English'),
+              ('fr', 'French'),
+              ('es', 'Spanish'),
+              ('it', 'Italian'),
+              ('nl', 'Dutch'),
+              ('pt', 'Portuguese'),
+          ] %}
+          {% set current_lang = settings.get('summary_language', 'auto') %}
+          {% for code, label in langs %}
+            <option value="{{ code }}" {% if current_lang == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <small>Output language. "Auto" mirrors whatever language the transcript is in.</small>
+      </label>
+
+      <p class="settings-field-note">
+        Need to tweak how summaries are written? Each profile has its
+        own summarizer prompt — fully editable on the
+        <a href="/profiles/{{ current_user.id }}/edit">profile page</a>.
+      </p>
+    </section>
+
+    <!-- ── Advanced manual config (LLM + Whisper + Embeddings) ──
+         Quick Setup above already configures all three in one go for
+         the supported providers. The cards in this collapsible block
+         are for power users with custom setups (self-hosted LiteLLM
+         proxy, exotic Whisper backend, mixed providers). Closed by
+         default — most users will never touch it. -->
+    <details class="settings-advanced">
+      <summary class="settings-advanced-summary">
+        <span class="settings-advanced-icon" aria-hidden="true">⚙</span>
+        <span>
+          <strong>Advanced — configure manually</strong>
+          <span class="settings-advanced-hint">
+            Override LLM, Whisper, or Embedding settings individually. Most users
+            don't need this — the Quick Setup wizard above covers the supported
+            providers.
+          </span>
+        </span>
+      </summary>
+
     <!-- ── LLM ─────────────────────────────────────────────────── -->
     <section class="settings-card">
       <header class="settings-card-head">
@@ -277,46 +336,6 @@
       <p class="settings-test-hint">Sends a 3-second audio sample (<code>app/static/samples/whisper_test.m4a</code>) through the configured backend.</p>
     </section>
 
-    <!-- ── Summary output ──────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/summary.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Summary output</h2>
-          <p class="settings-card-sub">Per-video defaults applied when the LLM produces a summary.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Summary language</span>
-        <select name="summary_language">
-          {% set langs = [
-              ('auto', 'Auto (match transcript)'),
-              ('de', 'German'),
-              ('en', 'English'),
-              ('fr', 'French'),
-              ('es', 'Spanish'),
-              ('it', 'Italian'),
-              ('nl', 'Dutch'),
-              ('pt', 'Portuguese'),
-          ] %}
-          {% set current_lang = settings.get('summary_language', 'auto') %}
-          {% for code, label in langs %}
-            <option value="{{ code }}" {% if current_lang == code %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <small>Output language. "Auto" mirrors whatever language the transcript is in.</small>
-      </label>
-
-      <p class="settings-field-note">
-        Need to tweak how summaries are written? Each profile has its
-        own summarizer prompt — fully editable on the
-        <a href="/profiles/{{ current_user.id }}/edit">profile page</a>.
-      </p>
-    </section>
-
     <!-- ── Embeddings ──────────────────────────────────────────── -->
     <section class="settings-card">
       <header class="settings-card-head">
@@ -351,6 +370,9 @@
         <div id="embedding-test-result" class="settings-test-result"></div>
       </div>
     </section>
+
+    </details>
+    <!-- ── /Advanced manual config ─────────────────────────────── -->
 
     <!-- ── Playlists ───────────────────────────────────────────── -->
     <section class="settings-card">
