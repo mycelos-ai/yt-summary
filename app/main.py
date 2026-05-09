@@ -98,20 +98,26 @@ async def get_current_user_id(
 async def _onboarding_status(db: aiosqlite.Connection) -> dict[str, object]:
     """Decide whether to push a fresh visitor into the onboarding wizard.
 
-    Returns ``{'pending': True, 'next_step': '/onboarding/welcome'}`` only
-    when both an LLM API key is missing AND there's no
-    ``onboarding_completed`` marker. The marker means the user has been
-    through (or skipped) the wizard at least once; the API-key check is
-    a fallback for users who configured the box manually before this
-    code shipped — we don't want to ambush them.
+    Returns ``{'pending': True, 'next_step': '/onboarding/welcome'}``
+    when there's no ``onboarding_completed`` marker AND no LLM model
+    is configured. The marker means the user has been through (or
+    skipped) the wizard at least once; the configuration check is a
+    fallback for users who set the box up manually before this code
+    shipped — we don't want to ambush them.
+
+    We key off ``llm_model`` rather than ``llm_api_key`` because Ollama
+    setups have a model + base URL but no API key, and they're a
+    perfectly valid first-run state. (The old API-key heuristic broke
+    onboarding for Ollama users, who got pushed back into the wizard
+    even after a clean configuration.)
     """
     s = await settings_repo.get_all(db)
     if s.get("onboarding_completed"):
         return {"pending": False, "next_step": None}
-    if not s.get("llm_api_key"):
+    if not s.get("llm_model"):
         return {"pending": True, "next_step": "/onboarding/welcome"}
-    # Has a key but no skip-marker — user set things up manually before
-    # the wizard existed. Don't force them through it.
+    # An LLM model is set — the user has a working configuration.
+    # No need to push them through the wizard.
     return {"pending": False, "next_step": None}
 
 

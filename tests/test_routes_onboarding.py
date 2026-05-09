@@ -46,17 +46,46 @@ def test_onboarding_status_not_pending_when_completed_marker_set(
     assert result == {"pending": False, "next_step": None}
 
 
-def test_onboarding_status_not_pending_when_key_already_present(
+def test_onboarding_status_not_pending_when_llm_model_already_set(
     tmp_path, monkeypatch
 ):
-    """User configured an API key manually before onboarding shipped —
+    """User configured a model manually before onboarding shipped —
     don't ambush them with a wizard on next launch."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app):
         async def setup():
             from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_api_key", "preexisting")
+            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
+            await settings_repo.set(
+                app.state.db, "llm_api_key", "preexisting"
+            )
+
+        _run(setup())
+        result = _run(_onboarding_status(app.state.db))
+    assert result == {"pending": False, "next_step": None}
+
+
+def test_onboarding_status_not_pending_for_ollama_no_api_key(
+    tmp_path, monkeypatch
+):
+    """Ollama setups have a model and a base URL but no API key.
+    That's a perfectly valid configuration — don't push them into
+    the wizard. Regression test for the bug where the heuristic
+    keyed off llm_api_key alone."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app):
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            )
+            await settings_repo.set(
+                app.state.db, "llm_base_url",
+                "http://host.docker.internal:11434",
+            )
+            # llm_api_key intentionally left unset
 
         _run(setup())
         result = _run(_onboarding_status(app.state.db))
@@ -88,13 +117,33 @@ def test_home_does_not_redirect_when_onboarding_completed(tmp_path, monkeypatch)
     assert resp.status_code == 200
 
 
-def test_home_does_not_redirect_when_api_key_present(tmp_path, monkeypatch):
+def test_home_does_not_redirect_when_llm_model_set(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         async def setup():
             from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_api_key", "preexisting")
+            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
+            await settings_repo.set(
+                app.state.db, "llm_api_key", "preexisting"
+            )
+
+        _run(setup())
+        resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 200
+
+
+def test_home_does_not_redirect_for_ollama_no_api_key(tmp_path, monkeypatch):
+    """Regression: Ollama users have llm_model set but no llm_api_key.
+    They should NOT see the onboarding wizard on next launch."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            )
 
         _run(setup())
         resp = client.get("/", follow_redirects=False)
