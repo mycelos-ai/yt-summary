@@ -179,6 +179,127 @@ def test_video_markdown_permalink(tmp_path, monkeypatch):
     assert "https://youtu.be/md1" in body
 
 
+def test_video_summary_markdown_section_only(tmp_path, monkeypatch):
+    """The /summary.md endpoint returns only the summary, not the
+    transcript — used by the new per-section download buttons."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="s1", url="https://youtu.be/s1",
+                title="OnlySummary", description="d",
+                thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "s1", "transcript text",
+                TranscriptSource.MANUAL_SUBS,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "s1", "## TL;DR\nshort", "model",
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/s1/summary.md")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    body = resp.text
+    assert "# OnlySummary" in body
+    assert "## Summary" in body
+    assert "## TL;DR" in body
+    # Transcript must NOT be in the summary export
+    assert "transcript text" not in body
+    assert "## Transcript" not in body
+
+
+def test_video_summary_markdown_404_when_no_summary(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="ns1", url="u",
+                title="NoSummary", description="",
+                thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/ns1/summary.md")
+    assert resp.status_code == 404
+
+
+def test_video_transcript_markdown_section_only(tmp_path, monkeypatch):
+    """The /transcript.md endpoint returns only the transcript."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="t1", url="https://youtu.be/t1",
+                title="OnlyTranscript", description="d",
+                thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "t1", "raw transcript words",
+                TranscriptSource.AUTO_SUBS,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "t1", "the summary", "model",
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/t1/transcript.md")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "# OnlyTranscript" in body
+    assert "## Transcript" in body
+    assert "raw transcript words" in body
+    # Summary must NOT be in the transcript export
+    assert "the summary" not in body
+    assert "## Summary" not in body
+
+
+def test_video_transcript_markdown_uses_article_body_label_for_web(
+    tmp_path, monkeypatch
+):
+    """For web articles, the section heading should read 'Article body'
+    rather than 'Transcript' — the surrounding UI uses that wording too,
+    so the export stays consistent."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import TranscriptSource, VideoKind
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="web-abc",
+                url="https://example.com/post",
+                title="WebPost", description="",
+                thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.WEB,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "web-abc", "the article body",
+                TranscriptSource.WEB,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/web-abc/transcript.md")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "## Article body" in body
+    assert "## Transcript" not in body
+
+
 def test_reindex_enqueues_new_job(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

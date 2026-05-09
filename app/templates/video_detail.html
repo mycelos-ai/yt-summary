@@ -4,13 +4,14 @@
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
-    <p class="meta-row">
-      <a href="{{ video.url }}" target="_blank" rel="noopener">
-        {% if video.kind.value == 'web' %}↗ Open original{% else %}↗ Watch on YouTube{% endif %}
-      </a>
-      <span class="meta-sep">·</span>
-      <a href="/v/{{ video.id }}.md">Markdown</a>
-    </p>
+    {% if video.kind.value == 'web' %}
+      {# Web articles have no inline player, so the "↗ Open original"
+         link stays at the top — it's the only way to navigate to the
+         source. YouTube videos move this link below the player. #}
+      <p class="meta-row">
+        <a href="{{ video.url }}" target="_blank" rel="noopener">↗ Open original</a>
+      </p>
+    {% endif %}
     <div class="action-row">
       <div class="action-group">
         <form method="post" action="/v/{{ video.id }}/reindex">
@@ -59,6 +60,13 @@
         </svg>
       </button>
     </div>
+    <p class="player-caption">
+      <a href="{{ video.url }}" target="_blank" rel="noopener">↗ Watch on YouTube</a>
+      {% if video.duration_seconds %}
+        <span class="meta-sep">·</span>
+        <span>{{ video.duration_seconds | format_duration }}</span>
+      {% endif %}
+    </p>
   {% elif video.thumbnail_path %}
     <img src="/thumbnails/{{ video.id }}.jpg" alt="">
   {% endif %}
@@ -67,12 +75,17 @@
 
   {% if video.transcript %}
     <details class="transcript">
-      <summary>
-        {% if video.kind.value == 'web' %}
-          Article body
-        {% else %}
-          Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
-        {% endif %}
+      <summary class="section-heading">
+        <span>
+          {% if video.kind.value == 'web' %}
+            Article body
+          {% else %}
+            Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
+          {% endif %}
+        </span>
+        <a class="section-download" href="/v/{{ video.id }}/transcript.md"
+           title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
+           onclick="event.stopPropagation()">↓ .md</a>
       </summary>
       {% if transcript_blocks and video.kind.value != 'web' %}
         <div class="transcript-body">

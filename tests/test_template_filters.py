@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from app.template_filters import relative_time
+from app.template_filters import format_duration, relative_time
 
 
 def test_relative_time_just_now():
@@ -33,3 +33,21 @@ def test_relative_time_yesterday_falls_back_to_date():
 
 def test_relative_time_none_returns_empty_string():
     assert relative_time(None) == ""
+
+
+def test_format_duration_under_one_hour():
+    assert format_duration(754) == "12:34"
+
+
+def test_format_duration_pads_seconds():
+    assert format_duration(65) == "1:05"
+
+
+def test_format_duration_with_hours():
+    # 1h 23m 45s
+    assert format_duration(3600 + 23 * 60 + 45) == "1:23:45"
+
+
+def test_format_duration_none_or_zero_returns_empty_string():
+    assert format_duration(None) == ""
+    assert format_duration(0) == ""

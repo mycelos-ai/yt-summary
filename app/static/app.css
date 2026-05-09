@@ -401,6 +401,55 @@ p { margin: 0 0 16px 0; }
   color: var(--brand-error);
   opacity: 0.8;
 }
+
+/* Section heading with a small download link on the right. Used for
+   Summary and Transcript sections — keeps the section title primary
+   while making the export affordance discoverable but unobtrusive. */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Reset some default <summary> styling so it lays out like a normal
+   heading row when used for the transcript expander. */
+summary.section-heading {
+  cursor: pointer;
+}
+.section-download {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--steel);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.section-download:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* Caption row directly under the inline YouTube player. Holds the
+   "↗ Watch on YouTube" link (moved out of the header now that the
+   player is inline) plus the duration. Same dim-info treatment as
+   the meta-row at the top. */
+.player-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--steel);
+  margin: 8px 0 24px 0;
+}
+.player-caption a {
+  color: var(--steel);
+  font-weight: 500;
+  text-decoration: none;
+}
+.player-caption a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
 .video-detail > img {
   max-width: 100%;
   border-radius: var(--rounded-lg);

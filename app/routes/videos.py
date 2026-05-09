@@ -255,6 +255,10 @@ async def video_markdown(
     video_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ):
+    """Combined export — summary + transcript + metadata. Kept for
+    curl/scripting users who want the whole thing in one shot. The UI
+    no longer surfaces it; per-section downloads (`/summary.md`,
+    `/transcript.md`) are what the buttons point at."""
     video = await videos_repo.get(db, video_id)
     if video is None:
         raise HTTPException(404)
@@ -264,6 +268,60 @@ async def video_markdown(
     if video.transcript:
         parts += ["## Transcript", "", video.transcript, ""]
     return PlainTextResponse("\n".join(parts), media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/v/{video_id}/summary.md")
+async def video_summary_markdown(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Just the summary, with a small header so the file is meaningful
+    on its own (you usually want to know which video the summary came
+    from)."""
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    if not video.summary:
+        raise HTTPException(404, detail="No summary available yet")
+    body = "\n".join([
+        f"# {video.title}",
+        "",
+        f"Source: {video.url}",
+        "",
+        "## Summary",
+        "",
+        video.summary,
+        "",
+    ])
+    return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/v/{video_id}/transcript.md")
+async def video_transcript_markdown(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Just the transcript / article body. Same header pattern as the
+    summary export."""
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(404)
+    if not video.transcript:
+        raise HTTPException(404, detail="No transcript available yet")
+    section_label = (
+        "Article body" if video.kind == VideoKind.WEB else "Transcript"
+    )
+    body = "\n".join([
+        f"# {video.title}",
+        "",
+        f"Source: {video.url}",
+        "",
+        f"## {section_label}",
+        "",
+        video.transcript,
+        "",
+    ])
+    return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
 
 
 @router.post("/v/{video_id}/reindex")

@@ -9,7 +9,13 @@
     hx-swap="outerHTML"
   {% endif %}
 >
-  <h2>Summary</h2>
+  <h2 class="section-heading">
+    Summary
+    {% if video.summary %}
+      <a class="section-download" href="/v/{{ video.id }}/summary.md"
+         title="Download summary as Markdown">↓ .md</a>
+    {% endif %}
+  </h2>
   {% if video.summary %}
     {% if job and job.state.value in ('running', 'pending') %}
       <p class="status status-running">

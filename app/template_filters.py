@@ -29,6 +29,7 @@ def register_filters(templates: "Jinja2Templates") -> None:
     helper exists to keep them in sync without sharing global state.
     """
     templates.env.filters["relative_time"] = relative_time
+    templates.env.filters["format_duration"] = format_duration
     # Expose as a callable so each render reads the current mtime.
     templates.env.globals["asset_version"] = _asset_version
 
@@ -59,3 +60,18 @@ def relative_time(dt: datetime | None, *, now: datetime | None = None) -> str:
         return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
     hours = minutes // 60
     return f"{hours} hour{'s' if hours != 1 else ''} ago"
+
+
+def format_duration(seconds: int | None) -> str:
+    """Human-readable duration: MM:SS or HH:MM:SS depending on length.
+
+    Used in the player caption to show how long a video is, so users
+    can decide whether they actually want to commit to it.
+    """
+    if seconds is None or seconds <= 0:
+        return ""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
