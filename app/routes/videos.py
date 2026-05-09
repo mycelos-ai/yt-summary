@@ -1,10 +1,7 @@
-import re
-
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from markdown_it import MarkdownIt
 
 from app.config import Config
 from app.main import get_config, get_db
@@ -13,6 +10,7 @@ from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
+from app.services.markdown import render_markdown
 from app.services.reader import fetch_article
 from app.services.url_classify import classify_url, web_id_from_url
 from app.services.youtube import download_thumbnail, fetch_metadata
@@ -22,29 +20,8 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 register_filters(templates)
 
-_md = MarkdownIt()
-
-# The summarizer tells the LLM to emit `[MM:SS](#t=SECONDS)` markdown
-# links for key moments. markdown-it renders those as
-# `<a href="#t=754">12:34</a>`. The inline player JS picks up clicks
-# via `data-yt-timestamp`, so we decorate the rendered HTML with that
-# attribute (and a CSS hook class) before handing it to the template.
-# Skipping any anchor that already has the data attribute keeps the
-# transformation idempotent — running it twice on the same string is
-# a no-op.
-_TS_LINK_RE = re.compile(
-    r'<a href="#t=(\d+)"(?![^>]*\bdata-yt-timestamp\b)>([^<]+)</a>'
-)
-
-
-def _decorate_timestamp_links(html: str) -> str:
-    """Add `data-yt-timestamp` + `yt-ts` class to the LLM's inline
-    `<a href="#t=N">…</a>` summary anchors so the player JS can hook
-    them. Pure function. Idempotent."""
-    return _TS_LINK_RE.sub(
-        r'<a href="#t=\1" data-yt-timestamp="\1" class="yt-ts">\2</a>',
-        html,
-    )
+# Markdown rendering + timestamp-link decoration moved to
+# app.services.markdown so the chat path can share the same logic.
 
 
 def _import_error_response(
@@ -234,10 +211,7 @@ async def video_summary_fragment(
     if is_htmx_poll and job_terminal:
         return HTMLResponse("", headers={"HX-Refresh": "true"})
 
-    summary_html = (
-        _decorate_timestamp_links(_md.render(video.summary))
-        if video.summary else ""
-    )
+    summary_html = render_markdown(video.summary or "")
     return templates.TemplateResponse(
         request,
         "video_summary_section.html",
@@ -361,10 +335,7 @@ async def video_detail(
     video = await videos_repo.get(db, video_id)
     if video is None:
         raise HTTPException(404)
-    summary_html = (
-        _decorate_timestamp_links(_md.render(video.summary))
-        if video.summary else ""
-    )
+    summary_html = render_markdown(video.summary or "")
     history = await chat_repo.history(db, video_id)
     job = await jobs_repo.latest_for_video(db, video_id)
     video_tags = await tags_repo.tags_for_video(db, video_id)

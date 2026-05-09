@@ -1,4 +1,10 @@
 <div class="chat-msg chat-msg-{{ msg.role }}">
   <strong>{{ msg.role }}</strong>
-  <div class="chat-content">{{ msg.content }}</div>
+  <div class="chat-content">
+    {%- if msg.role == 'assistant' -%}
+      {{ msg.content | render_markdown | safe }}
+    {%- else -%}
+      {{ msg.content }}
+    {%- endif -%}
+  </div>
 </div>

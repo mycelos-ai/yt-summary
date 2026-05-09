@@ -30,6 +30,11 @@ def register_filters(templates: "Jinja2Templates") -> None:
     """
     templates.env.filters["relative_time"] = relative_time
     templates.env.filters["format_duration"] = format_duration
+    # Lazy import — markdown.py imports markdown_it which is
+    # noticeable on import. Loading the filter on first use keeps
+    # template-only routes (settings, status fragments) snappy.
+    from app.services.markdown import render_markdown
+    templates.env.filters["render_markdown"] = render_markdown
     # Expose as a callable so each render reads the current mtime.
     templates.env.globals["asset_version"] = _asset_version
 

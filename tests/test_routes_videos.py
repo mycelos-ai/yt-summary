@@ -671,7 +671,7 @@ def test_retranscribe_404_unknown_video(tmp_path, monkeypatch):
 def test_decorate_timestamp_links_adds_data_attribute():
     """Plain markdown-rendered anchor `<a href="#t=754">12:34</a>` gets
     a `data-yt-timestamp` attribute the JS click handler picks up."""
-    from app.routes.videos import _decorate_timestamp_links
+    from app.services.markdown import _decorate_timestamp_links
     html = '<p>See <a href="#t=754">12:34</a> for the demo.</p>'
     out = _decorate_timestamp_links(html)
     assert 'data-yt-timestamp="754"' in out
@@ -683,7 +683,7 @@ def test_decorate_timestamp_links_adds_data_attribute():
 def test_decorate_timestamp_links_idempotent():
     """Running the decorator twice is safe — useful for fragments that
     might pass through the renderer more than once."""
-    from app.routes.videos import _decorate_timestamp_links
+    from app.services.markdown import _decorate_timestamp_links
     html = '<a href="#t=42">00:42</a>'
     once = _decorate_timestamp_links(html)
     twice = _decorate_timestamp_links(once)
@@ -693,7 +693,7 @@ def test_decorate_timestamp_links_idempotent():
 
 
 def test_decorate_timestamp_links_handles_multiple():
-    from app.routes.videos import _decorate_timestamp_links
+    from app.services.markdown import _decorate_timestamp_links
     html = (
         '<a href="#t=10">00:10</a> and '
         '<a href="#t=200">03:20</a>'
@@ -704,7 +704,7 @@ def test_decorate_timestamp_links_handles_multiple():
 
 
 def test_decorate_timestamp_links_leaves_other_links_alone():
-    from app.routes.videos import _decorate_timestamp_links
+    from app.services.markdown import _decorate_timestamp_links
     html = '<a href="https://example.com">x</a>'
     assert _decorate_timestamp_links(html) == html
 

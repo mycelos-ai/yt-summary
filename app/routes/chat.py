@@ -8,19 +8,33 @@ from app.repos import chat as chat_repo
 from app.repos import settings as settings_repo
 from app.repos import videos as videos_repo
 from app.services.chat import stream_reply
+from app.services.markdown import render_markdown
 
 router = APIRouter()
 
 
 def _msg_html(role: str, content: str, *, is_error: bool = False) -> str:
+    """Render one chat message.
+
+    User messages are HTML-escaped — they're untrusted input and
+    should never be parsed as markdown (XSS hardening, no surprises).
+    Assistant messages run through render_markdown so tables, bold,
+    bullets, code blocks, and inline timestamp links all render
+    properly. Errors stay escaped (they may include error strings
+    that look like markup).
+    """
     cls = f"chat-msg chat-msg-{role}"
     if is_error:
         cls += " chat-msg-error"
     label = "error" if is_error else role
+    if role == "assistant" and not is_error:
+        body = render_markdown(content)
+    else:
+        body = str(escape(content))
     return (
         f'<div class="{cls}">'
         f"<strong>{label}</strong>"
-        f'<div class="chat-content">{escape(content)}</div></div>'
+        f'<div class="chat-content">{body}</div></div>'
     )
 
 
