@@ -356,6 +356,51 @@ p { margin: 0 0 16px 0; }
   font-weight: 500;
 }
 .video-detail header a:hover { color: var(--ink); }
+
+/* Two-row header pattern: meta row (info/navigation) + action row.
+   Splits action-soup into a clean info-then-do hierarchy. */
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--steel);
+  margin: 0 0 12px 0;
+}
+.meta-sep {
+  color: var(--steel);
+  opacity: 0.5;
+}
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px 0;
+}
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.action-group form {
+  margin: 0;
+}
+/* Destructive group hangs right when there's space; on mobile it
+   wraps onto its own line — still clearly separated by the gap. */
+.action-group--destructive {
+  margin-left: auto;
+}
+.action-group--destructive .link-button {
+  color: var(--brand-error);
+}
+.action-group--destructive .link-button:hover {
+  color: var(--brand-error);
+  opacity: 0.8;
+}
 .video-detail > img {
   max-width: 100%;
   border-radius: var(--rounded-lg);

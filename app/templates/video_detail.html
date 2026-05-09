@@ -4,23 +4,28 @@
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
-    <p>
+    <p class="meta-row">
       <a href="{{ video.url }}" target="_blank" rel="noopener">
         {% if video.kind.value == 'web' %}↗ Open original{% else %}↗ Watch on YouTube{% endif %}
       </a>
+      <span class="meta-sep">·</span>
       <a href="/v/{{ video.id }}.md">Markdown</a>
-      <form method="post" action="/v/{{ video.id }}/reindex">
-        <button type="submit" class="link-button">
-          {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %}
-        </button>
-      </form>
-      {% if video.transcript and video.kind.value != 'web' %}
-        <form method="post" action="/v/{{ video.id }}/retranscribe"
-              onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
-          <button type="submit" class="link-button">Re-transcribe</button>
-        </form>
-      {% endif %}
     </p>
+    <div class="action-row">
+      <div class="action-group">
+        <form method="post" action="/v/{{ video.id }}/reindex">
+          <button type="submit" class="btn btn-accent">
+            {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %}
+          </button>
+        </form>
+        {% if video.transcript and video.kind.value != 'web' %}
+          <form method="post" action="/v/{{ video.id }}/retranscribe"
+                onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
+            <button type="submit" class="link-button">Re-transcribe</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
     {% if video_tags %}
       <div class="tag-pills">
         {% for tag_name in video_tags %}

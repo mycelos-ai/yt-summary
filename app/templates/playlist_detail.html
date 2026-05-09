@@ -4,24 +4,33 @@
 <article class="video-detail">
   <header>
     <h1>{{ playlist.title }}</h1>
-    <p>
+    <p class="meta-row">
       <a href="{{ playlist.url }}" target="_blank" rel="noopener">↗ Open on YouTube</a>
-      {% if playlist.last_refreshed_at %}
-        · Refreshed {{ playlist.last_refreshed_at | relative_time }}
-      {% else %}
-        · Never refreshed
-      {% endif %}
-      <form method="post" action="/p/{{ playlist.id }}/refresh" style="display:inline">
-        <button type="submit" class="link-button">Refresh</button>
-      </form>
-      <form method="post" action="/p/{{ playlist.id }}/load-older" style="display:inline">
-        <button type="submit" class="link-button">Load older</button>
-      </form>
-      <form method="post" action="/p/{{ playlist.id }}/remove" style="display:inline"
-            onsubmit="return confirm('Remove this playlist? Videos already in your library will stay.')">
-        <button type="submit" class="link-button">Remove</button>
-      </form>
+      <span class="meta-sep">·</span>
+      <span>
+        {% if playlist.last_refreshed_at %}
+          Refreshed {{ playlist.last_refreshed_at | relative_time }}
+        {% else %}
+          Never refreshed
+        {% endif %}
+      </span>
     </p>
+    <div class="action-row">
+      <div class="action-group">
+        <form method="post" action="/p/{{ playlist.id }}/refresh">
+          <button type="submit" class="btn btn-accent">Refresh</button>
+        </form>
+        <form method="post" action="/p/{{ playlist.id }}/load-older">
+          <button type="submit" class="link-button">Load older</button>
+        </form>
+      </div>
+      <div class="action-group action-group--destructive">
+        <form method="post" action="/p/{{ playlist.id }}/remove"
+              onsubmit="return confirm('Remove this playlist? Videos already in your library will stay.')">
+          <button type="submit" class="link-button">Remove</button>
+        </form>
+      </div>
+    </div>
   </header>
 
   <p class="section-title">Videos in this playlist ({{ videos|length }})</p>
