@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}{% block onboarding_title %}Welcome{% endblock %} — yt-summary{% endblock %}
+{% block content %}
+<div class="ob-page">
+  <div class="ob-frame">
+    <header class="ob-head">
+      <ol class="ob-progress" aria-label="Setup progress">
+        {% for n in range(1, total_steps + 1) %}
+          <li class="ob-progress-dot{% if n == step %} is-current{% endif %}{% if n < step %} is-done{% endif %}"
+              aria-current="{% if n == step %}step{% endif %}">
+            <span class="visually-hidden">Step {{ n }}{% if n == step %} (current){% endif %}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      <form method="post" action="/onboarding/skip" class="ob-skip-form">
+        <button type="submit" class="ob-skip-link">Skip setup</button>
+      </form>
+    </header>
+
+    <section class="ob-body">
+      {% block onboarding_body %}{% endblock %}
+    </section>
+  </div>
+</div>
+
+<style>
+  /* Onboarding-specific chrome. Lives inline so it doesn't bloat the
+     global stylesheet — this flow is one-time per install. */
+  .ob-page {
+    min-height: calc(100vh - 80px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 32px 20px 80px;
+  }
+  .ob-frame {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .ob-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .ob-progress {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    gap: 10px;
+  }
+  .ob-progress-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--hairline, #e0e0e0);
+    transition: background-color 160ms;
+  }
+  .ob-progress-dot.is-done {
+    background: var(--brand-green, #00d4a4);
+    opacity: 0.55;
+  }
+  .ob-progress-dot.is-current {
+    background: var(--brand-green, #00d4a4);
+    transform: scale(1.25);
+  }
+  .ob-skip-form {
+    margin: 0;
+  }
+  .ob-skip-link {
+    background: none;
+    border: none;
+    color: var(--steel, #666);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .ob-skip-link:hover {
+    color: var(--ink, #111);
+    text-decoration: underline;
+  }
+  .ob-body {
+    background: var(--canvas, #fff);
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-md, 12px);
+    padding: 36px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .ob-body h1 {
+    font-size: 26px;
+    margin: 0;
+  }
+  .ob-body .ob-sub {
+    color: var(--steel, #666);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .ob-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .ob-actions-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .ob-back {
+    color: var(--steel, #666);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .ob-back:hover { color: var(--ink, #111); }
+  .ob-stepskip {
+    background: none;
+    border: none;
+    color: var(--steel, #666);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .ob-stepskip:hover { color: var(--ink, #111); text-decoration: underline; }
+
+  /* Provider tile grid (step 2) */
+  .ob-provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .ob-provider-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 14px 16px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-md, 10px);
+    cursor: pointer;
+    background: var(--canvas, #fff);
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .ob-provider-tile input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .ob-provider-tile.is-selected {
+    border-color: var(--brand-green, #00d4a4);
+    box-shadow: 0 0 0 2px rgba(0, 212, 164, 0.15);
+  }
+  .ob-provider-name {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .ob-provider-meta {
+    font-size: 12px;
+    color: var(--steel, #666);
+    line-height: 1.45;
+    word-break: break-all;
+  }
+  .ob-provider-noauth {
+    font-size: 11px;
+    color: var(--brand-green, #00a47e);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .ob-detail {
+    background: var(--surface, #f6f6f6);
+    border-radius: var(--rounded-md, 10px);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ob-detail label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--steel, #666);
+  }
+  .ob-detail input[type="text"],
+  .ob-detail input[type="password"] {
+    padding: 8px 12px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    font: inherit;
+    background: var(--canvas, #fff);
+    color: var(--ink, #111);
+  }
+  .ob-detail-note {
+    font-size: 12px;
+    color: var(--steel, #666);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .ob-keylink {
+    color: var(--brand-green, #00a47e);
+    text-decoration: none;
+    margin-left: 6px;
+  }
+  .ob-keylink:hover { text-decoration: underline; }
+
+  /* Welcome video embed */
+  .ob-video {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--rounded-md, 10px);
+    overflow: hidden;
+    background: #000;
+  }
+  .ob-video iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  /* Profile-form avatar grid in step 3 — shares classes with the
+     existing profile_form so styling is consistent. We re-declare
+     the bits we need so the onboarding template stays self-contained. */
+  .ob-avatar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 8px;
+  }
+  .ob-avatar-pick {
+    background: var(--avatar-bg, #e7f1fa);
+    border: 3px solid transparent;
+    border-radius: 50%;
+    padding: 0;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+    transition: border-color 120ms, transform 120ms;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ob-avatar-pick:hover {
+    border-color: var(--hairline, #e0e0e0);
+    transform: scale(1.05);
+  }
+  .ob-avatar-pick.is-selected {
+    border-color: var(--brand-green, #00d4a4);
+  }
+  .ob-avatar-pick img {
+    width: 78%;
+    height: 78%;
+    display: block;
+    object-fit: contain;
+  }
+  .ob-avatar-group-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--steel, #666);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 12px 0 6px;
+  }
+  .ob-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ob-form-label {
+    font-weight: 500;
+    font-size: 14px;
+  }
+  .ob-form-field input[type="text"] {
+    padding: 10px 12px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    font: inherit;
+    background: var(--canvas, #fff);
+  }
+
+  /* Step 4 — two side-by-side input cards */
+  .ob-content-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 600px) {
+    .ob-content-cards { grid-template-columns: 1fr; }
+  }
+  .ob-content-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-md, 10px);
+    background: var(--canvas, #fff);
+  }
+  .ob-content-card h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+  .ob-content-card p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--steel, #666);
+    line-height: 1.5;
+  }
+  .ob-content-card input[type="text"] {
+    padding: 8px 12px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    font: inherit;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+  }
+</style>
+{% endblock %}

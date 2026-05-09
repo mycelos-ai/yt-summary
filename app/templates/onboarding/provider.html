@@ -1,0 +1,81 @@
+{% extends "onboarding/_layout.html" %}
+{% block onboarding_title %}Pick an LLM provider{% endblock %}
+{% block onboarding_body %}
+  <h1>Pick an LLM provider</h1>
+  <p class="ob-sub">
+    yt-summary works with anything LiteLLM supports. Pick one, drop in
+    an API key. You can switch later in Settings.
+  </p>
+
+  <form method="post" action="/onboarding/provider"
+        x-data="{ provider: '{{ selected_provider }}' }"
+        class="ob-provider-form">
+    <div class="ob-provider-grid">
+      {% for p in presets %}
+        <label class="ob-provider-tile"
+               :class="provider === '{{ p.id }}' && 'is-selected'">
+          <input type="radio" name="provider" value="{{ p.id }}"
+                 x-model="provider" required>
+          <span class="ob-provider-name">{{ p.name }}</span>
+          {% if not p.requires_api_key %}
+            <span class="ob-provider-noauth">No API key</span>
+          {% endif %}
+          <span class="ob-provider-meta">
+            <code>{{ p.default_llm }}</code>
+          </span>
+        </label>
+      {% endfor %}
+    </div>
+
+    {% for p in presets %}
+      <div class="ob-detail" x-show="provider === '{{ p.id }}'" x-cloak>
+        {% if p.notes %}
+          <p class="ob-detail-note">{{ p.notes }}</p>
+        {% endif %}
+        {% if p.requires_api_key %}
+          <label>
+            <span>
+              {{ p.name }} API key
+              {% if p.api_key_url %}
+                <a href="{{ p.api_key_url }}" target="_blank" rel="noopener"
+                   class="ob-keylink">— get a key</a>
+              {% endif %}
+            </span>
+            <input type="password" name="api_key"
+                   x-bind:disabled="provider !== '{{ p.id }}'"
+                   placeholder="paste your {{ p.name }} key">
+          </label>
+        {% endif %}
+        {% if p.id == 'ollama' %}
+          <label>
+            <span>Ollama server URL</span>
+            <input type="text" name="llm_base_url"
+                   x-bind:disabled="provider !== '{{ p.id }}'"
+                   value="{{ settings.get('llm_base_url', p.default_llm_base_url) }}"
+                   placeholder="http://192.168.0.27:11434">
+          </label>
+          <p class="ob-detail-note">
+            Use the LAN IP, not <code>*.local</code> — Python's resolver
+            doesn't always handle mDNS hostnames.
+          </p>
+        {% endif %}
+        <p class="ob-detail-note">
+          Will set: <code>{{ p.default_llm }}</code>{% if p.default_embedding %} ·
+          embeddings <code>{{ p.default_embedding }}</code>{% endif %}{% if p.whisper_base_url %} ·
+          whisper at <code>{{ p.whisper_base_url }}</code>{% endif %}.
+        </p>
+      </div>
+    {% endfor %}
+
+    <div class="ob-actions">
+      <a href="/onboarding/welcome" class="ob-back">← Back</a>
+      <div class="ob-actions-right">
+        <a href="/onboarding/profile" class="ob-stepskip">Skip this step</a>
+        <button type="submit" class="btn btn-primary"
+                x-bind:disabled="!provider">
+          Continue →
+        </button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

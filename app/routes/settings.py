@@ -40,6 +40,7 @@ WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
 async def settings_page(
     request: Request,
     applied: str | None = None,
+    onboarding: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user=Depends(get_current_user),
@@ -99,6 +100,7 @@ async def settings_page(
             "api_key_prefix": user.api_key_prefix if user else None,
             "api_key_created_at": user.api_key_created_at if user else None,
             "current_user": current_user,
+            "onboarding_done": onboarding == "done",
         },
     )
 

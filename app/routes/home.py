@@ -2,10 +2,10 @@ import logging
 
 import aiosqlite
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.main import get_current_user, get_current_user_id, get_db
+from app.main import _onboarding_status, get_current_user, get_current_user_id, get_db
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
@@ -66,6 +66,14 @@ async def home(
     current_user_id: int = Depends(get_current_user_id),
     current_user=Depends(get_current_user),
 ):
+    # First-run nudge: send a brand-new install through the onboarding
+    # wizard before showing the (empty) library. Only the home page does
+    # this — every other route stays untouched so the wizard pages
+    # themselves, /settings, and direct deep links keep working.
+    status = await _onboarding_status(db)
+    if status["pending"]:
+        return RedirectResponse(str(status["next_step"]), status_code=303)
+
     tag = tag.strip() if tag else None
     if q:
         # Search results aren't paginated — they're already capped at

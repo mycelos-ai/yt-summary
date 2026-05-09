@@ -1,0 +1,34 @@
+{% extends "onboarding/_layout.html" %}
+{% block onboarding_title %}Add your first content{% endblock %}
+{% block onboarding_body %}
+  <h1>Add your first content</h1>
+  <p class="ob-sub">
+    Optional — drop a YouTube URL or connect a playlist now, or skip
+    and use the home page later.
+  </p>
+
+  <div class="ob-content-cards">
+    <form method="post" action="/videos" class="ob-content-card">
+      <h3>YouTube URL</h3>
+      <p>A single video, channel, or short. We'll fetch it and start a job.</p>
+      <input type="text" name="url"
+             placeholder="https://www.youtube.com/watch?v=...">
+      <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+
+    <form method="post" action="/playlists" class="ob-content-card">
+      <h3>Playlist URL</h3>
+      <p>A YouTube playlist we'll keep in sync. New videos auto-import.</p>
+      <input type="text" name="url"
+             placeholder="https://www.youtube.com/playlist?list=...">
+      <button type="submit" class="btn btn-primary">Connect</button>
+    </form>
+  </div>
+
+  <form method="post" action="/onboarding/finish" class="ob-actions">
+    <a href="/onboarding/profile" class="ob-back">← Back</a>
+    <div class="ob-actions-right">
+      <button type="submit" class="btn btn-primary">Finish setup →</button>
+    </div>
+  </form>
+{% endblock %}

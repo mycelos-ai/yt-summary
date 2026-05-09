@@ -10,6 +10,13 @@
     before kicking off a job.
   </p>
 
+  {% if onboarding_done %}
+    <p class="settings-flash">
+      👋 Setup complete. You can change any of this anytime — providers,
+      profile, prompt, all live on this page or under your profile menu.
+    </p>
+  {% endif %}
+
   {% if applied_preset %}
     <p class="settings-flash">
       ✓ Applied <strong>{{ applied_preset.name }}</strong> preset. Review the

@@ -1,0 +1,63 @@
+{% extends "onboarding/_layout.html" %}
+{% block onboarding_title %}Make it yours{% endblock %}
+{% block onboarding_body %}
+  <h1>Make it yours</h1>
+  <p class="ob-sub">
+    Each profile has its own library, playlists, and summary style. You
+    can add more profiles later for family members.
+  </p>
+
+  {#- Flatten the avatar groups into an {id: bg_color} pairs list so the
+      live preview can pick the right pastel as the user clicks. Same
+      pattern profile_form.html uses. -#}
+  {%- set _avatar_bg_pairs = [] -%}
+  {%- for items in avatar_groups.values() -%}
+    {%- for av in items -%}
+      {%- set _ = _avatar_bg_pairs.append([av.id, av.bg_color]) -%}
+    {%- endfor -%}
+  {%- endfor -%}
+
+  <form method="post" action="/onboarding/profile" class="ob-profile-form"
+        x-data="{
+          image: '{{ (current_user.avatar_image if current_user else '')|e }}',
+          bgFor: Object.fromEntries({{ _avatar_bg_pairs | tojson }})
+        }">
+    <input type="hidden" name="avatar_image" x-model="image">
+
+    <label class="ob-form-field">
+      <span class="ob-form-label">Name</span>
+      <input type="text" name="name" required maxlength="50"
+             value="{{ current_user.name if current_user else '' }}"
+             placeholder="e.g. Stefan, Kids, Work">
+    </label>
+
+    <fieldset class="ob-form-field" style="border:0;padding:0;margin:0">
+      <legend class="ob-form-label">Avatar (optional)</legend>
+      {% for group_name, items in avatar_groups.items() %}
+        <div class="ob-avatar-group-label">
+          {% if group_name == 'adult' %}Adults{% elif group_name == 'kid' %}Kids{% else %}{{ group_name|title }}{% endif %}
+        </div>
+        <div class="ob-avatar-grid">
+          {% for av in items %}
+            <button type="button"
+                    class="ob-avatar-pick"
+                    style="--avatar-bg: {{ av.bg_color }};"
+                    x-on:click="image = '{{ av.id }}'"
+                    x-bind:class="image === '{{ av.id }}' ? 'is-selected' : ''"
+                    title="{{ av.label }}">
+              <img src="/static/avatars/{{ av.id }}.png" alt="{{ av.label }}" loading="lazy">
+            </button>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </fieldset>
+
+    <div class="ob-actions">
+      <a href="/onboarding/provider" class="ob-back">← Back</a>
+      <div class="ob-actions-right">
+        <a href="/onboarding/first-content" class="ob-stepskip">Skip this step</a>
+        <button type="submit" class="btn btn-primary">Continue →</button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "onboarding/_layout.html" %}
+{% block onboarding_title %}Welcome to yt-summary{% endblock %}
+{% block onboarding_body %}
+  <h1>Welcome to yt-summary</h1>
+  <p class="ob-sub">
+    Drop a YouTube link or sync a private playlist; your server transcribes,
+    summarizes, and stores everything searchable. Built for AI enthusiasts
+    drowning in long videos.
+  </p>
+
+  <div class="ob-video">
+    <iframe
+      src="https://www.youtube-nocookie.com/embed/{{ promo_video_id }}?rel=0"
+      title="yt-summary intro"
+      loading="lazy"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen></iframe>
+  </div>
+
+  <p class="ob-sub">
+    In the next two minutes you'll pick an LLM provider, set up your
+    profile, and optionally add your first video. Skip anytime.
+  </p>
+
+  <div class="ob-actions">
+    <span><!-- spacer; no Back on first step --></span>
+    <div class="ob-actions-right">
+      <a href="/onboarding/provider" class="btn btn-primary">Get started →</a>
+    </div>
+  </div>
+{% endblock %}

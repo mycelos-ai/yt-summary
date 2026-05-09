@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import Config
 from app.db import connect, init_schema
 from app.repos import jobs as jobs_repo
+from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 
 # Cookie carrying the active profile id. Single integer, no signing —
@@ -94,6 +95,26 @@ async def get_current_user_id(
     return uid
 
 
+async def _onboarding_status(db: aiosqlite.Connection) -> dict[str, object]:
+    """Decide whether to push a fresh visitor into the onboarding wizard.
+
+    Returns ``{'pending': True, 'next_step': '/onboarding/welcome'}`` only
+    when both an LLM API key is missing AND there's no
+    ``onboarding_completed`` marker. The marker means the user has been
+    through (or skipped) the wizard at least once; the API-key check is
+    a fallback for users who configured the box manually before this
+    code shipped — we don't want to ambush them.
+    """
+    s = await settings_repo.get_all(db)
+    if s.get("onboarding_completed"):
+        return {"pending": False, "next_step": None}
+    if not s.get("llm_api_key"):
+        return {"pending": True, "next_step": "/onboarding/welcome"}
+    # Has a key but no skip-marker — user set things up manually before
+    # the wizard existed. Don't force them through it.
+    return {"pending": False, "next_step": None}
+
+
 async def get_current_user(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
@@ -141,6 +162,8 @@ def create_app() -> FastAPI:
     app.include_router(playlists_router)
     from app.routes.profiles import router as profiles_router
     app.include_router(profiles_router)
+    from app.routes.onboarding import router as onboarding_router
+    app.include_router(onboarding_router)
     from app.routes.api import router as api_router
     app.include_router(api_router)
     from app.routes.mcp import build_mcp_server

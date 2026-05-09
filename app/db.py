@@ -113,6 +113,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- (NULL = use the standard summarizer prompt) lets each profile
     -- tweak how summaries are written without affecting other profiles.
     avatar_emoji TEXT NOT NULL DEFAULT '👤',
+    -- Path-suffix into app/static/avatars/ (e.g. 'adult-techreviewer-m').
+    -- Empty string = "use the emoji instead". Mirrored in the V5
+    -- migration below so existing single-user installs upgrade in
+    -- place; new installs get it directly from this CREATE TABLE.
+    avatar_image TEXT NOT NULL DEFAULT '',
     custom_summary_prompt TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

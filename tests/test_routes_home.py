@@ -1,9 +1,24 @@
 import asyncio
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+# app.main must load first so create_app() finishes wiring routers
+# before we reach into app.routes.home for the monkeypatch target.
+from app.main import create_app  # isort: skip
 from app.repos import videos as videos_repo
+from app.routes import home as home_routes
+
+
+@pytest.fixture(autouse=True)
+def _skip_onboarding(monkeypatch):
+    """Every home-route test in this file predates the onboarding
+    wizard and assumes ``GET /`` renders the library directly. Stub
+    the redirect helper to declare onboarding done so we don't have to
+    seed ``onboarding_completed`` in every test setup block."""
+    async def _not_pending(_db):
+        return {"pending": False, "next_step": None}
+    monkeypatch.setattr(home_routes, "_onboarding_status", _not_pending)
 
 
 def test_home_lists_videos(tmp_path, monkeypatch):
