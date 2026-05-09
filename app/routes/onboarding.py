@@ -206,13 +206,21 @@ async def _mark_completed(db: aiosqlite.Connection) -> None:
     await settings_repo.set(db, "onboarding_completed", "1")
 
 
+# Both finish and skip drop the user on the home page with an
+# onboarding-done banner. /settings would land them on a page they
+# don't immediately need (and have no obvious back-button from), so
+# we lean the other direction: home is the primary tool, settings
+# is one click away when they actually need to tweak something.
+_ONBOARDING_DONE_REDIRECT = "/?onboarding=done"
+
+
 @router.post("/onboarding/finish")
 async def finish(db: aiosqlite.Connection = Depends(get_db)):
     await _mark_completed(db)
-    return RedirectResponse("/settings?onboarding=done", status_code=303)
+    return RedirectResponse(_ONBOARDING_DONE_REDIRECT, status_code=303)
 
 
 @router.post("/onboarding/skip")
 async def skip(db: aiosqlite.Connection = Depends(get_db)):
     await _mark_completed(db)
-    return RedirectResponse("/settings?onboarding=done", status_code=303)
+    return RedirectResponse(_ONBOARDING_DONE_REDIRECT, status_code=303)

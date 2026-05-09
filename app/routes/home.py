@@ -62,6 +62,7 @@ async def home(
     request: Request,
     q: str | None = None,
     tag: str | None = None,
+    onboarding: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
     current_user=Depends(get_current_user),
@@ -73,6 +74,12 @@ async def home(
     status = await _onboarding_status(db)
     if status["pending"]:
         return RedirectResponse(str(status["next_step"]), status_code=303)
+
+    # `?onboarding=done` lands here from the wizard's finish/skip
+    # handlers. We render a one-shot welcome banner on the home page
+    # itself rather than sending the user to /settings — settings is
+    # one click away via the gear in the header dropdown.
+    onboarding_done = onboarding == "done"
 
     tag = tag.strip() if tag else None
     if q:
@@ -118,6 +125,7 @@ async def home(
             "has_more_playlists": has_more_playlists,
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
+            "onboarding_done": onboarding_done,
         },
     )
 

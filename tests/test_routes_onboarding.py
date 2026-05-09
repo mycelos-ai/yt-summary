@@ -225,7 +225,9 @@ def test_post_skip_sets_marker_and_redirects(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.post("/onboarding/skip", follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/settings?onboarding=done"
+    # Redirects to home, not /settings — the welcome banner lives on /
+    # so the user lands on the actual tool, not the config page.
+    assert resp.headers["location"] == "/?onboarding=done"
 
     async def check():
         from app.repos import settings as settings_repo
@@ -338,7 +340,8 @@ def test_post_finish_sets_marker_and_redirects(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.post("/onboarding/finish", follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/settings?onboarding=done"
+    # Same as /skip: home page with the welcome banner, not /settings.
+    assert resp.headers["location"] == "/?onboarding=done"
 
     async def check():
         from app.repos import settings as settings_repo
@@ -349,10 +352,46 @@ def test_post_finish_sets_marker_and_redirects(tmp_path, monkeypatch):
         _run(check())
 
 
-# ── settings page banner ───────────────────────────────────────────
+# ── home + settings page banners ───────────────────────────────────
+
+
+def test_home_shows_welcome_banner_when_query_flag_present(tmp_path, monkeypatch):
+    """After finish/skip, the user lands on / with the welcome banner.
+    The banner copy points at /settings as the next-stop for tweaks."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import settings as settings_repo
+            # Mark onboarding done so / doesn't redirect us back to it.
+            await settings_repo.set(app.state.db, "onboarding_completed", "1")
+
+        _run(setup())
+        resp = client.get("/?onboarding=done")
+    assert resp.status_code == 200
+    assert "You&#39;re all set" in resp.text or "You're all set" in resp.text
+    # Banner links to settings as the next destination.
+    assert 'href="/settings"' in resp.text
+
+
+def test_home_no_welcome_banner_without_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(app.state.db, "onboarding_completed", "1")
+
+        _run(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "You're all set" not in resp.text
 
 
 def test_settings_page_shows_banner_when_query_flag_present(tmp_path, monkeypatch):
+    """The /settings banner stays as a fallback for users who deep-link
+    there with ?onboarding=done — but the wizard itself no longer
+    routes them there."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:

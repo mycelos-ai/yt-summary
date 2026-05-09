@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% if onboarding_done %}
+  {# One-shot banner after the onboarding wizard completes / is
+     skipped. Doesn't track dismissal — a refresh or any other
+     navigation drops the ?onboarding=done param naturally. #}
+  <div class="onboarding-done-banner" role="status">
+    <span class="onboarding-done-emoji" aria-hidden="true">👋</span>
+    <div class="onboarding-done-text">
+      <strong>You're all set.</strong>
+      Paste a URL below to summarize your first video, or open
+      <a href="/settings">Settings</a> to fine-tune providers, models,
+      or your summarizer prompt anytime.
+    </div>
+    <a href="/" class="onboarding-done-dismiss" aria-label="Dismiss"
+       title="Dismiss">×</a>
+  </div>
+{% endif %}
+
 <section class="hero">
   <h1>Summarize any video or article</h1>
   <p>Paste a YouTube link or any web article URL, get a clean summary. Self-hosted, with chat over the content.</p>

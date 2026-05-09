@@ -1056,6 +1056,47 @@ summary.section-heading {
   font-size: 14px;
 }
 
+/* One-shot welcome banner shown on the home page after the user
+   completes or skips the onboarding wizard. Dismiss-by-navigation:
+   any link that drops the ?onboarding=done param will hide it. */
+.onboarding-done-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: rgba(0, 212, 164, 0.08);
+  border: 1px solid var(--brand-green);
+  border-radius: var(--rounded-md);
+  padding: 14px 18px;
+  margin: 0 auto 20px;
+  max-width: 920px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.onboarding-done-emoji {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.onboarding-done-text {
+  flex: 1;
+}
+.onboarding-done-text a {
+  color: var(--brand-green-deep);
+  font-weight: 500;
+}
+.onboarding-done-dismiss {
+  flex-shrink: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--steel);
+  text-decoration: none;
+  padding: 0 4px;
+}
+.onboarding-done-dismiss:hover {
+  color: var(--ink);
+}
+
 /* Collapsible "Advanced — manually configure LLM/Whisper/Embedding"
    block. Closed by default so first-time users see only the Quick
    Setup wizard plus the high-signal cards (Summary language,
