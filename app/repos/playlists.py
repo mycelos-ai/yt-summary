@@ -53,13 +53,58 @@ async def get(db: aiosqlite.Connection, playlist_id: str) -> Playlist | None:
     return _row_to_playlist(row) if row else None
 
 
-async def list_for_user(db: aiosqlite.Connection, user_id: int) -> list[Playlist]:
+async def list_for_user(
+    db: aiosqlite.Connection,
+    user_id: int,
+    *,
+    limit: int | None = None,
+) -> list[Playlist]:
+    """Return playlists for ``user_id`` ordered most-recently-active first.
+
+    "Most recently active" means ``last_refreshed_at`` if present, else
+    ``created_at``. ``limit`` caps the row count when set; pass it as
+    ``N + 1`` to distinguish "exactly N" from "more than N" without a
+    separate count query.
+    """
+    if limit is not None:
+        cursor = await db.execute(
+            "SELECT * FROM playlists WHERE user_id=? "
+            "ORDER BY COALESCE(last_refreshed_at, created_at) DESC, id DESC "
+            "LIMIT ?",
+            (user_id, limit),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT * FROM playlists WHERE user_id=? "
+            "ORDER BY COALESCE(last_refreshed_at, created_at) DESC, id DESC",
+            (user_id,),
+        )
+    rows = await cursor.fetchall()
+    return [_row_to_playlist(r) for r in rows]
+
+
+async def list_with_stats(
+    db: aiosqlite.Connection, user_id: int
+) -> list[tuple[Playlist, int]]:
+    """Return ``(playlist, video_count)`` pairs for ``user_id``.
+
+    Ordered most-recently-active first (``last_refreshed_at`` then
+    ``created_at``). Single LEFT JOIN + GROUP BY query so we don't
+    N+1 on the playlist list page.
+    """
     cursor = await db.execute(
-        "SELECT * FROM playlists WHERE user_id=? ORDER BY created_at DESC, id DESC",
+        """
+        SELECT p.*, COUNT(pv.video_id) AS video_count
+        FROM playlists p
+        LEFT JOIN playlist_videos pv ON pv.playlist_id = p.id
+        WHERE p.user_id = ?
+        GROUP BY p.id
+        ORDER BY COALESCE(p.last_refreshed_at, p.created_at) DESC, p.id DESC
+        """,
         (user_id,),
     )
     rows = await cursor.fetchall()
-    return [_row_to_playlist(r) for r in rows]
+    return [(_row_to_playlist(r), r["video_count"]) for r in rows]
 
 
 async def delete(db: aiosqlite.Connection, playlist_id: str) -> None:

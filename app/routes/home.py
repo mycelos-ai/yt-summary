@@ -20,6 +20,11 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 register_filters(templates)
 
+# Page sizes for the home view. Kept as module constants so the
+# load-more fragment route stays in lockstep with the initial render.
+HOME_VIDEO_PAGE_SIZE = 25
+HOME_PLAYLIST_LIMIT = 5
+
 
 async def _vector_ids_for_query(
     db: aiosqlite.Connection, query: str, limit: int = 50
@@ -61,11 +66,28 @@ async def home(
 ):
     tag = tag.strip() if tag else None
     if q:
+        # Search results aren't paginated — they're already capped at
+        # the search ranker's limit and tend to be small.
         vector_ids = await _vector_ids_for_query(db, q)
         videos = await videos_repo.search(db, q, tag=tag, vector_ids=vector_ids)
+        has_more_videos = False
     else:
-        videos = await videos_repo.list_recent(db, tag=tag)
-    playlists = await playlists_repo.list_for_user(db, 1)
+        # +1 trick: ask for one extra row so we can tell whether there's
+        # another batch behind this one without a separate COUNT query.
+        rows = await videos_repo.list_recent(
+            db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag
+        )
+        has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
+        videos = rows[:HOME_VIDEO_PAGE_SIZE]
+
+    # Same +1 trick for playlists: limit to 5 on home, but ask for 6
+    # so the template knows whether to show the "More →" link.
+    playlists_plus_one = await playlists_repo.list_for_user(
+        db, 1, limit=HOME_PLAYLIST_LIMIT + 1
+    )
+    has_more_playlists = len(playlists_plus_one) > HOME_PLAYLIST_LIMIT
+    playlists = playlists_plus_one[:HOME_PLAYLIST_LIMIT]
+
     video_ids = [v.id for v in videos]
     playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
     video_tags = await tags_repo.tags_for_videos(db, video_ids)
@@ -79,5 +101,49 @@ async def home(
             "playlists": playlists,
             "playlist_links": playlist_links,
             "video_tags": video_tags,
+            "has_more_videos": has_more_videos,
+            "has_more_playlists": has_more_playlists,
+            "video_page_size": HOME_VIDEO_PAGE_SIZE,
+        },
+    )
+
+
+@router.get("/videos/load-more", response_class=HTMLResponse)
+async def load_more_videos(
+    request: Request,
+    offset: int = 0,
+    tag: str | None = None,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Return the next page of video cards as an HTML fragment.
+
+    The button at the bottom of the previous batch points here with
+    ``offset=N``. We render the next ``HOME_VIDEO_PAGE_SIZE`` cards
+    and, if there's still more behind them, a follow-up Load-more
+    button with the next offset. The button replaces itself via
+    ``hx-swap="outerHTML"``, so the cards land in the grid above
+    while the button moves down.
+    """
+    tag = tag.strip() if tag else None
+    offset = max(0, offset)
+    rows = await videos_repo.list_recent(
+        db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag, offset=offset
+    )
+    has_more = len(rows) > HOME_VIDEO_PAGE_SIZE
+    videos = rows[:HOME_VIDEO_PAGE_SIZE]
+    video_ids = [v.id for v in videos]
+    playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
+    video_tags = await tags_repo.tags_for_videos(db, video_ids)
+    next_offset = offset + HOME_VIDEO_PAGE_SIZE
+    return templates.TemplateResponse(
+        request,
+        "_video_load_more.html",
+        {
+            "videos": videos,
+            "playlist_links": playlist_links,
+            "video_tags": video_tags,
+            "has_more": has_more,
+            "next_offset": next_offset,
+            "active_tag": tag,
         },
     )

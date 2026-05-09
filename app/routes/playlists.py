@@ -29,6 +29,24 @@ def _parse_playlist_id(url: str) -> str:
     return match.group(1)
 
 
+@router.get("/playlists", response_class=HTMLResponse)
+async def list_playlists(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Dedicated playlists page: every playlist with stats.
+
+    Pulls per-playlist video counts in a single LEFT JOIN + GROUP BY
+    so the page scales with N playlists, not N+1 queries.
+    """
+    rows = await playlists_repo.list_with_stats(db, 1)
+    return templates.TemplateResponse(
+        request,
+        "playlists.html",
+        {"rows": rows},
+    )
+
+
 @router.get("/playlists/new", response_class=HTMLResponse)
 async def new_playlist_form(request: Request):
     return templates.TemplateResponse(request, "playlist_new.html", {})

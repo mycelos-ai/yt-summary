@@ -52,6 +52,25 @@ async def test_list_recent_orders_by_created_desc(db: aiosqlite.Connection):
     assert ids == ["c", "b", "a"]
 
 
+async def test_list_recent_offset_skips_first_rows(db: aiosqlite.Connection):
+    await _insert_sample(db, "a")
+    await _insert_sample(db, "b")
+    await _insert_sample(db, "c")
+    # Newest first → c, b, a. offset=1 drops "c".
+    rows = await videos_repo.list_recent(db, limit=10, offset=1)
+    assert [v.id for v in rows] == ["b", "a"]
+
+
+async def test_list_recent_offset_with_tag(db: aiosqlite.Connection):
+    from app.repos import tags as tags_repo
+    for vid in ["v1", "v2", "v3"]:
+        await _insert_sample(db, vid)
+        await tags_repo.set_tags_for_video(db, vid, ["python"])
+    rows = await videos_repo.list_recent(db, limit=10, tag="python", offset=1)
+    # Newest first within the tag → v3, v2, v1; offset=1 drops v3.
+    assert [v.id for v in rows] == ["v2", "v1"]
+
+
 async def test_search_uses_fts(db: aiosqlite.Connection):
     await videos_repo.upsert_metadata(
         db,

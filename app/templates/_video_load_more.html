@@ -1,0 +1,23 @@
+{# Fragment returned by GET /videos/load-more.
+
+   Renders the next batch of video cards out-of-band into #video-list,
+   and replaces the clicked Load-more button (this fragment is the
+   target of `hx-swap="outerHTML"`).
+
+   When `has_more` is true we render another Load-more button at the
+   bottom with `next_offset` so successive clicks keep paginating.
+   When false, the fragment is just the cards — the button vanishes. #}
+{% for video in videos %}
+  <div hx-swap-oob="beforeend:#video-list">
+    {% include "video_card.html" %}
+  </div>
+{% endfor %}
+{% if has_more %}
+  <button class="btn btn-secondary load-more-btn"
+          hx-get="/videos/load-more?offset={{ next_offset }}{% if active_tag %}&tag={{ active_tag|urlencode }}{% endif %}"
+          hx-target="this"
+          hx-swap="outerHTML"
+          hx-disabled-elt="this">
+    Load more
+  </button>
+{% endif %}

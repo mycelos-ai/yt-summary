@@ -145,18 +145,19 @@ async def list_recent(
     limit: int = 50,
     *,
     tag: str | None = None,
+    offset: int = 0,
 ) -> list[Video]:
     if tag:
         cursor = await db.execute(
             "SELECT * FROM videos WHERE 1=1"
             + _TAG_FILTER_SQL
-            + " ORDER BY created_at DESC, id DESC LIMIT ?",
-            (tag, limit),
+            + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            (tag, limit, offset),
         )
     else:
         cursor = await db.execute(
-            "SELECT * FROM videos ORDER BY created_at DESC, id DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM videos ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
         )
     rows = await cursor.fetchall()
     return [_row_to_video(r) for r in rows]

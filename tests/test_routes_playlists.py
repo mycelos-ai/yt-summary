@@ -177,3 +177,51 @@ def test_get_new_playlist_form(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert 'name="url"' in resp.text
     assert 'action="/playlists"' in resp.text
+
+
+def test_get_playlists_lists_all_with_video_counts(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            from app.repos import videos as videos_repo
+            await playlists_repo.create(
+                app.state.db, playlist_id="PLfull", user_id=1, url="u",
+                title="With videos", description="", thumbnail_path=None,
+            )
+            await playlists_repo.create(
+                app.state.db, playlist_id="PLempty", user_id=1, url="u",
+                title="Empty queue", description="", thumbnail_path=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vp1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vp2", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await playlists_repo.link_video(app.state.db, "PLfull", "vp1")
+            await playlists_repo.link_video(app.state.db, "PLfull", "vp2")
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/playlists")
+    assert resp.status_code == 200
+    assert "With videos" in resp.text
+    assert "Empty queue" in resp.text
+    # Counts: "2 videos" and "0 videos"
+    assert "2 videos" in resp.text
+    assert "0 videos" in resp.text
+
+
+def test_get_playlists_empty_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/playlists")
+    assert resp.status_code == 200
+    assert "No playlists yet" in resp.text
+    assert 'href="/playlists/new"' in resp.text

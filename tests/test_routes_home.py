@@ -162,6 +162,162 @@ def test_home_with_tag_filter_shows_banner_and_filtered_videos(tmp_path, monkeyp
     assert 'href="/"' in resp.text
 
 
+def test_home_paginates_videos_with_load_more_when_over_25(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            for i in range(26):
+                await videos_repo.upsert_metadata(
+                    app.state.db,
+                    video_id=f"v{i:04d}",
+                    url="u",
+                    title=f"Video {i}",
+                    description="d",
+                    thumbnail_path=None,
+                    duration_seconds=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    # 25 of 26 rendered
+    assert resp.text.count('id="video-v') == 25
+    # Load-more button visible
+    assert "Load more" in resp.text
+    assert "/videos/load-more?offset=25" in resp.text
+
+
+def test_home_no_load_more_when_exactly_25(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            for i in range(25):
+                await videos_repo.upsert_metadata(
+                    app.state.db,
+                    video_id=f"v{i:04d}",
+                    url="u",
+                    title=f"Video {i}",
+                    description="d",
+                    thumbnail_path=None,
+                    duration_seconds=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.text.count('id="video-v') == 25
+    assert "Load more" not in resp.text
+
+
+def test_load_more_returns_next_batch_with_followup_button(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            for i in range(60):
+                await videos_repo.upsert_metadata(
+                    app.state.db,
+                    video_id=f"v{i:04d}",
+                    url="u",
+                    title=f"Video {i}",
+                    description="d",
+                    thumbnail_path=None,
+                    duration_seconds=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/videos/load-more?offset=25")
+    assert resp.status_code == 200
+    # 25 cards in this batch
+    assert resp.text.count('id="video-v') == 25
+    # Follow-up button with offset=50 since 60 > 50
+    assert "/videos/load-more?offset=50" in resp.text
+
+
+def test_load_more_last_batch_returns_cards_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            for i in range(40):
+                await videos_repo.upsert_metadata(
+                    app.state.db,
+                    video_id=f"v{i:04d}",
+                    url="u",
+                    title=f"Video {i}",
+                    description="d",
+                    thumbnail_path=None,
+                    duration_seconds=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/videos/load-more?offset=25")
+    assert resp.status_code == 200
+    # 15 remaining cards
+    assert resp.text.count('id="video-v') == 15
+    # No follow-up button — we've reached the end
+    assert "Load more" not in resp.text
+    assert "/videos/load-more?offset=50" not in resp.text
+
+
+def test_home_caps_playlists_at_five(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            for i in range(7):
+                await playlists_repo.create(
+                    app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
+                    title=f"Playlist {i}", description="",
+                    thumbnail_path=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    # Exactly 5 playlist cards rendered (excluding the add card)
+    assert resp.text.count('class="playlist-card-wrap"') == 5
+    # The add-playlist tile is still visible
+    assert 'class="playlist-card playlist-card-add"' in resp.text
+
+
+def test_home_shows_more_link_when_over_five_playlists(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            for i in range(6):
+                await playlists_repo.create(
+                    app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
+                    title=f"Playlist {i}", description="",
+                    thumbnail_path=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert 'href="/playlists"' in resp.text
+    assert "More" in resp.text
+
+
+def test_home_no_more_link_when_five_or_fewer_playlists(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            for i in range(3):
+                await playlists_repo.create(
+                    app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
+                    title=f"Playlist {i}", description="",
+                    thumbnail_path=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    # The "More →" link points at /playlists; when not shown, that
+    # exact href should be absent.
+    assert 'href="/playlists"' not in resp.text
+
+
 def test_home_card_renders_tag_pills(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

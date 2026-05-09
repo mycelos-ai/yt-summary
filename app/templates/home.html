@@ -24,6 +24,11 @@
       </div>
     </a>
   </section>
+  {% if has_more_playlists %}
+    <p class="playlist-strip-more">
+      <a href="/playlists">More →</a>
+    </p>
+  {% endif %}
 {% else %}
   <section class="home-queue-cta">
     <h3>Connect a YouTube queue</h3>
@@ -61,4 +66,43 @@
     {% endif %}
   {% endfor %}
 </section>
+{% if has_more_videos %}
+  <div class="load-more-wrap">
+    <button class="btn btn-secondary load-more-btn"
+            hx-get="/videos/load-more?offset={{ video_page_size }}{% if active_tag %}&tag={{ active_tag|urlencode }}{% endif %}"
+            hx-target="this"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this">
+      Load more
+    </button>
+  </div>
+{% endif %}
+
+<style>
+  .playlist-strip-more {
+    margin: -16px 0 24px;
+    text-align: right;
+  }
+  .playlist-strip-more a {
+    font-size: 13px;
+    color: var(--steel);
+  }
+  .playlist-strip-more a:hover { color: var(--ink); }
+  .load-more-wrap {
+    text-align: center;
+    margin: 24px 0 8px;
+  }
+  .load-more-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--rounded-md);
+    background: var(--canvas);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .load-more-btn:hover { background: var(--surface); }
+  .load-more-btn:disabled { opacity: 0.6; cursor: wait; }
+</style>
 {% endblock %}

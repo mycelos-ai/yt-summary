@@ -127,3 +127,61 @@ async def test_playlists_for_videos_returns_links_per_video(db: aiosqlite.Connec
 async def test_playlists_for_videos_returns_empty_for_empty_input(db):
     result = await playlists_repo.playlists_for_videos(db, [])
     assert result == {}
+
+
+async def test_list_for_user_orders_recently_refreshed_first(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "p_old")
+    await _make_playlist(db, "p_newer")
+    # Force a future last_refreshed_at so the row sorts above the
+    # other two (datetime('now') has 1-second resolution and the test
+    # finishes in milliseconds).
+    await db.execute(
+        "UPDATE playlists SET last_refreshed_at='2099-01-01 00:00:00' "
+        "WHERE id='p_newer'"
+    )
+    await db.commit()
+    rows = await playlists_repo.list_for_user(db, 1)
+    assert rows[0].id == "p_newer"
+
+
+async def test_list_for_user_respects_limit(db: aiosqlite.Connection):
+    for i in range(7):
+        await _make_playlist(db, f"p{i}")
+    rows = await playlists_repo.list_for_user(db, 1, limit=3)
+    assert len(rows) == 3
+
+
+async def test_list_with_stats_returns_video_counts(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "p1")
+    await _make_playlist(db, "p2")
+    await _make_video(db, "v1")
+    await _make_video(db, "v2")
+    await playlists_repo.link_video(db, "p1", "v1")
+    await playlists_repo.link_video(db, "p1", "v2")
+    rows = await playlists_repo.list_with_stats(db, 1)
+    counts = {p.id: c for p, c in rows}
+    assert counts == {"p1": 2, "p2": 0}
+
+
+async def test_list_with_stats_orders_recently_refreshed_first(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "stats_old")
+    await _make_playlist(db, "stats_new")
+    await db.execute(
+        "UPDATE playlists SET last_refreshed_at='2099-01-01 00:00:00' "
+        "WHERE id='stats_new'"
+    )
+    await db.commit()
+    rows = await playlists_repo.list_with_stats(db, 1)
+    assert rows[0][0].id == "stats_new"
+
+
+async def test_list_with_stats_empty_for_no_playlists(
+    db: aiosqlite.Connection,
+):
+    assert await playlists_repo.list_with_stats(db, 1) == []

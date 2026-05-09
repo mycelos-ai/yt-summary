@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Playlists — yt-summary{% endblock %}
+{% block content %}
+
+<header class="playlists-page-header">
+  <h1>Queues &amp; playlists</h1>
+  <a href="/playlists/new" class="btn btn-accent">+ Add queue or playlist</a>
+</header>
+
+{% if rows %}
+  <section class="playlists-list">
+    {% for playlist, video_count in rows %}
+      <article class="playlist-row">
+        <a href="/p/{{ playlist.id }}" class="playlist-row-thumb" aria-label="{{ playlist.title }}">
+          {% if playlist.thumbnail_path %}
+            <img src="/thumbnails/playlist_{{ playlist.id }}.jpg" alt="">
+          {% else %}
+            <div class="playlist-row-placeholder">▣</div>
+          {% endif %}
+        </a>
+        <div class="playlist-row-body">
+          <h3><a href="/p/{{ playlist.id }}">{{ playlist.title }}</a></h3>
+          <p class="playlist-row-meta">
+            <span>{{ video_count }} video{{ '' if video_count == 1 else 's' }}</span>
+            <span class="dot">·</span>
+            {% if playlist.last_refreshed_at %}
+              <span>Refreshed {{ playlist.last_refreshed_at | relative_time }}</span>
+            {% else %}
+              <span>Never synced</span>
+            {% endif %}
+          </p>
+        </div>
+        <div class="playlist-row-actions">
+          <form method="post" action="/p/{{ playlist.id }}/refresh">
+            <button type="submit" class="link-button" title="Refresh now">↻ Refresh</button>
+          </form>
+          <form method="post" action="/p/{{ playlist.id }}/remove"
+                onsubmit="return confirm('Remove this playlist? Videos already in your library will stay.')">
+            <button type="submit" class="link-button">Remove</button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <p class="empty">No playlists yet — <a href="/playlists/new">add your first one</a>.</p>
+{% endif %}
+
+<style>
+  .playlists-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .playlists-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .playlist-row {
+    display: grid;
+    grid-template-columns: 120px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--rounded-lg);
+    background: var(--canvas);
+    transition: border-color 150ms ease;
+  }
+  .playlist-row:hover { border-color: var(--stone); }
+  .playlist-row-thumb {
+    display: block;
+    width: 120px;
+    height: 70px;
+    border-radius: var(--rounded-md);
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .playlist-row-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .playlist-row-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--stone);
+    font-size: 24px;
+  }
+  .playlist-row-body { min-width: 0; }
+  .playlist-row-body h3 {
+    margin: 0 0 4px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .playlist-row-body h3 a { color: var(--ink); }
+  .playlist-row-meta {
+    margin: 0;
+    font-size: 13px;
+    color: var(--steel);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .playlist-row-meta .dot { color: var(--muted); }
+  .playlist-row-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .playlist-row-actions form { margin: 0; }
+  @media (max-width: 640px) {
+    .playlist-row {
+      grid-template-columns: 80px 1fr;
+      gap: 12px;
+    }
+    .playlist-row-thumb { width: 80px; height: 50px; }
+    .playlist-row-actions {
+      grid-column: 1 / -1;
+      justify-content: flex-start;
+    }
+  }
+</style>
+
+{% endblock %}
