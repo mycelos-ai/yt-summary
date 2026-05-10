@@ -50,6 +50,7 @@
           <label>
             <span>Ollama server URL</span>
             <input type="text" name="llm_base_url"
+                   id="ollama-base-url-onboarding"
                    x-bind:disabled="provider !== '{{ p.id }}'"
                    value="{{ settings.get('llm_base_url', p.default_llm_base_url) }}"
                    placeholder="http://192.168.0.27:11434">
@@ -58,14 +59,44 @@
             Use the LAN IP, not <code>*.local</code> — Python's resolver
             doesn't always handle mDNS hostnames.
           </p>
+          {# Reuse the existing Settings HTMX endpoint to enumerate the
+             user's actually-installed Ollama tags. The fragment returns
+             a <select name="llm_model"> that submits with this form. #}
+          <div class="ob-detail-row">
+            <button type="button" class="link-button"
+                    hx-get="/settings/quick-setup/ollama-models"
+                    hx-include="#ollama-base-url-onboarding"
+                    hx-target="#ollama-models-result-onboarding"
+                    hx-swap="innerHTML"
+                    hx-disabled-elt="this">
+              Load my models
+            </button>
+          </div>
+          <div id="ollama-models-result-onboarding"
+               class="ob-ollama-models-result"></div>
         {% endif %}
-        <p class="ob-detail-note">
-          Will set: <code>{{ p.default_llm }}</code>{% if p.default_embedding %} ·
-          embeddings <code>{{ p.default_embedding }}</code>{% endif %}{% if p.whisper_base_url %} ·
-          whisper at <code>{{ p.whisper_base_url }}</code>{% endif %}.
+        <p class="ob-default-info">
+          Default LLM model: <code>{{ p.default_llm }}</code>.
+          You can change this any time in Settings.
         </p>
       </div>
     {% endfor %}
+
+    {# Pre-flight test. Submits whatever's in the form right now to a
+       lightweight round-trip endpoint; result slots in below. The
+       Continue button stays unblocked — informational, not gating. #}
+    <div class="ob-test-row">
+      <button type="button" class="link-button"
+              hx-post="/onboarding/test-provider"
+              hx-include="closest form"
+              hx-target="#ob-test-result"
+              hx-swap="innerHTML"
+              hx-disabled-elt="this"
+              x-bind:disabled="!provider">
+        Test connection
+      </button>
+      <div id="ob-test-result" class="ob-test-result"></div>
+    </div>
 
     <div class="ob-actions">
       <a href="/onboarding/welcome" class="ob-back">← Back</a>
@@ -78,4 +109,54 @@
       </div>
     </div>
   </form>
+
+  <style>
+    /* Step-2-only additions. Keeps the layout file lean — these
+       classes are not used elsewhere in the wizard. */
+    .ob-default-info {
+      font-size: 12px;
+      color: var(--steel, #666);
+      margin: 0;
+      line-height: 1.5;
+      padding-top: 4px;
+      border-top: 1px dashed var(--hairline, #e0e0e0);
+    }
+    .ob-default-info code {
+      color: var(--ink, #111);
+      background: var(--canvas, #fff);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 11.5px;
+    }
+    .ob-detail-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ob-ollama-models-result:empty { display: none; }
+    .ob-ollama-models-result .settings-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .ob-ollama-models-result select {
+      padding: 8px 12px;
+      border: 1px solid var(--hairline, #e0e0e0);
+      border-radius: var(--rounded-sm, 6px);
+      font: inherit;
+      background: var(--canvas, #fff);
+    }
+    .ob-test-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .ob-test-result:empty { display: none; }
+    .ob-test-result .status {
+      margin: 0;
+      font-size: 13px;
+    }
+  </style>
 {% endblock %}

@@ -18,6 +18,7 @@ Either way, we don't ambush them with the wizard again.
 """
 
 import aiosqlite
+import litellm
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -133,6 +134,63 @@ async def provider_submit(
         else:
             await settings_repo.delete(db, key)
     return RedirectResponse("/onboarding/profile", status_code=303)
+
+
+@router.post("/onboarding/test-provider", response_class=HTMLResponse)
+async def test_provider(
+    provider: str = Form(...),
+    api_key: str = Form(""),
+    llm_model: str = Form(""),
+    llm_base_url: str = Form(""),
+):
+    """Pre-flight LLM round-trip on the wizard's unsaved form values.
+
+    Same shape as :func:`app.routes.settings.test_llm` but operates on
+    the form payload directly — we don't write settings before
+    Continue. Returns an HTMX-friendly fragment (200 even on failure;
+    the body carries the ✓/✗).
+    """
+    if provider not in PROVIDER_PRESETS:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Unknown provider.</p>'
+        )
+    preset = PROVIDER_PRESETS[provider]
+
+    model = llm_model.strip() or preset.default_llm
+    base_url = (
+        llm_base_url.strip().rstrip("/")
+        or preset.default_llm_base_url
+        or ""
+    )
+
+    # Use kwargs as Any-typed dict so litellm's overloaded signature
+    # doesn't trip pyright. The runtime call is unchanged.
+    from typing import Any
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": "Reply OK in one word."}
+        ],
+        "api_key": api_key.strip() or "",
+        "max_tokens": 5,
+    }
+    if base_url:
+        kwargs["api_base"] = base_url
+
+    try:
+        response = await litellm.acompletion(**kwargs)
+        text = (response.choices[0].message.content or "").strip()
+        return HTMLResponse(
+            f'<p class="status status-done">✓ {model} responded: '
+            f'{text[:50] or "(empty)"}</p>'
+        )
+    except Exception as e:
+        # First 100 chars of message keeps the fragment compact even
+        # when LiteLLM hands back a multi-line traceback string.
+        msg = str(e)[:100]
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ {type(e).__name__}: {msg}</p>'
+        )
 
 
 # ── Step 3: profile ────────────────────────────────────────────────

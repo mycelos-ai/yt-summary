@@ -193,6 +193,153 @@ def test_provider_step_renders_all_six_tiles(tmp_path, monkeypatch):
         assert f'value="{pid}"' in resp.text
 
 
+def test_provider_step_shows_default_model_per_provider(tmp_path, monkeypatch):
+    """Each provider's detail panel surfaces the default LLM model id
+    that will be configured if the user clicks Continue. Transparency
+    fix — previously the user was flying blind."""
+    from app.services.providers import PROVIDER_PRESETS
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/onboarding/provider")
+    assert resp.status_code == 200
+    # The label appears at least once per preset (six total).
+    assert resp.text.count("Default LLM model") >= len(PROVIDER_PRESETS)
+    # And the actual default model id for each provider is present.
+    for preset in PROVIDER_PRESETS.values():
+        assert preset.default_llm in resp.text
+
+
+def test_provider_step_references_ollama_models_endpoint(tmp_path, monkeypatch):
+    """The Ollama tile wires a 'Load my models' button to the existing
+    HTMX endpoint; we don't fork the route, we reuse it."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/onboarding/provider")
+    assert resp.status_code == 200
+    assert "/settings/quick-setup/ollama-models" in resp.text
+    # Wizard-scoped ids — must not collide with the Settings page's
+    # #ollama-base-url / #ollama-models-result if both render.
+    assert "ollama-base-url-onboarding" in resp.text
+    assert "ollama-models-result-onboarding" in resp.text
+
+
+def test_provider_step_renders_test_connection_button(tmp_path, monkeypatch):
+    """A 'Test connection' button posts to the new test-provider
+    endpoint. Pre-flight check before Continue."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/onboarding/provider")
+    assert resp.status_code == 200
+    assert "/onboarding/test-provider" in resp.text
+    assert "Test connection" in resp.text
+
+
+def test_post_test_provider_success_returns_check_fragment(tmp_path, monkeypatch):
+    """Successful litellm round-trip → 200 + ✓ fragment + model name +
+    response snippet."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    fake_response = MagicMock()
+    fake_response.choices = [MagicMock()]
+    fake_response.choices[0].message.content = "OK"
+    with TestClient(app) as client, patch(
+        "app.routes.onboarding.litellm.acompletion",
+        AsyncMock(return_value=fake_response),
+    ):
+        resp = client.post(
+            "/onboarding/test-provider",
+            data={
+                "provider": "openai",
+                "api_key": "sk-test",
+            },
+        )
+    assert resp.status_code == 200
+    assert "✓" in resp.text
+    # Default openai model echoed back.
+    assert "openai/" in resp.text
+    # Snippet of the model's reply is rendered.
+    assert "OK" in resp.text
+
+
+def test_post_test_provider_failure_returns_x_fragment(tmp_path, monkeypatch):
+    """litellm raising → still HTTP 200 (HTMX needs the body) + ✗
+    fragment carrying the exception class name and message snippet."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    class BoomError(Exception):
+        pass
+
+    with TestClient(app) as client, patch(
+        "app.routes.onboarding.litellm.acompletion",
+        AsyncMock(side_effect=BoomError("401 unauthorized: bad key")),
+    ):
+        resp = client.post(
+            "/onboarding/test-provider",
+            data={
+                "provider": "openai",
+                "api_key": "sk-bad",
+            },
+        )
+    assert resp.status_code == 200
+    assert "⚠" in resp.text or "✗" in resp.text
+    assert "BoomError" in resp.text
+    assert "401 unauthorized" in resp.text
+
+
+def test_post_test_provider_uses_form_overrides(tmp_path, monkeypatch):
+    """When the form posts an explicit llm_model / llm_base_url, those
+    must propagate into the litellm.acompletion call."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    fake_response = MagicMock()
+    fake_response.choices = [MagicMock()]
+    fake_response.choices[0].message.content = "ok"
+    mock_acompletion = AsyncMock(return_value=fake_response)
+    with TestClient(app) as client, patch(
+        "app.routes.onboarding.litellm.acompletion",
+        mock_acompletion,
+    ):
+        resp = client.post(
+            "/onboarding/test-provider",
+            data={
+                "provider": "ollama",
+                "api_key": "",
+                "llm_model": "ollama_chat/mistral",
+                "llm_base_url": "http://192.168.1.42:11434",
+            },
+        )
+    assert resp.status_code == 200
+    # The mock was called with our explicit overrides.
+    assert mock_acompletion.await_count == 1
+    kwargs = mock_acompletion.await_args.kwargs
+    assert kwargs["model"] == "ollama_chat/mistral"
+    assert kwargs["api_base"] == "http://192.168.1.42:11434"
+
+
+def test_post_test_provider_unknown_provider_returns_warning(tmp_path, monkeypatch):
+    """Unknown provider id → graceful warning fragment, not a 500."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/onboarding/test-provider",
+            data={"provider": "not-a-real-provider"},
+        )
+    assert resp.status_code == 200
+    assert "⚠" in resp.text
+
+
 def test_profile_step_prefills_current_user_name(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
