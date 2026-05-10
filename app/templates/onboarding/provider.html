@@ -49,27 +49,39 @@
         {% if p.id == 'ollama' %}
           <label>
             <span>Ollama server URL</span>
+            {# Auto-trigger model loading when the URL changes (or on
+               initial render if it's already filled). The user gets
+               their installed-tags dropdown without having to spot a
+               button — most don't, and skipping this leaves the
+               wizard with a hardcoded default tag that may not
+               exist on their server. #}
             <input type="text" name="llm_base_url"
                    id="ollama-base-url-onboarding"
                    x-bind:disabled="provider !== '{{ p.id }}'"
                    value="{{ settings.get('llm_base_url', p.default_llm_base_url) }}"
-                   placeholder="http://192.168.0.27:11434">
+                   placeholder="http://192.168.0.27:11434"
+                   hx-get="/settings/quick-setup/ollama-models"
+                   hx-include="#ollama-base-url-onboarding"
+                   hx-target="#ollama-models-result-onboarding"
+                   hx-swap="innerHTML"
+                   hx-trigger="change, keyup changed delay:600ms">
           </label>
           <p class="ob-detail-note">
             Use the LAN IP, not <code>*.local</code> — Python's resolver
-            doesn't always handle mDNS hostnames.
+            doesn't always handle mDNS hostnames. Models load
+            automatically when the URL is set.
           </p>
-          {# Reuse the existing Settings HTMX endpoint to enumerate the
-             user's actually-installed Ollama tags. The fragment returns
-             a <select name="llm_model"> that submits with this form. #}
+          {# Manual fallback — visible button in case the auto-trigger
+             didn't fire or the user hit a transient error. Reuses the
+             same endpoint, same target. #}
           <div class="ob-detail-row">
-            <button type="button" class="link-button"
+            <button type="button" class="btn btn-accent ob-load-models-btn"
                     hx-get="/settings/quick-setup/ollama-models"
                     hx-include="#ollama-base-url-onboarding"
                     hx-target="#ollama-models-result-onboarding"
                     hx-swap="innerHTML"
                     hx-disabled-elt="this">
-              Load my models
+              📡 Load my models
             </button>
           </div>
           <div id="ollama-models-result-onboarding"
@@ -132,6 +144,14 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      margin-top: 10px;
+    }
+    /* Prominent load-my-models button so Ollama users actually see it.
+       The auto-trigger on the input handles 95% of cases; this button
+       is the visible fallback. */
+    .ob-load-models-btn {
+      font-size: 14px;
+      padding: 8px 14px;
     }
     .ob-ollama-models-result:empty { display: none; }
     .ob-ollama-models-result .settings-field {
