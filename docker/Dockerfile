@@ -9,7 +9,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno as a JavaScript runtime for yt-dlp's n-parameter challenge
+# solver (EJS). Without it, yt-dlp can't decode YouTube's signed stream
+# URLs and only storyboard images come back as "available formats".
+# See https://github.com/yt-dlp/yt-dlp/wiki/EJS.
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) DENO_ARCH=x86_64-unknown-linux-gnu ;; \
+        arm64) DENO_ARCH=aarch64-unknown-linux-gnu ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip; \
+    unzip -q /tmp/deno.zip -d /usr/local/bin; \
+    chmod +x /usr/local/bin/deno; \
+    rm /tmp/deno.zip; \
+    deno --version
 
 WORKDIR /app
 
