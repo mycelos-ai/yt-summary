@@ -35,10 +35,30 @@ class VideoMetadata:
     tags: tuple[str, ...] = ()
 
 
-def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
-    opts: dict[str, Any] = {"skip_download": True, "quiet": True, "no_warnings": True}
+def _base_opts(cookies_path: Path | None) -> dict[str, Any]:
+    """Common yt-dlp options for every call we make.
+
+    `remote_components: ["ejs:github"]` is what lets yt-dlp fetch the
+    EJS challenge-solver script that decodes YouTube's signed
+    n-parameter on stream URLs. Without it, even with Deno installed,
+    yt-dlp falls back to storyboard images only and any download
+    fails with `Requested format is not available`. The pip-installed
+    yt-dlp is not the "official executable" yt-dlp's docs reference,
+    so we have to opt in explicitly.
+    """
+    opts: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "remote_components": ["ejs:github"],
+    }
     if cookies_path:
         opts["cookiefile"] = str(cookies_path)
+    return opts
+
+
+def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
+    opts = _base_opts(cookies_path)
+    opts["skip_download"] = True
     with YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
@@ -99,17 +119,14 @@ SubtitleSource = Literal["manual_subs", "auto_subs"]
 
 
 def _extract_info_with_subs(url: str, cookies_path: Path | None) -> dict[str, Any]:
-    opts: dict[str, Any] = {
+    opts = _base_opts(cookies_path)
+    opts.update({
         "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
         "writesubtitles": True,
         "writeautomaticsub": True,
         "subtitleslangs": ["en", "de"],
         "subtitlesformat": "vtt",
-    }
-    if cookies_path:
-        opts["cookiefile"] = str(cookies_path)
+    })
     with YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
@@ -319,14 +336,11 @@ async def download_audio(
 ) -> Path:
     await asyncio.to_thread(audio_dir.mkdir, parents=True, exist_ok=True)
     template = str(audio_dir / f"{video_id}.%(ext)s")
-    opts: dict[str, Any] = {
+    opts = _base_opts(cookies_path)
+    opts.update({
         "format": "bestaudio/best",
         "outtmpl": template,
-        "quiet": True,
-        "no_warnings": True,
-    }
-    if cookies_path:
-        opts["cookiefile"] = str(cookies_path)
+    })
     await asyncio.to_thread(_run_yt_dlp_download, opts, url)
     path = await asyncio.to_thread(_find_audio_file, audio_dir, video_id)
     if path:

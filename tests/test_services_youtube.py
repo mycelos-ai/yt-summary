@@ -331,3 +331,32 @@ Hello world.
     # Only one block survives
     assert len(segs) == 1
     assert segs[0] == (0.0, "Hello world.")
+
+
+def test_base_opts_includes_remote_components_for_ejs():
+    """yt-dlp 2026.x needs the EJS challenge-solver script to decode
+    YouTube's signed n-parameter; without `remote_components: [ejs:github]`
+    even a Deno-equipped container falls back to storyboard-only formats
+    and any download fails with `Requested format is not available`."""
+    from app.services.youtube import _base_opts
+
+    opts = _base_opts(None)
+    assert opts.get("remote_components") == ["ejs:github"]
+
+
+def test_base_opts_attaches_cookiefile_when_provided(tmp_path):
+    from app.services.youtube import _base_opts
+
+    cookie_file = tmp_path / "cookies.txt"
+    cookie_file.write_text("# Netscape HTTP Cookie File\n")
+    opts = _base_opts(cookie_file)
+    assert opts["cookiefile"] == str(cookie_file)
+    # And remote_components is still set — every call needs it.
+    assert opts["remote_components"] == ["ejs:github"]
+
+
+def test_base_opts_omits_cookiefile_when_none():
+    from app.services.youtube import _base_opts
+
+    opts = _base_opts(None)
+    assert "cookiefile" not in opts
