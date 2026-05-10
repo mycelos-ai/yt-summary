@@ -1185,6 +1185,17 @@ summary.section-heading {
 .quicksetup-option-name {
   font-weight: 600;
   font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Tiny green dot next to the active provider's name. Cheap visual
+   anchor so a returning user can spot what's currently configured
+   without reading the helper text. */
+.quicksetup-option-current {
+  color: var(--brand-green);
+  font-size: 18px;
+  line-height: 1;
 }
 .quicksetup-option-tags {
   display: inline-flex;

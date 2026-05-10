@@ -64,6 +64,21 @@ async def settings_page(
     if applied and applied in PROVIDER_PRESETS:
         applied_preset = PROVIDER_PRESETS[applied]
 
+    # Detect which provider is currently active so the wizard can
+    # pre-select that tile and show the matching detail panel
+    # without the user having to remember what they configured.
+    # Falls back to '' for fresh installs (no llm_model yet) and
+    # for custom/manual setups whose llm_model prefix doesn't match
+    # any preset.
+    current_provider_id = ""
+    current_model = settings.get("llm_model", "")
+    if current_model:
+        head = current_model.split("/", 1)[0]
+        for p in presets:
+            if head == p.litellm_provider or head.startswith(p.litellm_provider):
+                current_provider_id = p.id
+                break
+
     # Per-provider chat / embedding model lists for cloud providers.
     # Ollama gets its list dynamically from /api/tags via HTMX, so we
     # don't pre-fill those here.
@@ -93,6 +108,7 @@ async def settings_page(
             "preset_chat_models_full": preset_chat_models_full,
             "preset_embed_models": preset_embed_models,
             "applied_preset": applied_preset,
+            "current_provider_id": current_provider_id,
             "settings": safe_settings,
             "has_api_key": has_api_key,
             "has_whisper_key": has_whisper_key,
