@@ -1,0 +1,7 @@
+# Netscape HTTP Cookie File
+# https://curl.se/docs/http-cookies.html
+# This is a generated file!  Do not edit.
+
+.youtube.com	TRUE	/	TRUE	1789999999	VISITOR_INFO1_LIVE	abc
+.youtube.com	TRUE	/	FALSE	1789999999	YSC	def
+.youtube.com	TRUE	/	TRUE	1789999999	LOGIN_INFO	xyz

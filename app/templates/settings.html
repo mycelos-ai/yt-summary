@@ -439,10 +439,10 @@
 
     <form method="post" action="/settings/youtube-curl" class="settings-form">
       <label class="settings-field">
-        <span class="settings-label">Paste curl from DevTools</span>
-        <small>Network tab → right click on a youtube.com request → "Copy as cURL".</small>
+        <span class="settings-label">Paste curl from DevTools — or a cookies.txt file</span>
+        <small>Either: Network tab → right-click a youtube.com request → "Copy as cURL". Or: paste the contents of a Netscape-format <code>cookies.txt</code> exported by a browser extension.</small>
         <textarea name="curl" rows="6"
-                  placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'"></textarea>
+                  placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'&#10;&#10;— or —&#10;&#10;# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1789999999&#9;SID&#9;..."></textarea>
       </label>
       <div class="settings-save-row">
         <button type="submit" class="btn btn-primary">Save cookies</button>
