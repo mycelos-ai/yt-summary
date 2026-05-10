@@ -6,9 +6,10 @@
 [![CI](https://github.com/mycelos-ai/yt-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/mycelos-ai/yt-summary/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[![Watch the 60-second demo](https://img.youtube.com/vi/wUkqSNn63Hk/maxresdefault.jpg)](https://www.youtube.com/watch?v=wUkqSNn63Hk)
+[![Watch the 4-minute walkthrough](https://img.youtube.com/vi/uqTZVZ70Mpc/maxresdefault.jpg)](https://www.youtube.com/watch?v=uqTZVZ70Mpc)
 
-> ▶ [60-second demo on YouTube](https://www.youtube.com/watch?v=wUkqSNn63Hk)
+> ▶ [4-minute walkthrough](https://www.youtube.com/watch?v=uqTZVZ70Mpc) — install, onboarding, the killer playlist move, profiles, all of it.
+> Or the [60-second teaser](https://www.youtube.com/watch?v=wUkqSNn63Hk) if you're in a hurry.
 
 ![yt-summary home — paste a URL, or save videos to a connected queue / playlist](docs/screenshots/home.png)
 
