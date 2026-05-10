@@ -96,17 +96,35 @@
 
     {# Pre-flight test. Submits whatever's in the form right now to a
        lightweight round-trip endpoint; result slots in below. The
-       Continue button stays unblocked — informational, not gating. #}
-    <div class="ob-test-row">
-      <button type="button" class="link-button"
+       Continue button stays unblocked — informational, not gating.
+
+       hx-indicator targets the spinner span next to the button so
+       HTMX adds .htmx-request to it during the round-trip. CSS hides
+       the spinner by default and shows it only while the request is
+       in flight. The button itself dims via :disabled when HTMX
+       toggles it off. #}
+    <div class="ob-test-row" id="ob-test-row">
+      <button type="button" class="btn btn-secondary ob-test-btn"
               hx-post="/onboarding/test-provider"
               hx-include="closest form"
               hx-target="#ob-test-result"
               hx-swap="innerHTML"
               hx-disabled-elt="this"
               x-bind:disabled="!provider">
-        Test connection
+        {# HTMX adds `.htmx-request` to the issuing element while the
+           request is in flight. CSS swaps the two children below via
+           that class. The hint to the right uses the same class on
+           the parent row. #}
+        <span class="ob-test-btn-label">🔌 Test connection</span>
+        <span class="ob-test-btn-spinner" aria-hidden="true">
+          <span class="ob-spinner"></span>
+          <span>Testing…</span>
+        </span>
       </button>
+      <p class="ob-test-hint">
+        Cloud APIs return in ~2s. Ollama can take 10–30s on the first
+        call while the model warms up.
+      </p>
       <div id="ob-test-result" class="ob-test-result"></div>
     </div>
 
@@ -172,6 +190,58 @@
       align-items: center;
       gap: 12px;
       flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    /* Test-connection button: secondary brand styling so it actually
+       reads as a button (was a near-invisible link before). The label
+       and spinner share the same flex container — HTMX swaps which
+       one is visible via the .htmx-request class. */
+    .ob-test-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      font-size: 14px;
+    }
+    .ob-test-btn:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+    /* Spinner state: HTMX adds `.htmx-request` to the issuing button
+       while the request is in flight. Idle = label visible, spinner
+       hidden. In-flight = spinner visible, label hidden, slow-call
+       hint visible next to the button. */
+    .ob-test-btn-spinner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+    .ob-test-btn.htmx-request .ob-test-btn-label   { display: none; }
+    .ob-test-btn.htmx-request .ob-test-btn-spinner { display: inline-flex; }
+    /* Pure-CSS spinning ring. */
+    .ob-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: ob-spin 0.8s linear infinite;
+    }
+    @keyframes ob-spin {
+      to { transform: rotate(360deg); }
+    }
+    /* Slow-call hint — visible only while the test request is in
+       flight. Lives next to the button on the same row, breaks to
+       a new line on narrow viewports. */
+    .ob-test-hint {
+      font-size: 12px;
+      color: var(--steel, #666);
+      margin: 0;
+      display: none;
+    }
+    .ob-test-row:has(.htmx-request) .ob-test-hint {
+      display: block;
     }
     .ob-test-result:empty { display: none; }
     .ob-test-result .status {
