@@ -435,6 +435,37 @@ def test_post_provider_ollama_no_api_key_writes_base_url(tmp_path, monkeypatch):
         _run(check())
 
 
+def test_post_provider_uses_form_llm_model_when_given(tmp_path, monkeypatch):
+    """Regression: the Ollama 'Load my models' fragment posts a
+    <select name='llm_model'>. Without piping that into apply_preset,
+    the wizard would always write the hardcoded default
+    ('ollama_chat/llama3.1') even when the user picked
+    'ollama_chat/qwen3:32b' from their actually-installed list, which
+    then failed at first summarization with 'model not found'."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/onboarding/provider",
+            data={
+                "provider": "ollama",
+                "api_key": "",
+                "llm_model": "ollama_chat/qwen3:32b",
+                "llm_base_url": "http://192.168.1.42:11434",
+            },
+            follow_redirects=False,
+        )
+    assert resp.status_code == 303
+
+    async def check():
+        from app.repos import settings as settings_repo
+        s = await settings_repo.get_all(app.state.db)
+        assert s["llm_model"] == "ollama_chat/qwen3:32b"
+
+    with TestClient(app):
+        _run(check())
+
+
 def test_post_profile_updates_name_and_avatar(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

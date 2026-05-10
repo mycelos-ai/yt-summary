@@ -109,12 +109,19 @@ async def provider_form(
 async def provider_submit(
     provider: str = Form(...),
     api_key: str = Form(""),
+    llm_model: str = Form(""),
     llm_base_url: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """Apply the selected provider preset. Same write-set as the
     Quick-Setup wizard via :func:`apply_preset` — keep them aligned by
     delegation, not duplication.
+
+    `llm_model` is mostly empty (cloud providers use the preset's
+    default), but for Ollama it carries the tag the user picked from
+    the "Load my models" dropdown — without that pass-through the
+    wizard would write the hardcoded `ollama_chat/llama3.1` even when
+    the server has a different model installed.
     """
     if provider not in PROVIDER_PRESETS:
         # Unknown provider id — treat like a skip rather than 400-ing.
@@ -126,6 +133,7 @@ async def provider_submit(
         provider_id=provider,
         api_key=api_key.strip(),
         current_settings=current,
+        llm_model_override=llm_model.strip() or None,
         llm_base_url_override=llm_base_url.strip() or None,
     )
     for key, value in updates.items():
