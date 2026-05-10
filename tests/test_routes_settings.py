@@ -774,10 +774,11 @@ def test_settings_page_renders_cloud_provider_dropdowns(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     text = resp.text
-    # Groq's curated default — currently Llama 4 Maverick (128k context,
-    # current Groq flagship after Kimi K2 was delisted). Updating this
-    # default is a one-line change in PROVIDER_PRESETS.
-    assert "llama-4-maverick" in text
+    # Groq's curated default — currently llama-3.3-70b-versatile (the
+    # boring, longest-running production model). We don't default to
+    # whatever the latest hotness is because Groq delists those fast
+    # (Kimi K2 in 2025, Llama 4 Maverick in May 2026).
+    assert "llama-3.3-70b-versatile" in text
     # Other curated Groq models also in the dropdown
     assert "qwen3-32b" in text
     # Cloud presets render real selects; Anthropic shows Claude variants

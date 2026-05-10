@@ -200,13 +200,18 @@ def test_list_chat_models_include_legacy_returns_more():
     )
 
 
-def test_list_chat_models_curated_excludes_kimi_for_groq():
-    """Kimi K2 was delisted by Groq — it must not appear in the
-    curated Groq list (or it'd be a dead default option)."""
+def test_list_chat_models_curated_excludes_delisted_for_groq():
+    """Groq delists models faster than the LiteLLM cost map updates.
+    Delisted-defaults caused real first-run failures (Kimi K2 in
+    2025, Llama 4 Maverick in May 2026), so the curated list keeps
+    only the long-lived production-tier models. Maverick may live
+    in litellm.model_cost still — that's fine, the curated list
+    filters it."""
     models = list_chat_models("groq")
     assert not any("kimi" in m.lower() for m in models)
-    # Llama 4 Maverick is the new default
-    assert any("llama-4-maverick" in m for m in models)
+    assert not any("llama-4-maverick" in m for m in models)
+    # Default is the boring stable one
+    assert any("llama-3.3-70b-versatile" in m for m in models)
 
 
 def test_apply_preset_ollama_with_custom_base_url():

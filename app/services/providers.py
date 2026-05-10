@@ -80,10 +80,16 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="groq",
         name="Groq",
         litellm_provider="groq",
-        # Llama 4 Maverick: 128k context, current Groq flagship for
-        # long-form summarization. (Kimi K2 used to live here but was
-        # delisted by Groq.)
-        default_llm="groq/meta-llama/llama-4-maverick-17b-128e-instruct",
+        # Groq churns model availability fast. We default to the
+        # most boring, longest-running option in their production
+        # tier so the wizard's pre-flight test isn't fighting a
+        # delist on every other release. Power users pick a fancier
+        # model from the dropdown / Settings page.
+        # (History: Kimi K2 was delisted ~2025, llama-4-maverick
+        # disappeared in May 2026 — both shipped here as defaults
+        # and broke for new users. Don't make the same mistake
+        # with this slot again.)
+        default_llm="groq/llama-3.3-70b-versatile",
         api_key_url="https://console.groq.com/keys",
         # Groq has no first-party embedding model.
         default_embedding=None,
@@ -158,11 +164,15 @@ CURATED_CHAT_MODELS: dict[str, list[str]] = {
         "gemini/gemini-2.5-flash",
     ],
     "groq": [
-        "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
-        "groq/meta-llama/llama-4-scout-17b-16e-instruct",
-        "groq/openai/gpt-oss-120b",
-        "groq/qwen/qwen3-32b",
+        # Default (most stable, longest-running production model).
         "groq/llama-3.3-70b-versatile",
+        # Newer / experimental — keep available for power users
+        # but NOT default, because Groq delists these without
+        # warning (Kimi K2 in 2025, Llama 4 Maverick in May 2026).
+        "groq/openai/gpt-oss-120b",
+        "groq/openai/gpt-oss-20b",
+        "groq/qwen/qwen3-32b",
+        "groq/meta-llama/llama-4-scout-17b-16e-instruct",
     ],
     "openrouter": [
         "openrouter/anthropic/claude-opus-4-7",
