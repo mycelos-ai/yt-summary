@@ -189,7 +189,10 @@ def test_save_settings_strips_trailing_slash_from_base_url(tmp_path, monkeypatch
         asyncio.get_event_loop().run_until_complete(check())
 
 
-def test_save_settings_persists_playlist_fields(tmp_path, monkeypatch):
+def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch):
+    """The form now stores intervals in minutes; saving 45 minutes
+    should land verbatim and the legacy hours setting should be
+    cleared so the scheduler has one source of truth."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
@@ -200,7 +203,7 @@ def test_save_settings_persists_playlist_fields(tmp_path, monkeypatch):
                 "llm_api_key": "",
                 "llm_base_url": "",
                 "whisper_model": "small",
-                "playlist_refresh_interval_hours": "12",
+                "playlist_refresh_interval_minutes": "45",
                 "playlist_initial_import_limit": "30",
             },
             follow_redirects=False,
@@ -210,8 +213,40 @@ def test_save_settings_persists_playlist_fields(tmp_path, monkeypatch):
         async def check():
             from app.repos import settings as settings_repo
             s = await settings_repo.get_all(app.state.db)
-            assert s["playlist_refresh_interval_hours"] == "12"
+            assert s["playlist_refresh_interval_minutes"] == "45"
             assert s["playlist_initial_import_limit"] == "30"
+            # Legacy field should not have been written.
+            assert "playlist_refresh_interval_hours" not in s
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_save_settings_legacy_hours_form_migrates_to_minutes(tmp_path, monkeypatch):
+    """A client that still posts the old `_hours` field (e.g. an
+    older bookmark or scripted update) should be honoured — but
+    normalised to minutes in storage so there's never a mix."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post(
+            "/settings",
+            data={
+                "llm_model": "openai/gpt-4o",
+                "llm_api_key": "",
+                "llm_base_url": "",
+                "whisper_model": "small",
+                "playlist_refresh_interval_hours": "2",
+                "playlist_initial_import_limit": "30",
+            },
+            follow_redirects=False,
+        )
+        import asyncio
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert s["playlist_refresh_interval_minutes"] == "120"
+            assert "playlist_refresh_interval_hours" not in s
 
         asyncio.get_event_loop().run_until_complete(check())
 
@@ -221,8 +256,58 @@ def test_settings_form_renders_playlist_fields(tmp_path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         resp = client.get("/settings")
-    assert "playlist_refresh_interval_hours" in resp.text
+    # New minutes-based field is rendered.
+    assert "playlist_refresh_interval_minutes" in resp.text
     assert "playlist_initial_import_limit" in resp.text
+
+
+def test_settings_form_shows_legacy_hours_value_as_minutes(tmp_path, monkeypatch):
+    """If an install has only the old `_hours` value in settings (no
+    UI save since the upgrade), the page renders it as the equivalent
+    minutes value so the user sees what's actually configured."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+
+    async def seed():
+        from app.repos import settings as settings_repo
+        await settings_repo.set(
+            app.state.db, "playlist_refresh_interval_hours", "3"
+        )
+
+    with TestClient(app) as client:
+        asyncio.get_event_loop().run_until_complete(seed())
+        resp = client.get("/settings")
+    # 3 hours → 180 minutes pre-filled in the input.
+    assert 'value="180"' in resp.text
+
+
+def test_settings_page_shows_scheduler_last_tick_when_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+
+    async def seed():
+        from app.repos import settings as settings_repo
+        await settings_repo.set(
+            app.state.db, "scheduler_last_tick_at", "2026-05-11T12:00:00+00:00"
+        )
+
+    with TestClient(app) as client:
+        asyncio.get_event_loop().run_until_complete(seed())
+        resp = client.get("/settings")
+    assert "2026-05-11T12:00:00+00:00" in resp.text
+    assert "Last scheduler tick" in resp.text
+
+
+def test_settings_page_shows_no_tick_yet_message(tmp_path, monkeypatch):
+    """Fresh install with no recorded tick: the user should see a
+    helpful note rather than an empty field that looks broken."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert "No tick recorded yet" in resp.text
 
 
 def test_generate_api_key_creates_key_and_shows_once(tmp_path, monkeypatch):

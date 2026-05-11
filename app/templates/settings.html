@@ -398,10 +398,10 @@
       </header>
 
       <label class="settings-field">
-        <span class="settings-label">Refresh interval (hours)</span>
-        <input name="playlist_refresh_interval_hours" type="number" min="1" max="168"
-               value="{{ settings.get('playlist_refresh_interval_hours', '1') }}">
-        <small>How often the scheduler re-checks every saved playlist for new videos. Default 1.</small>
+        <span class="settings-label">Refresh interval (minutes)</span>
+        <input name="playlist_refresh_interval_minutes" type="number" min="15" max="10080" step="5"
+               value="{{ settings.get('playlist_refresh_interval_minutes', '60') }}">
+        <small>How often the scheduler re-checks every saved playlist for new videos. Default 60. Minimum 15 — going lower risks YouTube rate-limiting and an annoyed Pi.</small>
       </label>
 
       <label class="settings-field">
@@ -410,6 +410,42 @@
                value="{{ settings.get('playlist_initial_import_limit', '20') }}">
         <small>Number of newest videos to enqueue when a playlist is first added, or when "Load older" is clicked. Set to 0 to import all entries on first add (the Pi will be busy for a while).</small>
       </label>
+
+      <div class="settings-field">
+        <span class="settings-label">Last scheduler tick</span>
+        {% if scheduler_last_tick_at %}
+          <p class="settings-card-sub">
+            <code>{{ scheduler_last_tick_at }}</code>
+          </p>
+        {% else %}
+          <p class="settings-card-sub">No tick recorded yet — the scheduler runs after one full interval, not on startup.</p>
+        {% endif %}
+        {% if scheduled_playlists %}
+          <small>Per-playlist last refresh:</small>
+          <table class="playlist-refresh-table">
+            <thead>
+              <tr>
+                <th>Playlist</th>
+                <th>Last refreshed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pl in scheduled_playlists %}
+                <tr>
+                  <td>{{ pl.title or pl.id }}</td>
+                  <td>
+                    {% if pl.last_refreshed_at %}
+                      {{ pl.last_refreshed_at.isoformat(timespec='seconds') }}
+                    {% else %}
+                      <em>never</em>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
     </section>
 
     <div class="settings-save-row">

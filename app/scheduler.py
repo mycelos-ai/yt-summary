@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -13,13 +14,22 @@ log = logging.getLogger(__name__)
 
 SyncFn = Callable[[aiosqlite.Connection, Config, str], Awaitable[None]]
 
+# Default refresh interval if no setting is present.
+_DEFAULT_INTERVAL_MINUTES = 60.0
+
 
 class PlaylistScheduler:
     """Periodically refresh every saved playlist.
 
-    Reads `playlist_refresh_interval_hours` from settings each tick. The
-    scheduler does not refresh on startup — it sleeps one interval first
-    to avoid a refresh storm on container restart.
+    Reads `playlist_refresh_interval_minutes` from settings each tick
+    (preferred), falling back to the legacy `playlist_refresh_interval_hours`
+    setting for installs that haven't migrated yet. After every full tick
+    the scheduler writes `scheduler_last_tick_at` so the settings UI can
+    show users when the last scan ran — useful for diagnosing a stalled
+    or slow Pi.
+
+    The scheduler does not refresh on startup — it sleeps one interval
+    first to avoid a refresh storm on container restart.
     """
 
     def __init__(
@@ -40,16 +50,48 @@ class PlaylistScheduler:
         self._stopped.set()
 
     async def _interval_seconds(self) -> float:
-        raw = await settings_repo.get(self._db, "playlist_refresh_interval_hours")
-        try:
-            hours = float(raw) if raw is not None else 1.0
-        except ValueError:
-            hours = 1.0
-        return max(self._min_sleep_seconds, hours * 3600)
+        """Resolve the configured interval into seconds.
+
+        Order of precedence:
+        1. ``playlist_refresh_interval_minutes`` (new, lets users pick
+           sub-hour intervals like 15 min)
+        2. ``playlist_refresh_interval_hours`` (legacy, kept so existing
+           installs keep working without manual migration)
+        3. 60-minute default
+        """
+        minutes_raw = await settings_repo.get(
+            self._db, "playlist_refresh_interval_minutes"
+        )
+        if minutes_raw is not None:
+            try:
+                minutes = float(minutes_raw)
+            except ValueError:
+                minutes = _DEFAULT_INTERVAL_MINUTES
+        else:
+            hours_raw = await settings_repo.get(
+                self._db, "playlist_refresh_interval_hours"
+            )
+            if hours_raw is not None:
+                try:
+                    minutes = float(hours_raw) * 60
+                except ValueError:
+                    minutes = _DEFAULT_INTERVAL_MINUTES
+            else:
+                minutes = _DEFAULT_INTERVAL_MINUTES
+        return max(self._min_sleep_seconds, minutes * 60)
 
     async def _sleep_or_stop(self, seconds: float) -> None:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stopped.wait(), seconds)
+
+    async def _record_tick(self) -> None:
+        """Stamp 'scheduler_last_tick_at' with the current UTC time."""
+        now = datetime.now(UTC).replace(microsecond=0).isoformat()
+        try:
+            await settings_repo.set(self._db, "scheduler_last_tick_at", now)
+        except Exception:
+            # Don't let an observability write break the actual work loop.
+            log.exception("scheduler: failed to record last-tick timestamp")
 
     async def run(self) -> None:
         while not self._stopped.is_set():
@@ -60,6 +102,7 @@ class PlaylistScheduler:
                 playlists = await playlists_repo.list_for_user(self._db, 1)
             except Exception:
                 log.exception("scheduler: list_for_user failed")
+                await self._record_tick()
                 continue
             for playlist in playlists:
                 if self._stopped.is_set():
@@ -70,3 +113,4 @@ class PlaylistScheduler:
                     log.exception(
                         "scheduler: sync failed for playlist %s", playlist.id
                     )
+            await self._record_tick()

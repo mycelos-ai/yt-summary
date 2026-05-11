@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
+from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
@@ -47,6 +48,19 @@ async def settings_page(
 ):
     settings = await settings_repo.get_all(db)
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
+    # Surface a sensible default in the UI: if only the legacy
+    # `_hours` setting is present, render it as the equivalent minutes
+    # so the user sees a meaningful number instead of an empty field.
+    if (
+        "playlist_refresh_interval_minutes" not in settings
+        and "playlist_refresh_interval_hours" in settings
+    ):
+        try:
+            hours = float(settings["playlist_refresh_interval_hours"])
+            settings["playlist_refresh_interval_minutes"] = str(int(hours * 60))
+        except ValueError:
+            pass
+    scheduled_playlists = await playlists_repo.list_for_user(db, 1)
     has_api_key = bool(settings.get("llm_api_key"))
     has_whisper_key = bool(settings.get("whisper_api_key"))
     safe_settings = {
@@ -117,6 +131,10 @@ async def settings_page(
             "api_key_created_at": user.api_key_created_at if user else None,
             "current_user": current_user,
             "onboarding_done": onboarding == "done",
+            "scheduled_playlists": scheduled_playlists,
+            "scheduler_last_tick_at": settings.get(
+                "scheduler_last_tick_at"
+            ),
         },
     )
 
@@ -132,7 +150,8 @@ async def save_settings(
     summary_language: str = Form("auto"),
     embedding_model: str = Form(""),
     embedding_base_url: str = Form(""),
-    playlist_refresh_interval_hours: str = Form("1"),
+    playlist_refresh_interval_hours: str = Form(""),
+    playlist_refresh_interval_minutes: str = Form(""),
     playlist_initial_import_limit: str = Form("20"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
@@ -150,7 +169,7 @@ async def save_settings(
         ("summary_language", summary_language.strip() or "auto"),
         ("embedding_model", embedding_model.strip()),
         ("embedding_base_url", embedding_base_url),
-        ("playlist_refresh_interval_hours", playlist_refresh_interval_hours.strip()),
+        ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
     ):
         if value:
@@ -161,6 +180,25 @@ async def save_settings(
         await settings_repo.set(db, "llm_api_key", llm_api_key)
     if whisper_api_key:
         await settings_repo.set(db, "whisper_api_key", whisper_api_key)
+    # Keep the playlist-interval setting unambiguous: as soon as the
+    # user saves the minutes-based form, drop the legacy hours setting
+    # so the scheduler has a single source of truth.
+    if playlist_refresh_interval_minutes.strip():
+        await settings_repo.delete(db, "playlist_refresh_interval_hours")
+    elif playlist_refresh_interval_hours.strip():
+        # Older form payloads (or a manual API user) sent the legacy
+        # field — honour it but normalise the storage by converting
+        # to minutes immediately.
+        try:
+            hours = float(playlist_refresh_interval_hours.strip())
+            await settings_repo.set(
+                db,
+                "playlist_refresh_interval_minutes",
+                str(int(hours * 60)),
+            )
+            await settings_repo.delete(db, "playlist_refresh_interval_hours")
+        except ValueError:
+            pass
     return RedirectResponse("/settings", status_code=303)
 
 

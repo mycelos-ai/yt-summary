@@ -907,6 +907,33 @@ summary.section-heading {
   line-height: 1.5;
 }
 
+/* Compact diagnostic table under the playlist-interval setting. The
+   table lets users sanity-check whether the scheduler is hitting each
+   playlist; styled small + low-contrast so it reads as diagnostic
+   data, not primary chrome. */
+.playlist-refresh-table {
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.playlist-refresh-table th,
+.playlist-refresh-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hairline, #e5e7eb);
+  color: var(--steel);
+  font-weight: 400;
+}
+.playlist-refresh-table th {
+  font-weight: 600;
+  color: var(--ink, #0f172a);
+}
+.playlist-refresh-table em {
+  color: var(--steel);
+  font-style: italic;
+}
+
 /* All form controls inside the settings page get the same chrome.
    Note we scope to .settings-page (not .settings-form) so the YouTube
    cookies form picks the same styling. */
