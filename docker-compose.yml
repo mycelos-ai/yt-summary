@@ -5,9 +5,17 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     container_name: yt-summary
+    # No `command:` override here — the image's CMD already starts
+    # uvicorn with --proxy-headers --forwarded-allow-ips=* so a
+    # reverse proxy (Caddy / nginx / Traefik) terminating HTTPS in
+    # front of us is handled correctly out of the box. If you DO
+    # override `command:`, keep those two flags or absolute URLs in
+    # the HTML will come out as http:// and the browser will block
+    # them as Mixed Content.
     ports:
       # Host port 8200 → container's uvicorn on 8000.
-      # Open http://<host>:8200 in your browser.
+      # Direct access: http://<host>:8200
+      # Behind a proxy: front it with HTTPS on your own hostname.
       - "8200:8000"
     volumes:
       - ./data:/data

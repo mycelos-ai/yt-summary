@@ -43,4 +43,15 @@ EXPOSE 8000
 
 VOLUME ["/data"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers + --forwarded-allow-ips=* let uvicorn trust the
+# X-Forwarded-Proto / X-Forwarded-Host headers set by a reverse proxy
+# (Caddy, nginx, Traefik, …). Without these, request.url.scheme is
+# always "http" inside the app and absolute URLs we render in HTML
+# come out as http://… — which the browser blocks as Mixed Content
+# when the user reaches us over HTTPS, breaking assets and HTMX swaps.
+# The container is meant to sit behind a trusted proxy, so trusting
+# all upstream IPs is the right default here.
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*"]

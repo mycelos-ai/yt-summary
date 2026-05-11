@@ -93,6 +93,30 @@ videos to it.
 > port `8200` to it. If you run yt-summary outside Docker, uvicorn
 > defaults to `:8000`.
 
+### Behind a reverse proxy (HTTPS)
+
+yt-summary is meant to live on your LAN; if you want to front it with
+Caddy / nginx / Traefik / Cloudflare Tunnel for HTTPS, the image is
+already proxy-aware — uvicorn is started with `--proxy-headers
+--forwarded-allow-ips=*` so it honours the standard
+`X-Forwarded-Proto` / `X-Forwarded-Host` headers your proxy sets.
+Without that, absolute URLs in the rendered HTML come out as `http://…`
+and the browser blocks them as Mixed Content when you reach the app
+over HTTPS — assets disappear, HTMX swaps break.
+
+If you override `command:` in your own compose file, **keep those two
+uvicorn flags** or you'll hit the Mixed-Content trap.
+
+Minimal Caddy example (`Caddyfile`):
+
+```
+yt-summary.example.com {
+    reverse_proxy localhost:8200
+}
+```
+
+That's it — Caddy sets the forwarded headers correctly out of the box.
+
 ## What it does
 
 | Feature | Notes |
