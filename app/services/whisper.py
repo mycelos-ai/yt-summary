@@ -12,6 +12,39 @@ _MODEL_CACHE: dict[str, WhisperModel] = {}
 # Whisper finished, total is the audio duration. Both in seconds.
 ProgressFn = Callable[[float, float], None]
 
+# Hosted Whisper endpoints disagree on the `language` field shape:
+# OpenAI's whisper-1 and Groq's whisper-large-v3 emit full English
+# names ("english", "german"); faster-whisper-server emits ISO codes
+# ("en", "de"). The rest of the pipeline (translate, TTS voice
+# picker) assumes two-letter codes, so we normalise at the boundary.
+_LANG_NAME_TO_CODE = {
+    "english": "en", "german": "de", "french": "fr",
+    "spanish": "es", "italian": "it", "portuguese": "pt",
+    "dutch": "nl", "polish": "pl", "russian": "ru",
+    "japanese": "ja", "chinese": "zh", "korean": "ko",
+    "arabic": "ar", "hindi": "hi", "turkish": "tr",
+    "swedish": "sv", "norwegian": "no", "finnish": "fi",
+    "danish": "da", "czech": "cs", "ukrainian": "uk",
+}
+
+
+def _normalise_lang(raw: str | None) -> str | None:
+    """Coerce a Whisper-reported language to a two-letter ISO code.
+
+    Returns None for empty / unrecognised values so we don't poison
+    downstream columns with junk.
+    """
+    if not raw:
+        return None
+    s = raw.strip().lower()
+    if not s:
+        return None
+    if s in _LANG_NAME_TO_CODE:
+        return _LANG_NAME_TO_CODE[s]
+    if len(s) == 2 and s.isalpha():
+        return s
+    return None
+
 
 def _load_model(name: str) -> WhisperModel:
     if name not in _MODEL_CACHE:
@@ -45,9 +78,10 @@ def transcribe(
     )
     total = float(getattr(info, "duration", 0.0) or 0.0)
     raw_lang = getattr(info, "language", None)
-    language: str | None = None
-    if isinstance(raw_lang, str) and raw_lang.strip():
-        language = raw_lang.strip().lower()
+    # faster-whisper already emits ISO codes, but route through the
+    # shared normaliser anyway so both transcribe paths agree on the
+    # output shape.
+    language = _normalise_lang(raw_lang if isinstance(raw_lang, str) else None)
     parts: list[str] = []
     timed: list[tuple[float, str]] = []
     for seg in segments:
@@ -123,7 +157,5 @@ async def transcribe_via_api(
             continue
         timed.append((float(seg.get("start", 0.0) or 0.0), seg_text))
     raw_lang = body.get("language")
-    language: str | None = None
-    if isinstance(raw_lang, str) and raw_lang.strip():
-        language = raw_lang.strip().lower()
+    language = _normalise_lang(raw_lang if isinstance(raw_lang, str) else None)
     return text, timed, language

@@ -397,7 +397,7 @@ async def _try_download_subtitle(url: str) -> str | None:
         raise
 
 
-_VTT_LANGUAGE_HEADER_RE = re.compile(r"^Language:\s*([a-z]{2})", re.M | re.I)
+_VTT_LANGUAGE_HEADER_RE = re.compile(r"^Language:\s*([a-z]{2})\b", re.M | re.I)
 
 
 def _parse_vtt_language(vtt: str) -> str | None:

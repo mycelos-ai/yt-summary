@@ -162,6 +162,35 @@ async def clear_transcript(
     await db.commit()
 
 
+async def set_source_language(
+    db: aiosqlite.Connection,
+    video_id: str,
+    language: str,
+) -> None:
+    """Stamp `source_language` for a video iff it's still NULL.
+
+    Used by the pipeline's LLM-detect fallback so the detected code
+    isn't lost when the user has an explicit `summary_language` set.
+    `set_summary`'s COALESCE-on-summary-language trick handles the
+    auto / matching case, but when the two diverge we need to write
+    the source value through a dedicated path BEFORE `set_summary`
+    runs (otherwise the COALESCE would backfill with the summary
+    language, hiding the actual source language).
+
+    No-op when `language` is empty.
+    """
+    if not language:
+        return
+    await db.execute(
+        """
+        UPDATE videos SET source_language=?, updated_at=datetime('now')
+        WHERE id=? AND source_language IS NULL
+        """,
+        (language, video_id),
+    )
+    await db.commit()
+
+
 async def set_summary(
     db: aiosqlite.Connection,
     video_id: str,

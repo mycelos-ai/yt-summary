@@ -72,7 +72,7 @@ async def process_video(
     # this video is in. We accumulate it across the transcript path
     # (Whisper / VTT) and fall back to LLM-detect after summarization
     # if nothing surfaced earlier.
-    source_lang: str | None = getattr(video, "source_language", None)
+    source_lang: str | None = video.source_language
     if needs_fetch:
         # Cross-profile transcript reuse: if another profile in this
         # household already transcribed the same YouTube video (or
@@ -98,9 +98,7 @@ async def process_video(
 
         if donor and donor.transcript:
             await set_step("transcript reused from another profile")
-            donor_lang = getattr(donor, "source_language", None) or getattr(
-                donor, "transcript_language", None
-            )
+            donor_lang = donor.source_language or donor.transcript_language
             await videos_repo.set_transcript(
                 db,
                 video_id,
@@ -250,6 +248,16 @@ async def process_video(
                 type(e).__name__,
                 e,
             )
+
+    # Persist source_language explicitly when we have one — must
+    # happen BEFORE set_summary so its COALESCE-on-summary backfill
+    # doesn't shadow a detected source language that differs from
+    # the explicit summary_language setting (e.g. detect="fr" but
+    # summary_language="en"). When source_lang is None this is a
+    # no-op and set_summary's COALESCE still handles the matching
+    # auto case below.
+    if source_lang:
+        await videos_repo.set_source_language(db, video_id, source_lang)
 
     explicit = summary_language_setting and summary_language_setting != "auto"
     summary_lang = summary_language_setting if explicit else source_lang

@@ -199,6 +199,62 @@ async def test_transcribe_via_api_omits_auth_when_no_key(tmp_path):
     assert "authorization" not in {k.lower() for k in request.headers}
 
 
+async def test_transcribe_via_api_normalises_full_word_language_label(tmp_path):
+    """Regression: OpenAI's whisper-1 and Groq's whisper-large-v3 emit
+    `language` as a full English word ("english") rather than a
+    two-letter ISO code, unlike faster-whisper-server which emits
+    "en". The rest of the pipeline (translate, TTS voice picker)
+    assumes the ISO form, so we must normalise at the boundary."""
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "x.m4a"
+    audio.write_bytes(b"x")
+
+    with respx.mock(base_url="https://api.example.com") as mock:
+        mock.post("/audio/transcriptions").mock(
+            return_value=Response(
+                200, json={"text": "hello", "language": "english"},
+            )
+        )
+        text, _segments, language = await transcribe_via_api(
+            audio,
+            base_url="https://api.example.com",
+            api_key="k",
+            model_name="whisper-1",
+        )
+    assert text == "hello"
+    assert language == "en"
+
+
+async def test_transcribe_via_api_drops_unrecognised_language(tmp_path):
+    """A backend that emits e.g. "klingon" or a long garbage string
+    shouldn't poison the DB column — return None instead."""
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "x.m4a"
+    audio.write_bytes(b"x")
+
+    with respx.mock(base_url="https://api.example.com") as mock:
+        mock.post("/audio/transcriptions").mock(
+            return_value=Response(
+                200, json={"text": "x", "language": "klingon"},
+            )
+        )
+        _t, _s, language = await transcribe_via_api(
+            audio,
+            base_url="https://api.example.com",
+            api_key="k",
+            model_name="m",
+        )
+    assert language is None
+
+
 async def test_transcribe_via_api_raises_on_http_error(tmp_path):
     """Non-2xx responses should raise so the worker marks the job
     failed (or higher-level code can decide on a fallback)."""

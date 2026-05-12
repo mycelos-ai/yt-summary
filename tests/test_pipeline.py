@@ -560,6 +560,58 @@ async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
     assert v.summary_language == "en"
 
 
+async def test_pipeline_preserves_detected_source_lang_when_summary_lang_explicit(
+    db, tmp_path,
+):
+    """Regression: when `summary_language` is set to a concrete value
+    (e.g. "en") AND the transcript path surfaced no language, the
+    LLM-detect fallback's result must be persisted as source_language
+    even though summary_language ends up as the explicit setting.
+
+    Before the fix, `set_summary` was called with the SUMMARY's
+    language ("en"); its COALESCE-on-summary backfill then poisoned
+    source_language with "en" too, hiding the detected "fr".
+    """
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vmix",
+        url="https://youtu.be/vmix", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+    await settings_repo.set(db, "summary_language", "en")  # explicit
+
+    async def set_step(_: str) -> None:
+        return None
+
+    async def fake_detect(_text, *, complete):
+        return "fr"
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=(
+                "le contenu", [], TranscriptSource.AUTO_SUBS, None,
+            )),
+        ),
+        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+        patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vmix", set_step)
+
+    v = await videos_repo.get(db, "vmix")
+    assert v is not None
+    assert v.source_language == "fr", (
+        "detected source language must survive even when summary_language "
+        f"is explicit; got {v.source_language!r}"
+    )
+    assert v.summary_language == "en"
+
+
 async def test_pipeline_falls_back_to_llm_language_detect_when_no_signal(db, tmp_path):
     """When both Whisper and VTT come back without a language, the
     pipeline asks the language_detect helper for one based on the
