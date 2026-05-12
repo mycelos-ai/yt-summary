@@ -310,7 +310,7 @@ def test_audio_modal_shows_source_language_select(tmp_path, monkeypatch):
     assert 'value="auto"' in resp.text
     # When source_language is NULL the hint should be shown so the
     # user knows why translation might silently no-op otherwise.
-    assert "Not yet detected" in resp.text
+    assert "pre-dates language auto-detection" in resp.text
 
 
 def test_render_endpoint_persists_explicit_source_language(tmp_path, monkeypatch):
@@ -396,6 +396,94 @@ def test_render_endpoint_does_not_overwrite_existing_source_language(
             v = await videos_repo.get(app.state.db, "abc")
             return v.source_language
         assert _await(check()) == "de"
+
+
+def test_audio_modal_preselects_source_from_query_param(tmp_path, monkeypatch):
+    """GET /v/{id}/audio?source=summary returns the form with a hidden
+    input for source and no Source <select> dropdown — the inline
+    Audio button on the Summary heading already told us what to render."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        resp = client.get("/v/abc/audio?source=summary")
+    assert resp.status_code == 200
+    # Hidden input carries the source, the Source <select> is gone.
+    assert '<input type="hidden" name="source" value="summary"' in resp.text
+    assert '<select name="source"' not in resp.text
+    # The friendly hint replaces the dropdown.
+    assert "Generating audio from:" in resp.text
+    assert "Summary" in resp.text
+
+
+def test_audio_modal_preselects_transcript_source(tmp_path, monkeypatch):
+    """Same as above but for ?source=transcript."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        resp = client.get("/v/abc/audio?source=transcript")
+    assert resp.status_code == 200
+    assert '<input type="hidden" name="source" value="transcript"' in resp.text
+    assert "Generating audio from:" in resp.text
+
+
+def test_audio_modal_ignores_unknown_source_query_param(tmp_path, monkeypatch):
+    """An unknown ?source= value falls back to the full Source select —
+    defensive against URL tampering or future bugs in the caller."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        resp = client.get("/v/abc/audio?source=bogus")
+    assert resp.status_code == 200
+    # No hidden input, the full select fallback is rendered instead.
+    assert '<input type="hidden" name="source"' not in resp.text
+    assert '<select name="source"' in resp.text
+
+
+def test_audio_modal_hides_source_language_select_when_detected(
+    tmp_path, monkeypatch,
+):
+    """When the video's source_language column is populated, the form
+    shows a static 'Source language: English (US)' line instead of
+    the select — there's nothing for the user to pick."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    # The select is gone; the static label is present with the friendly
+    # human label (not the raw 'en_US' code).
+    assert '<select name="source_language"' not in resp.text
+    assert "Source language:" in resp.text
+    assert "English (US)" in resp.text
+
+
+def test_audio_modal_shows_source_language_select_when_null(
+    tmp_path, monkeypatch,
+):
+    """Conversely: a NULL source_language renders the full select with
+    'auto' as the default, plus the hint explaining the pick will be
+    persisted. Covers the pre-Task-7 video case."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")  # no source_language
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.set_summary(
+                app.state.db, "abc", "Hi.", "gpt-4o", language=None,
+            )
+        _await(setup())
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    assert '<select name="source_language"' in resp.text
+    assert 'value="auto"' in resp.text
+    assert "pre-dates language auto-detection" in resp.text
 
 
 def test_audio_file_endpoint_serves_mp3(tmp_path, monkeypatch):

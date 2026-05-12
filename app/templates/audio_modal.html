@@ -12,28 +12,45 @@
         hx-swap="outerHTML">
     <h3>Generate audio</h3>
 
-    <label>
-      Source
-      <select name="source">
-        {% if has_summary %}<option value="summary">Summary</option>{% endif %}
-        {% if has_transcript %}<option value="transcript">Transcript</option>{% endif %}
-      </select>
-    </label>
+    {% if preselected_source %}
+      {# Inline-button entry point: caller already told us which section
+         to render, so we hide the source select and stash the value in
+         a hidden input. The static hint reassures the user it picked
+         up the right one. #}
+      <input type="hidden" name="source" value="{{ preselected_source }}">
+      <p class="audio-source-hint">
+        Generating audio from: <strong>{{ 'Summary' if preselected_source == 'summary' else 'Transcript' }}</strong>
+      </p>
+    {% else %}
+      {# Defensive fallback for callers that reach the GET endpoint
+         without a ?source= query param — the form still works. #}
+      <label>
+        Source
+        <select name="source">
+          {% if has_summary %}<option value="summary">Summary</option>{% endif %}
+          {% if has_transcript %}<option value="transcript">Transcript</option>{% endif %}
+        </select>
+      </label>
+    {% endif %}
 
-    <label>
-      Source language
-      <select name="source_language">
-        <option value="auto"{% if not video.source_language %} selected{% endif %}>
-          {% if video.source_language %}Auto (detected: {{ video.source_language }}){% else %}Auto (use what's already detected){% endif %}
-        </option>
-        {% for code, label in languages %}
-          <option value="{{ code }}"{% if code == video.source_language %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      {% if not video.source_language %}
-      <small class="hint">Not yet detected for this video. Leave on "Auto" to render in the original language, or pick the actual source language to enable translation — we'll remember it next time.</small>
-      {% endif %}
-    </label>
+    {% if video.source_language %}
+      {# When source_language is already detected we don't need the
+         user to pick anything — just confirm what we know. #}
+      <p class="audio-source-language-detected">
+        Source language: <strong>{{ source_language_labels.get(video.source_language, video.source_language) }}</strong>
+      </p>
+    {% else %}
+      <label>
+        Source language
+        <select name="source_language">
+          <option value="auto" selected>Not detected — leave as "Auto" to render in original, or pick to translate</option>
+          {% for code, label in languages %}
+            <option value="{{ code }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <small class="hint">This video pre-dates language auto-detection. If you want a translation, pick the actual source language — we'll remember it for next time.</small>
+      </label>
+    {% endif %}
 
     <label>
       Target language

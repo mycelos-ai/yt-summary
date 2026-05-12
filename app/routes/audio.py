@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -156,17 +156,25 @@ def _view_for_status(status: str) -> str:
 async def audio_modal(
     video_id: str,
     request: Request,
+    source: str | None = Query(None),
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
     """Render the form fragment. The voice catalogue is passed in full
     so the template can group <option>s by language; the client
-    filters voices in JS when the language changes."""
+    filters voices in JS when the language changes.
+
+    The optional ``?source=`` query param lets the inline "Audio"
+    buttons next to each section's ``↓ .md`` download pre-select
+    which source to render — when set, the form hides the Source
+    select and renders a hidden input instead. Unknown values are
+    treated as no-preselection (fall back to the full select)."""
     video = await _get_owned_video(db, video_id, current_user_id)
     settings = await settings_repo.get_all(db)
     default_target = _default_target_language(settings, video.source_language)
     default_voice = _default_voice(settings, default_target)
     default_quality = _default_quality(settings, default_target, default_voice)
+    preselected_source = source if source in ("summary", "transcript") else None
     return templates.TemplateResponse(
         request,
         "audio_modal.html",
@@ -174,12 +182,18 @@ async def audio_modal(
             "view": "form",
             "video": video,
             "languages": _LANGUAGES,
+            # Same (code, label) data as `languages`, but indexed by code
+            # so the template can resolve `video.source_language` to a
+            # human-readable label for the "Detected: …" hint when the
+            # column is already populated.
+            "source_language_labels": dict(_LANGUAGES),
             "voices": tts_voices.VOICES,
             "default_target": default_target,
             "default_voice": default_voice,
             "default_quality": default_quality,
             "has_summary": video.summary is not None,
             "has_transcript": video.transcript is not None,
+            "preselected_source": preselected_source,
         },
     )
 

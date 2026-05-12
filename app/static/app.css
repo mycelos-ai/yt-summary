@@ -427,6 +427,25 @@ summary.section-heading {
   color: var(--ink);
   text-decoration: underline;
 }
+/* The Audio inline buttons next to the ↓ .md link reuse the same
+   class as the anchors — strip the default <button> chrome so they
+   render identically. */
+button.section-download {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+/* Wrapper that keeps the right-side controls (↓ .md + 🔊 Audio)
+   grouped on the right of the section heading. Without this the
+   flexbox space-between would push them apart. */
+.section-controls {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  white-space: nowrap;
+}
 
 /* Caption row directly under the inline YouTube player. Holds the
    "↗ Watch on YouTube" link (moved out of the header now that the
@@ -1787,4 +1806,21 @@ summary.section-heading {
   line-height: 1.6;
   margin: 0 0 20px;
   max-width: 540px;
+}
+
+/* ---------------------------------------------------------- TTS / Audio
+   Inline "🔊 Audio" buttons next to each section's ↓ .md download open
+   the audio modal pre-scoped to that source. The modal hides the
+   Source select (driven by ?source= query param) and the Source
+   language select when video.source_language is already detected;
+   these static hints replace those controls. */
+.audio-source-hint,
+.audio-source-language-detected {
+  margin: 0.5em 0;
+  color: var(--steel);
+  font-size: 14px;
+}
+.audio-source-hint strong,
+.audio-source-language-detected strong {
+  color: var(--ink);
 }

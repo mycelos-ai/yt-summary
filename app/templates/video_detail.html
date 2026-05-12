@@ -25,12 +25,6 @@
             <button type="submit" class="link-button">Re-transcribe</button>
           </form>
         {% endif %}
-        {% if video.summary or video.transcript %}
-          <button type="button" class="link-button"
-                  hx-get="/v/{{ video.id }}/audio"
-                  hx-target="#audio-modal"
-                  hx-swap="innerHTML">Audio</button>
-        {% endif %}
       </div>
     </div>
     <div id="audio-modal" class="audio-modal-target"></div>
@@ -92,9 +86,17 @@
             Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
           {% endif %}
         </span>
-        <a class="section-download" href="/v/{{ video.id }}/transcript.md"
-           title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
-           onclick="event.stopPropagation()">↓ .md</a>
+        <span class="section-controls">
+          <a class="section-download" href="/v/{{ video.id }}/transcript.md"
+             title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
+             onclick="event.stopPropagation()">↓ .md</a>
+          <button type="button" class="section-download"
+                  hx-get="/v/{{ video.id }}/audio?source=transcript"
+                  hx-target="#audio-modal"
+                  hx-swap="innerHTML"
+                  onclick="event.stopPropagation()"
+                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %}">🔊 Audio</button>
+        </span>
       </summary>
       {% if transcript_blocks and video.kind.value != 'web' %}
         <div class="transcript-body">
