@@ -45,13 +45,11 @@ register_filters(templates)
 # catalogue (``voices_for_language``) and the client filters them via
 # a small inline script that swaps the option list when the language
 # changes.
-_LANGUAGES: tuple[tuple[str, str], ...] = (
-    ("de",    "German"),
-    ("en_US", "English (US)"),
-    ("en_GB", "English (UK)"),
-    ("fr",    "French"),
-    ("es",    "Spanish"),
-)
+#
+# The (code, label) tuple lives in app/services/tts_voices.py so the
+# audio modal, the settings card, and the "Detected: …" hint all share
+# the same flag-prefixed labels and can't drift out of sync.
+_LANGUAGES: tuple[tuple[str, str], ...] = tts_voices.LANGUAGES
 
 
 def _default_target_language(

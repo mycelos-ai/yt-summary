@@ -505,3 +505,48 @@ def test_audio_file_endpoint_serves_mp3(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("audio/")
     assert resp.content == b"ID3FAKE"
+
+
+def test_audio_modal_opens_via_dialog_element(tmp_path, monkeypatch):
+    """The video detail page hosts a native <dialog id="audio-modal">
+    with a `#audio-modal-content` div inside; the inline 🔊 Audio
+    buttons target that inner div so HTMX's afterSwap hook can call
+    `.showModal()` on the surrounding dialog. This keeps the modal
+    centered in the viewport regardless of scroll position."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        resp = client.get("/v/abc")
+    assert resp.status_code == 200
+    # The dialog and its content slot are both present.
+    assert '<dialog id="audio-modal"' in resp.text
+    assert 'id="audio-modal-content"' in resp.text
+    # The Summary section's 🔊 Audio button targets the inner div so
+    # the surrounding dialog can wrap whatever HTMX injects.
+    assert 'hx-target="#audio-modal-content"' in resp.text
+    # The bare div target from the prior commit must be gone; if it
+    # came back the JS hook below would never fire.
+    assert 'class="audio-modal-target"' not in resp.text
+
+
+def test_audio_modal_form_uses_flag_prefixed_language_labels(
+    tmp_path, monkeypatch,
+):
+    """Language dropdown labels are prefixed with country-flag emojis
+    (Unicode, no asset work). Tests both the language <option>s and
+    the static "Detected: …" hint for a video with a known source
+    language pick up the same flag."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="de")
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    # German label gets the German flag in both the target-language
+    # dropdown and the detected source-language hint.
+    assert "🇩🇪 German" in resp.text
+    # English options carry the matching flags too.
+    assert "🇺🇸 English (US)" in resp.text
+    assert "🇬🇧 English (UK)" in resp.text

@@ -59,6 +59,23 @@ _HF_LANG_DIR = {
 }
 
 
+# Single source of truth for the (code, human-label) pairs surfaced in
+# the audio modal, the settings card, and any future TTS-language UI.
+# Flag emojis live in the label so the dropdowns look the same wherever
+# they show up — Unicode-only, no asset work.
+LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("de",    "🇩🇪 German"),
+    ("en_US", "🇺🇸 English (US)"),
+    ("en_GB", "🇬🇧 English (UK)"),
+    ("fr",    "🇫🇷 French"),
+    ("es",    "🇪🇸 Spanish"),
+)
+
+# Code → label lookup. Handy for resolving a stored ``source_language``
+# (e.g. "en_US") back to its friendly label without scanning the tuple.
+LANGUAGE_LABELS: dict[str, str] = dict(LANGUAGES)
+
+
 def voices_for_language(language: str) -> tuple[Voice, ...]:
     return tuple(v for v in VOICES if v.language == language)
 

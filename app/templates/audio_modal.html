@@ -3,14 +3,16 @@
    - progress : a self-polling status block
    - done     : finished audio + download link
    - failed   : error message
-   Every shape replaces its outer element via hx-swap="outerHTML" so
-   the calling button / poll target stays anchored in the page. #}
+   The whole fragment is injected into `#audio-modal-content` inside
+   the `<dialog id="audio-modal">` — see video_detail.html. The form
+   replaces itself via hx-swap="outerHTML" so transitions to the
+   progress / done shapes happen in-place inside the dialog. #}
 {% if view == 'form' %}
   <form class="audio-form"
         hx-post="/v/{{ video.id }}/audio/render"
         hx-target="this"
         hx-swap="outerHTML">
-    <h3>Generate audio</h3>
+    <h3 class="audio-form-title">Generate audio</h3>
 
     {% if preselected_source %}
       {# Inline-button entry point: caller already told us which section
@@ -24,8 +26,8 @@
     {% else %}
       {# Defensive fallback for callers that reach the GET endpoint
          without a ?source= query param — the form still works. #}
-      <label>
-        Source
+      <label class="audio-form-field audio-form-field--wide">
+        <span>Source</span>
         <select name="source">
           {% if has_summary %}<option value="summary">Summary</option>{% endif %}
           {% if has_transcript %}<option value="transcript">Transcript</option>{% endif %}
@@ -40,8 +42,8 @@
         Source language: <strong>{{ source_language_labels.get(video.source_language, video.source_language) }}</strong>
       </p>
     {% else %}
-      <label>
-        Source language
+      <label class="audio-form-field audio-form-field--wide">
+        <span>Source language</span>
         <select name="source_language">
           <option value="auto" selected>Not detected — leave as "Auto" to render in original, or pick to translate</option>
           {% for code, label in languages %}
@@ -52,8 +54,8 @@
       </label>
     {% endif %}
 
-    <label>
-      Target language
+    <label class="audio-form-field">
+      <span>Target language</span>
       <select name="target_language" data-audio-language>
         {% for code, label in languages %}
           <option value="{{ code }}"{% if code == default_target %} selected{% endif %}>{{ label }}</option>
@@ -61,8 +63,8 @@
       </select>
     </label>
 
-    <label>
-      Voice
+    <label class="audio-form-field">
+      <span>Voice</span>
       <select name="voice" data-audio-voice>
         {# All voices are rendered up-front and hidden via data-language;
            an inline script filters them when the language changes. #}
@@ -78,8 +80,8 @@
       </select>
     </label>
 
-    <label>
-      Quality
+    <label class="audio-form-field">
+      <span>Quality</span>
       <select name="quality" data-audio-quality>
         {% for q in ['low', 'medium', 'high'] %}
           <option value="{{ q }}"{% if q == default_quality %} selected{% endif %}>{{ q }}</option>
@@ -88,6 +90,8 @@
     </label>
 
     <div class="audio-form-actions">
+      <button type="button" class="link-button"
+              onclick="document.getElementById('audio-modal').close()">Cancel</button>
       <button type="submit" class="btn btn-accent">Render</button>
     </div>
 

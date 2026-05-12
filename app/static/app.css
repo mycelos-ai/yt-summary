@@ -1810,17 +1810,148 @@ button.section-download {
 
 /* ---------------------------------------------------------- TTS / Audio
    Inline "🔊 Audio" buttons next to each section's ↓ .md download open
-   the audio modal pre-scoped to that source. The modal hides the
-   Source select (driven by ?source= query param) and the Source
-   language select when video.source_language is already detected;
-   these static hints replace those controls. */
+   the audio modal pre-scoped to that source. The modal is a native
+   <dialog> kept at the end of the article, so it centers in the
+   viewport regardless of how far down the page the user has scrolled.
+   See app/templates/video_detail.html for the open/close JS. */
+.audio-dialog {
+  /* Override the browser default chrome — `<dialog>` ships with a
+     thick border, no shadow, and no rounding by default. */
+  padding: 24px;
+  width: min(480px, calc(100vw - 32px));
+  max-width: 480px;
+  max-height: calc(100vh - 64px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  /* `<dialog>` is `position: fixed` by spec; pin top/left/right/bottom
+     to 0 with `margin: auto` to perfectly center it. */
+  margin: auto;
+  /* Let the content scroll if a long voice list overflows on tiny
+     viewports; the actions row still stays visible because the form
+     is the scroll container, not the dialog itself. */
+  overflow: visible;
+}
+.audio-dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+.audio-dialog-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--rounded-full);
+  color: var(--steel);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.audio-dialog-close:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* Form layout. A two-column grid on roomy screens, single column on
+   narrow ones. The title, source-language hint, and the actions row
+   span both columns so they sit on their own line. */
+.audio-dialog .audio-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px 16px;
+  margin: 0;
+}
+@media (min-width: 520px) {
+  .audio-dialog .audio-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.audio-form-title {
+  margin: 0 0 4px;
+  grid-column: 1 / -1;
+  font-size: 18px;
+  font-weight: 600;
+  padding-right: 28px; /* leave room for the absolute close × */
+}
+.audio-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--steel);
+  margin: 0;
+}
+.audio-form-field > span {
+  font-weight: 500;
+  color: var(--ink);
+}
+/* Wide fields (Source, Source language with hint) span both columns. */
+.audio-form-field--wide {
+  grid-column: 1 / -1;
+}
+.audio-form-field .hint {
+  font-size: 12px;
+  color: var(--steel);
+  margin-top: 2px;
+}
+.audio-dialog .audio-form select {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--canvas);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.audio-dialog .audio-form select:focus {
+  border-color: var(--brand-green);
+  box-shadow: 0 0 0 3px rgba(0, 212, 164, 0.12);
+}
+.audio-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline-soft);
+}
+
+/* The source / source-language hint paragraphs span both columns; the
+   modal renders them in place of the corresponding select when the
+   value is already known (preselected source, detected source lang). */
 .audio-source-hint,
 .audio-source-language-detected {
-  margin: 0.5em 0;
+  grid-column: 1 / -1;
+  margin: 0;
   color: var(--steel);
   font-size: 14px;
 }
 .audio-source-hint strong,
 .audio-source-language-detected strong {
   color: var(--ink);
+}
+
+/* Progress / done / failed states share the dialog content area. */
+.audio-dialog .audio-progress,
+.audio-dialog .audio-done,
+.audio-dialog .audio-failed {
+  padding: 8px 0;
+}
+.audio-dialog .audio-done audio {
+  width: 100%;
+  margin: 4px 0 12px;
 }

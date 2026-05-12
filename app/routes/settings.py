@@ -25,6 +25,7 @@ from app.services.providers import (
     list_embedding_models,
     split_ollama_tags,
 )
+from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
 from app.services.tts_voices import voices_for_language
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
@@ -37,19 +38,17 @@ register_filters(templates)
 # is a test" so the round-trip stays cheap on a Pi5.
 WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
 
-# Languages exposed in the Audio (TTS) settings card. Kept in sync
-# with the catalogue in app/services/tts_voices.py — these are the
-# language codes that have at least one curated voice. "auto" means
-# "fall back to the video's source language at render time".
+# Languages exposed in the Audio (TTS) settings card. The (code, label)
+# pairs live in app/services/tts_voices.py so the audio modal and
+# settings card share the same flag-prefixed labels; here we just
+# prepend the "Auto" sentinel that's specific to the settings card.
 _TTS_LANGUAGES: tuple[tuple[str, str], ...] = (
     ("auto",  "Auto (use video's language)"),
-    ("de",    "German"),
-    ("en_US", "English (US)"),
-    ("en_GB", "English (UK)"),
-    ("fr",    "French"),
-    ("es",    "Spanish"),
+    *_TTS_VOICE_LANGUAGES,
 )
-_TTS_VOICE_LANGS: tuple[str, ...] = ("de", "en_US", "en_GB", "fr", "es")
+_TTS_VOICE_LANGS: tuple[str, ...] = tuple(
+    code for code, _ in _TTS_VOICE_LANGUAGES
+)
 
 
 @router.get("/settings", response_class=HTMLResponse)
