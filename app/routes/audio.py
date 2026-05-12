@@ -63,8 +63,17 @@ def _default_target_language(
     2. the video's ``source_language`` if it matches a catalogue lang;
     3. the first language in the catalogue.
     """
-    explicit = settings.get("default_tts_target_language")
-    if explicit and explicit in {lang for lang, _ in _LANGUAGES}:
+    # The settings card (Task 13) writes ``default_tts_language``;
+    # honour the older ``default_tts_target_language`` key too for
+    # back-compat with any pre-card rows. "auto" means "fall through
+    # to the video's source language", so we don't short-circuit.
+    explicit = (
+        settings.get("default_tts_language")
+        or settings.get("default_tts_target_language")
+    )
+    if explicit and explicit != "auto" and explicit in {
+        lang for lang, _ in _LANGUAGES
+    }:
         return explicit
     if video_source_language and video_source_language in {
         lang for lang, _ in _LANGUAGES
@@ -75,9 +84,18 @@ def _default_target_language(
 
 def _default_voice(settings: dict[str, str], language: str) -> str:
     """Settings default if compatible with `language`, else the first
-    voice the catalogue knows for that language."""
+    voice the catalogue knows for that language.
+
+    The settings card (Task 13) writes a per-language voice key
+    (``default_tts_voice_de``, ``default_tts_voice_en_US`` …); we
+    also honour an older single-voice key (``default_tts_voice``) for
+    backward compatibility with any pre-card settings rows.
+    """
     candidates = tts_voices.voices_for_language(language)
-    explicit = settings.get("default_tts_voice")
+    explicit = (
+        settings.get(f"default_tts_voice_{language}")
+        or settings.get("default_tts_voice")
+    )
     if explicit and any(v.id == explicit for v in candidates):
         return explicit
     return candidates[0].id if candidates else ""

@@ -881,3 +881,78 @@ def test_settings_page_renders_cloud_embedding_dropdowns(tmp_path, monkeypatch):
     # The embedding select for the wizard is named embedding_model.
     # OpenAI's default text-embedding-3-small should be visible.
     assert "text-embedding-3-small" in text
+
+
+def test_settings_form_renders_tts_card(tmp_path, monkeypatch):
+    """The Audio (TTS) card with default language / per-language voice /
+    quality fields renders on /settings."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert "Audio (TTS)" in resp.text
+    assert "default_tts_language" in resp.text
+    assert "default_tts_quality" in resp.text
+    # Per-language voice fields (Option A: per-language voice defaults).
+    assert "default_tts_voice_de" in resp.text
+    assert "default_tts_voice_en_US" in resp.text
+    assert "default_tts_voice_en_GB" in resp.text
+    assert "default_tts_voice_fr" in resp.text
+    assert "default_tts_voice_es" in resp.text
+
+
+def test_save_settings_persists_tts_defaults(tmp_path, monkeypatch):
+    """POST with TTS fields persists each to the settings table; empty
+    values land as deletions (the established set/delete pattern)."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings",
+            data={
+                "llm_model": "openai/gpt-4o",
+                "llm_api_key": "",
+                "llm_base_url": "",
+                "whisper_model": "small",
+                "default_tts_language": "de",
+                "default_tts_voice_de": "thorsten",
+                "default_tts_voice_en_US": "lessac",
+                "default_tts_voice_en_GB": "",
+                "default_tts_voice_fr": "",
+                "default_tts_voice_es": "",
+                "default_tts_quality": "high",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code in (200, 303)
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert s["default_tts_language"] == "de"
+            assert s["default_tts_voice_de"] == "thorsten"
+            assert s["default_tts_voice_en_US"] == "lessac"
+            # Empty fields should NOT exist as keys.
+            assert "default_tts_voice_en_GB" not in s
+            assert "default_tts_voice_fr" not in s
+            assert "default_tts_voice_es" not in s
+            assert s["default_tts_quality"] == "high"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_settings_shows_voice_cache_size(tmp_path, monkeypatch):
+    """Pre-create two fake .onnx voice files in the cache dir; the
+    settings page reports the count and total size in MB."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    voices = tmp_path / "tts-voices"
+    voices.mkdir(parents=True, exist_ok=True)
+    (voices / "a.onnx").write_bytes(b"\x00" * 1024 * 1024)
+    (voices / "b.onnx").write_bytes(b"\x00" * 2 * 1024 * 1024)
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert "2 voices installed" in resp.text
+    assert "3" in resp.text  # 3 MB

@@ -25,6 +25,7 @@ from app.services.providers import (
     list_embedding_models,
     split_ollama_tags,
 )
+from app.services.tts_voices import voices_for_language
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
 
@@ -35,6 +36,20 @@ register_filters(templates)
 # Bundled audio sample for /settings/test-whisper. Short clip of "This
 # is a test" so the round-trip stays cheap on a Pi5.
 WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
+
+# Languages exposed in the Audio (TTS) settings card. Kept in sync
+# with the catalogue in app/services/tts_voices.py — these are the
+# language codes that have at least one curated voice. "auto" means
+# "fall back to the video's source language at render time".
+_TTS_LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("auto",  "Auto (use video's language)"),
+    ("de",    "German"),
+    ("en_US", "English (US)"),
+    ("en_GB", "English (UK)"),
+    ("fr",    "French"),
+    ("es",    "Spanish"),
+)
+_TTS_VOICE_LANGS: tuple[str, ...] = ("de", "en_US", "en_GB", "fr", "es")
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -113,6 +128,23 @@ async def settings_page(
         if p.default_embedding:
             preset_embed_models[p.id] = list_embedding_models(p.id)
 
+    # TTS voice cache: scan tts_voices_dir for .onnx files so the card
+    # can surface "N voices installed · M MB" without keeping a separate
+    # index. Cheap — the dir tops out at ~10 files for the curated set.
+    voices_dir = config.tts_voices_dir
+    voice_files = list(voices_dir.glob("*.onnx")) if voices_dir.exists() else []
+    voice_cache_summary = {
+        "count": len(voice_files),
+        "size_mb": round(
+            sum(f.stat().st_size for f in voice_files) / (1024 * 1024)
+        ),
+    }
+    # Pre-compute per-language voice options so the template stays
+    # logic-free; cheaper than registering a Jinja global for the helper.
+    voices_by_language = {
+        lang: voices_for_language(lang) for lang in _TTS_VOICE_LANGS
+    }
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -135,6 +167,10 @@ async def settings_page(
             "scheduler_last_tick_at": settings.get(
                 "scheduler_last_tick_at"
             ),
+            "tts_languages": _TTS_LANGUAGES,
+            "tts_voice_langs": _TTS_VOICE_LANGS,
+            "voices_by_language": voices_by_language,
+            "voice_cache_summary": voice_cache_summary,
         },
     )
 
@@ -153,6 +189,13 @@ async def save_settings(
     playlist_refresh_interval_hours: str = Form(""),
     playlist_refresh_interval_minutes: str = Form(""),
     playlist_initial_import_limit: str = Form("20"),
+    default_tts_language: str = Form("auto"),
+    default_tts_voice_de: str = Form(""),
+    default_tts_voice_en_US: str = Form(""),
+    default_tts_voice_en_GB: str = Form(""),
+    default_tts_voice_fr: str = Form(""),
+    default_tts_voice_es: str = Form(""),
+    default_tts_quality: str = Form("medium"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM and httpx clients append paths to base; a trailing "/"
@@ -171,6 +214,15 @@ async def save_settings(
         ("embedding_base_url", embedding_base_url),
         ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
+        # TTS defaults — empty value clears the key, matching the
+        # set/delete pattern used by every field above.
+        ("default_tts_language", default_tts_language.strip()),
+        ("default_tts_voice_de", default_tts_voice_de.strip()),
+        ("default_tts_voice_en_US", default_tts_voice_en_US.strip()),
+        ("default_tts_voice_en_GB", default_tts_voice_en_GB.strip()),
+        ("default_tts_voice_fr", default_tts_voice_fr.strip()),
+        ("default_tts_voice_es", default_tts_voice_es.strip()),
+        ("default_tts_quality", default_tts_quality.strip()),
     ):
         if value:
             await settings_repo.set(db, key, value)
