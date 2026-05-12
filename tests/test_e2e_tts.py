@@ -1,8 +1,9 @@
 """End-to-end smoke test for the TTS pipeline.
 
 Exercises every layer except Hugging Face: real Piper synth, real
-ffmpeg, real ffprobe, real SQLite. The voice file is the committed
-``tests/fixtures/voices/en_US-amy-low.onnx`` fixture, staged into
+ffmpeg, real ffprobe, real SQLite. The voice file is provided by the
+session-scoped ``amy_low_voice`` fixture (cached under
+``~/.cache/yt-summary-test-voices/``) and staged into
 ``cfg.tts_voices_dir`` so a stubbed ``ensure_voice`` returns its
 path without touching the network.
 
@@ -28,27 +29,20 @@ from app.tts_worker import TtsWorker
 
 
 async def test_end_to_end_render_for_summary(
-    db: aiosqlite.Connection, tmp_path: Path
+    db: aiosqlite.Connection, tmp_path: Path, amy_low_voice: Path
 ) -> None:
-    """Drives the full worker pipeline against the committed Piper
-    voice fixture: enqueue → claim → skip-translate → ensure_voice
-    → real Piper render → ffprobe → done. Asserts the MP3 lands on
-    disk, has plausible size, and the row carries a positive
-    duration."""
+    """Drives the full worker pipeline against the cached Piper voice
+    fixture: enqueue → claim → skip-translate → ensure_voice → real
+    Piper render → ffprobe → done. Asserts the MP3 lands on disk, has
+    plausible size, and the row carries a positive duration."""
     cfg = Config(data_dir=tmp_path)
     cfg.ensure_dirs()
 
-    # Stage the committed test voice under the canonical filename so
+    # Stage the cached test voice under the canonical filename so
     # ensure_voice can find it offline.
-    fixture_dir = Path("tests/fixtures/voices")
-    shutil.copy(
-        fixture_dir / "en_US-amy-low.onnx",
-        cfg.tts_voices_dir / "en_US-amy-low.onnx",
-    )
-    shutil.copy(
-        fixture_dir / "en_US-amy-low.onnx.json",
-        cfg.tts_voices_dir / "en_US-amy-low.onnx.json",
-    )
+    onnx_json = amy_low_voice.with_suffix(amy_low_voice.suffix + ".json")
+    shutil.copy(amy_low_voice, cfg.tts_voices_dir / amy_low_voice.name)
+    shutil.copy(onnx_json, cfg.tts_voices_dir / onnx_json.name)
 
     # Seed a video with summary_language=en_US so the worker skips
     # translation (source == target) and runs straight to render.
