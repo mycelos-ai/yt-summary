@@ -287,6 +287,117 @@ def test_status_endpoint_no_event_while_progress(tmp_path, monkeypatch):
     assert "HX-Trigger" not in resp.headers
 
 
+def test_audio_modal_shows_source_language_select(tmp_path, monkeypatch):
+    """GET /v/{id}/audio renders the new source-language select with
+    an 'auto' option that's selected when the video's source_language
+    is NULL."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")  # no source_language seeded
+        # Manually set summary so the form can render (we don't rely
+        # on set_transcript here, which would also stamp source_language).
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.set_summary(
+                app.state.db, "abc", "Hi.", "gpt-4o", language=None,
+            )
+        _await(setup())
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    # The new select is present and 'auto' is one of its options.
+    assert 'name="source_language"' in resp.text
+    assert 'value="auto"' in resp.text
+    # When source_language is NULL the hint should be shown so the
+    # user knows why translation might silently no-op otherwise.
+    assert "Not yet detected" in resp.text
+
+
+def test_render_endpoint_persists_explicit_source_language(tmp_path, monkeypatch):
+    """User picks an explicit source_language on a video where it's NULL.
+    After the POST, video.source_language should be populated so the worker
+    picks it up and translates correctly."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Seed video WITHOUT source_language (the broken-pre-Task-7 shape).
+        _seed_video(app, id="abc")
+        # Set a summary directly so we don't stamp source_language via
+        # set_transcript's language= path.
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.set_summary(
+                app.state.db, "abc", "Hello.", "gpt-4o", language=None,
+            )
+        _await(setup())
+        resp = client.post(
+            "/v/abc/audio/render",
+            data={
+                "source": "summary",
+                "source_language": "en_US",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+        assert resp.status_code == 200
+        # The video's source_language column should now be populated.
+        async def check():
+            from app.repos import videos as videos_repo
+            v = await videos_repo.get(app.state.db, "abc")
+            return v.source_language
+        assert _await(check()) == "en_US"
+
+
+def test_render_endpoint_400_on_invalid_source_language(tmp_path, monkeypatch):
+    """source_language not in catalogue → 400."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en")
+        resp = client.post(
+            "/v/abc/audio/render",
+            data={
+                "source": "summary",
+                "source_language": "xx",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+
+
+def test_render_endpoint_does_not_overwrite_existing_source_language(
+    tmp_path, monkeypatch,
+):
+    """If source_language is already known, an explicit pick must NOT
+    silently overwrite it (set_source_language is NULL-only)."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Seed with source_language='de' already set.
+        _seed_video(app, id="abc", source_language="de")
+        _seed_summary(app, video_id="abc", text="Hallo.", language="de")
+        resp = client.post(
+            "/v/abc/audio/render",
+            data={
+                "source": "summary",
+                "source_language": "en_US",  # would-be overwrite
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+        assert resp.status_code == 200
+        async def check():
+            from app.repos import videos as videos_repo
+            v = await videos_repo.get(app.state.db, "abc")
+            return v.source_language
+        assert _await(check()) == "de"
+
+
 def test_audio_file_endpoint_serves_mp3(tmp_path, monkeypatch):
     """GET /v/{id}/audio/file/{job_id} → 200, content-type audio/mpeg."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))

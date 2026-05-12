@@ -230,6 +230,22 @@ async def api_submit_audio(
             },
         )
 
+    # Optional explicit source language: "auto" (or absent) means "don't
+    # override what we already know"; any other value must be in the
+    # catalogue. When explicit, persist it via the NULL-only helper so
+    # the worker picks it up and translates correctly.
+    source_language = payload.get("source_language", "auto")
+    if source_language is None:
+        source_language = "auto"
+    if source_language != "auto" and source_language not in allowed_languages:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid source language",
+                "code": "INVALID_SOURCE_LANGUAGE",
+            },
+        )
+
     voice = payload.get("voice")
     voices = tts_voices.voices_for_language(target_language)
     if not any(v.id == voice for v in voices):
@@ -262,6 +278,12 @@ async def api_submit_audio(
                 "code": "SOURCE_NOT_READY",
             },
         )
+
+    # Persist an explicit source-language pick IFF the video's column is
+    # still NULL (the helper is a no-op when already set). The worker
+    # then naturally picks up `videos.source_language` and translates.
+    if source_language != "auto":
+        await videos_repo.set_source_language(db, video.id, source_language)
 
     job = await tts_jobs_repo.enqueue(
         db,

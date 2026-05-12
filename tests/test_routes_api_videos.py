@@ -404,6 +404,64 @@ def test_api_post_audio_400_when_quality_invalid(tmp_path, monkeypatch):
     assert body["detail"]["code"] == "INVALID_QUALITY"
 
 
+def test_api_post_audio_persists_explicit_source_language(tmp_path, monkeypatch):
+    """A fresh video with source_language=None and an explicit
+    `source_language` in the body must have its column populated
+    after the POST so the worker translates correctly."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        async def setup():
+            from app.repos import videos as vrepo
+            await vrepo.upsert_metadata(
+                app.state.db, video_id="audSL", url="u", title="T",
+                description="", thumbnail_path=None, duration_seconds=60,
+            )
+            await vrepo.set_summary(
+                app.state.db, "audSL", "Hello.", "gpt-4o", language=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            "/api/v1/videos/audSL/audio",
+            json={
+                "source": "summary",
+                "source_language": "en_US",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+        assert resp.status_code == 202
+
+        async def check():
+            from app.repos import videos as vrepo
+            v = await vrepo.get(app.state.db, "audSL")
+            return v.source_language
+        assert asyncio.get_event_loop().run_until_complete(check()) == "en_US"
+
+
+def test_api_post_audio_400_on_invalid_source_language(tmp_path, monkeypatch):
+    """source_language not in catalogue → 400 INVALID_SOURCE_LANGUAGE."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audSLbad")
+        resp = client.post(
+            "/api/v1/videos/audSLbad/audio",
+            json={
+                "source": "summary",
+                "source_language": "xx",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_SOURCE_LANGUAGE"
+
+
 def test_api_post_audio_400_when_source_not_ready(tmp_path, monkeypatch):
     """Video exists but the requested source text is empty/NULL."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))

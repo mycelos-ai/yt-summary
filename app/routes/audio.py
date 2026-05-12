@@ -192,6 +192,7 @@ async def audio_render(
     target_language: str = Form(...),
     voice: str = Form(...),
     quality: str = Form(...),
+    source_language: str = Form("auto"),
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user_id: int = Depends(get_current_user_id),
@@ -210,6 +211,11 @@ async def audio_render(
     allowed_languages = {lang for lang, _ in _LANGUAGES}
     if target_language not in allowed_languages:
         raise HTTPException(400, "unsupported target language")
+    # Validate source_language: "auto" (default) means "don't override what
+    # we already know"; any explicit value must be in the catalogue.
+    if source_language and source_language != "auto":
+        if source_language not in allowed_languages:
+            raise HTTPException(400, "invalid source language")
     qualities = tts_voices.qualities_for_voice(target_language, voice)
     if not qualities:
         raise HTTPException(
@@ -219,6 +225,14 @@ async def audio_render(
         raise HTTPException(
             400, f"voice {voice!r} does not ship a {quality!r} tier"
         )
+
+    # Persist an explicit source-language pick IFF the video's column is
+    # still NULL — `set_source_language` only writes when NULL, so a
+    # user's manual pick can't silently overwrite an already-detected
+    # value. The worker then naturally picks up the now-populated
+    # `videos.source_language` and runs translation.
+    if source_language and source_language != "auto":
+        await videos_repo.set_source_language(db, video.id, source_language)
 
     job = await tts_jobs_repo.enqueue(
         db,
