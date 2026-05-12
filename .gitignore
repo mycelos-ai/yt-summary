@@ -34,3 +34,7 @@ drown*.png
 *.onnx.json
 test.wav
 test_*.wav
+# Exception: committed Piper voice fixture used by the TTS render
+# integration tests (tests/test_services_tts_render.py).
+!tests/fixtures/voices/*.onnx
+!tests/fixtures/voices/*.onnx.json
