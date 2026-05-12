@@ -19,3 +19,18 @@ Screenshot*.png
 
 # Local-only Claude Code session config (launch.json, settings.local.json)
 .claude/
+
+# Local recording / preview files — never commit
+*.mov
+input.*
+output*.mp4
+drown.png
+drown*.png
+
+# Local Piper-voice and TTS test artifacts dropped at repo root
+# during manual experiments. Voice models live in `data/tts-voices/`
+# at runtime — they should never end up in git.
+*.onnx
+*.onnx.json
+test.wav
+test_*.wav
