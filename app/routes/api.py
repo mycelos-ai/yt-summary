@@ -13,7 +13,10 @@ from fastapi.responses import JSONResponse
 from app.config import Config
 from app.main import get_config, get_db
 from app.repos import playlists as playlists_repo
+from app.repos import tts_jobs as tts_jobs_repo
+from app.repos import videos as videos_repo
 from app.services import api as api_svc
+from app.services import tts_voices
 from app.services.auth import authenticate
 from app.services.playlist import fetch_playlist
 from app.services.playlist_sync import (
@@ -187,6 +190,126 @@ async def api_chat(
             detail={"error": msg, "code": "NOT_FOUND"},
         ) from e
     return result
+
+
+@router.post("/videos/{video_id}/audio")
+async def api_submit_audio(
+    video_id: str,
+    payload: dict = Body(...),
+    user_id: int = Depends(current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Enqueue (or return cached) a TTS render of the video's summary or
+    transcript. Returns 202 for fresh enqueues, 200 when an existing
+    done job is returned by the deduping enqueue."""
+    video = await videos_repo.get(db, video_id)
+    if video is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "Not found", "code": "NOT_FOUND"},
+        )
+
+    source = payload.get("source")
+    if source not in ("summary", "transcript"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "source must be 'summary' or 'transcript'",
+                "code": "INVALID_SOURCE",
+            },
+        )
+
+    target_language = payload.get("target_language")
+    allowed_languages = {v.language for v in tts_voices.VOICES}
+    if target_language not in allowed_languages:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "unsupported target language",
+                "code": "INVALID_TARGET_LANGUAGE",
+            },
+        )
+
+    voice = payload.get("voice")
+    voices = tts_voices.voices_for_language(target_language)
+    if not any(v.id == voice for v in voices):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"voice {voice!r} not available for "
+                         f"{target_language!r}",
+                "code": "INVALID_VOICE",
+            },
+        )
+
+    quality = payload.get("quality")
+    qualities = tts_voices.qualities_for_voice(target_language, voice)
+    if quality not in qualities:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"voice {voice!r} does not ship a {quality!r} tier",
+                "code": "INVALID_QUALITY",
+            },
+        )
+
+    source_text = video.summary if source == "summary" else video.transcript
+    if not source_text:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"{source} is not available yet",
+                "code": "SOURCE_NOT_READY",
+            },
+        )
+
+    job = await tts_jobs_repo.enqueue(
+        db,
+        video_id=video.id,
+        source=source,
+        target_language=target_language,
+        voice=voice,
+        quality=quality,
+    )
+    if job.status == "done":
+        return JSONResponse(
+            {
+                "job_id": job.id,
+                "cached": True,
+                "audio_url": f"/v/{video.id}/audio/file/{job.id}",
+            },
+            status_code=200,
+        )
+    return JSONResponse(
+        {"job_id": job.id, "cached": False, "audio_url": None},
+        status_code=202,
+    )
+
+
+@router.get("/videos/{video_id}/audio/{job_id}")
+async def api_get_audio_status(
+    video_id: str,
+    job_id: int,
+    user_id: int = Depends(current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Status snapshot for a TTS job. `audio_url` is set only when the
+    job is done. 404 if the job_id doesn't belong to this video."""
+    job = await tts_jobs_repo.get(db, job_id)
+    if job is None or job.video_id != video_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "Not found", "code": "NOT_FOUND"},
+        )
+    return {
+        "status": job.status,
+        "step": job.step,
+        "audio_url": (
+            f"/v/{video_id}/audio/file/{job_id}"
+            if job.status == "done" else None
+        ),
+        "error": job.error,
+    }
 
 
 @router.get("/search")
