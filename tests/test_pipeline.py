@@ -26,7 +26,7 @@ async def test_pipeline_writes_transcript_and_summary(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
         ),
         patch(
             "app.pipeline.summarize",
@@ -60,7 +60,7 @@ async def test_pipeline_transcript_only_when_llm_unset(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
         ),
         patch("app.pipeline.summarize") as summarize_mock,
     ):
@@ -194,7 +194,7 @@ async def test_pipeline_passes_playlist_context_to_summarizer(db, tmp_path):
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS, None)),
         ),
         patch("app.pipeline.summarize", side_effect=fake_summarize),
     ):
@@ -234,7 +234,7 @@ async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path
     with (
         patch(
             "app.pipeline.obtain_transcript",
-            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS)),
+            AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS, None)),
         ),
         patch("app.pipeline.summarize", side_effect=fake_summarize),
     ):
@@ -273,7 +273,12 @@ async def test_pipeline_refetches_when_segments_missing(db, tmp_path):
 
     fresh_segments = [(0.0, "fresh"), (5.0, "and timestamped")]
     obtain_mock = AsyncMock(
-        return_value=("fresh\nand timestamped", fresh_segments, TranscriptSource.AUTO_SUBS)
+        return_value=(
+            "fresh\nand timestamped",
+            fresh_segments,
+            TranscriptSource.AUTO_SUBS,
+            None,
+        )
     )
 
     async def set_step(_: str) -> None:
@@ -460,3 +465,142 @@ async def test_pipeline_skips_fetch_when_segments_already_present(db, tmp_path):
         await process_video(db, config, "vfresh", set_step)
 
     assert not obtain_mock.called, "transcript was already complete; no fetch"
+
+
+async def test_pipeline_writes_source_language_on_video(db, tmp_path):
+    """A fully processed video must have source_language stamped from
+    the transcript path (Whisper / VTT language signal)."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="vlang", url="https://youtu.be/vlang", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "key")
+    await settings_repo.set(db, "whisper_model", "small")
+
+    async def set_step(_: str) -> None:
+        return None
+
+    # obtain_transcript now returns a 4-tuple including the language.
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("hello world", [], TranscriptSource.AUTO_SUBS, "en")),
+        ),
+        patch(
+            "app.pipeline.summarize",
+            AsyncMock(return_value="THE SUMMARY"),
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vlang", set_step)
+
+    v = await videos_repo.get(db, "vlang")
+    assert v is not None
+    assert v.source_language == "en"
+    assert v.transcript_language == "en"
+
+
+async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
+    """summary_language='auto' → summary_language column == source_language.
+    summary_language='en' (explicit) → column == 'en' regardless of source."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    # Case 1: auto → falls back to source language ("de" from transcript).
+    await videos_repo.upsert_metadata(
+        db, video_id="vauto", url="https://youtu.be/vauto", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+    await settings_repo.set(db, "summary_language", "auto")
+
+    async def set_step(_: str) -> None:
+        return None
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
+        ),
+        patch("app.pipeline.summarize", AsyncMock(return_value="ZUSAMMENFASSUNG")),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vauto", set_step)
+
+    v = await videos_repo.get(db, "vauto")
+    assert v is not None
+    assert v.source_language == "de"
+    assert v.summary_language == "de"
+
+    # Case 2: explicit "en" → column is "en" even though source is "de".
+    await videos_repo.upsert_metadata(
+        db, video_id="vfixed", url="https://youtu.be/vfixed", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "summary_language", "en")
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
+        ),
+        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "vfixed", set_step)
+
+    v = await videos_repo.get(db, "vfixed")
+    assert v is not None
+    assert v.source_language == "de"
+    assert v.summary_language == "en"
+
+
+async def test_pipeline_falls_back_to_llm_language_detect_when_no_signal(db, tmp_path):
+    """When both Whisper and VTT come back without a language, the
+    pipeline asks the language_detect helper for one based on the
+    summary text and stamps that as source_language + summary_language."""
+    from app.services.reader import ArticleMetadata
+    from app.models import VideoKind
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="web-bbbbbbbbbbb",
+        url="https://example.com/post",
+        title="Post", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.WEB,
+    )
+    await settings_repo.set(db, "llm_model", "openai/gpt-4o")
+    await settings_repo.set(db, "llm_api_key", "k")
+    await settings_repo.set(db, "summary_language", "auto")
+
+    fake_article = ArticleMetadata(
+        url="https://example.com/post", title="Post", description="",
+        body="some plain content", thumbnail_url=None,
+    )
+
+    async def set_step(_: str) -> None:
+        return None
+
+    async def fake_detect(_text, *, complete):
+        return "fr"
+
+    with (
+        patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
+        patch("app.pipeline.summarize", AsyncMock(return_value="LE RÉSUMÉ")),
+        patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "web-bbbbbbbbbbb", set_step)
+
+    v = await videos_repo.get(db, "web-bbbbbbbbbbb")
+    assert v is not None
+    assert v.source_language == "fr"
+    assert v.summary_language == "fr"

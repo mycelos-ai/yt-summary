@@ -6,11 +6,11 @@ async def test_obtain_transcript_uses_subs_when_available(tmp_path):
     with (
         patch(
             "app.services.transcript.fetch_subtitles",
-            AsyncMock(return_value=("subs text", [(0.0, "subs text")], "manual_subs")),
+            AsyncMock(return_value=("subs text", [(0.0, "subs text")], "manual_subs", "en")),
         ),
         patch("app.services.transcript.download_audio") as audio_mock,
     ):
-        text, segments, source = await obtain_transcript(
+        text, segments, source, language = await obtain_transcript(
             url="https://youtu.be/x",
             video_id="x",
             audio_dir=tmp_path,
@@ -20,6 +20,7 @@ async def test_obtain_transcript_uses_subs_when_available(tmp_path):
     assert text == "subs text"
     assert segments == [(0.0, "subs text")]
     assert source.value == "manual_subs"
+    assert language == "en"
     audio_mock.assert_not_called()
 
 
@@ -32,10 +33,10 @@ async def test_obtain_transcript_falls_back_to_whisper(tmp_path):
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
         patch(
             "app.services.transcript.transcribe",
-            return_value=("whispered", [(0.0, "whispered")]),
+            return_value=("whispered", [(0.0, "whispered")], "en"),
         ),
     ):
-        text, segments, source = await obtain_transcript(
+        text, segments, source, language = await obtain_transcript(
             url="https://youtu.be/x",
             video_id="x",
             audio_dir=tmp_path,
@@ -45,6 +46,7 @@ async def test_obtain_transcript_falls_back_to_whisper(tmp_path):
     assert text == "whispered"
     assert segments == [(0.0, "whispered")]
     assert source.value == "whisper"
+    assert language == "en"
 
 
 async def test_obtain_transcript_deletes_audio_after_whisper(tmp_path):
@@ -56,7 +58,7 @@ async def test_obtain_transcript_deletes_audio_after_whisper(tmp_path):
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
         patch(
             "app.services.transcript.transcribe",
-            return_value=("whispered", []),
+            return_value=("whispered", [], None),
         ),
     ):
         await obtain_transcript(
@@ -88,7 +90,7 @@ async def test_obtain_transcript_calls_progress_callback_during_whisper(tmp_path
         if progress is not None:
             progress(30.0, 60.0)
             progress(60.0, 60.0)
-        return ("whispered", [(0.0, "whispered")])
+        return ("whispered", [(0.0, "whispered")], "en")
 
     with (
         patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
@@ -122,11 +124,17 @@ async def test_obtain_transcript_uses_whisper_api_when_base_url_set(tmp_path):
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
         patch(
             "app.services.transcript.transcribe_via_api",
-            AsyncMock(return_value=("hosted whisper text", [(1.5, "hosted whisper text")])),
+            AsyncMock(
+                return_value=(
+                    "hosted whisper text",
+                    [(1.5, "hosted whisper text")],
+                    "en",
+                )
+            ),
         ) as api_mock,
         patch("app.services.transcript.transcribe") as local_mock,
     ):
-        text, segments, source = await obtain_transcript(
+        text, segments, source, language = await obtain_transcript(
             url="https://youtu.be/x",
             video_id="x",
             audio_dir=tmp_path,
@@ -139,6 +147,7 @@ async def test_obtain_transcript_uses_whisper_api_when_base_url_set(tmp_path):
     assert text == "hosted whisper text"
     assert segments == [(1.5, "hosted whisper text")]
     assert source.value == "whisper"
+    assert language == "en"
     api_mock.assert_called_once()
     kwargs = api_mock.call_args.kwargs
     assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
@@ -157,10 +166,10 @@ async def test_obtain_transcript_local_when_no_base_url(tmp_path):
     with (
         patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
-        patch("app.services.transcript.transcribe", return_value=("local", [])),
+        patch("app.services.transcript.transcribe", return_value=("local", [], None)),
         patch("app.services.transcript.transcribe_via_api") as api_mock,
     ):
-        text, segments, _src = await obtain_transcript(
+        text, segments, _src, _language = await obtain_transcript(
             url="https://youtu.be/x",
             video_id="x",
             audio_dir=tmp_path,
@@ -187,7 +196,7 @@ async def test_obtain_transcript_api_path_deletes_audio_after(tmp_path):
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
         patch(
             "app.services.transcript.transcribe_via_api",
-            AsyncMock(return_value=("x", [])),
+            AsyncMock(return_value=("x", [], None)),
         ),
     ):
         await obtain_transcript(

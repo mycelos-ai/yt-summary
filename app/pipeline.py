@@ -15,8 +15,13 @@ from app.repos import tags as tags_repo
 from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
+from app.services.language_detect import detect_language
 from app.services.reader import fetch_article
-from app.services.summarizer import _verify_summary_timestamps, summarize
+from app.services.summarizer import (
+    _completion,
+    _verify_summary_timestamps,
+    summarize,
+)
 from app.services.transcript import obtain_transcript
 from app.services.transcript_format import group_segments
 from app.services.youtube import fetch_metadata
@@ -63,6 +68,11 @@ async def process_video(
             and not video.transcript_segments
         )
     )
+    # `source_language` is the best signal we have for what language
+    # this video is in. We accumulate it across the transcript path
+    # (Whisper / VTT) and fall back to LLM-detect after summarization
+    # if nothing surfaced earlier.
+    source_lang: str | None = getattr(video, "source_language", None)
     if needs_fetch:
         # Cross-profile transcript reuse: if another profile in this
         # household already transcribed the same YouTube video (or
@@ -88,24 +98,33 @@ async def process_video(
 
         if donor and donor.transcript:
             await set_step("transcript reused from another profile")
+            donor_lang = getattr(donor, "source_language", None) or getattr(
+                donor, "transcript_language", None
+            )
             await videos_repo.set_transcript(
                 db,
                 video_id,
                 donor.transcript,
                 donor.transcript_source or TranscriptSource.AUTO_SUBS,
                 segments_json=donor.transcript_segments,
+                language=donor_lang,
             )
             text = donor.transcript
+            if donor_lang:
+                source_lang = donor_lang
         elif video.kind == VideoKind.WEB:
             await set_step("fetching article")
             article = await fetch_article(video.url)
+            # The reader doesn't expose a language signal, so we leave
+            # the columns NULL here and rely on the LLM-detect
+            # fallback once the summary is in.
             await videos_repo.set_transcript(
                 db, video_id, article.body, TranscriptSource.WEB
             )
             text = article.body
         else:
             await set_step("fetching transcript")
-            text, segments, source = await obtain_transcript(
+            text, segments, source, transcript_lang = await obtain_transcript(
                 url=video.url,
                 video_id=video_id,
                 audio_dir=config.audio_dir,
@@ -124,8 +143,11 @@ async def process_video(
                 if grouped:
                     segments_json = json.dumps(grouped)
             await videos_repo.set_transcript(
-                db, video_id, text, source, segments_json=segments_json
+                db, video_id, text, source, segments_json=segments_json,
+                language=transcript_lang,
             )
+            if transcript_lang:
+                source_lang = transcript_lang
     else:
         text = video.transcript
 
@@ -186,6 +208,7 @@ async def process_video(
     profile = await users_repo.get_by_id(db, video.user_id)
     custom_prompt = profile.custom_summary_prompt if profile else None
 
+    summary_language_setting = (settings.get("summary_language") or "").strip()
     summary = await summarize(
         transcript=text,
         model=model,
@@ -193,14 +216,46 @@ async def process_video(
         base_url=base_url,
         title=video.title,
         description=video.description,
-        language=settings.get("summary_language"),
+        language=summary_language_setting or None,
         custom_system_prompt=custom_prompt,
         playlist_context=playlist_context or None,
         transcript_segments=segments,
         progress=set_step,
         on_partial=_persist_partial,
     )
-    await videos_repo.set_summary(db, video_id, summary, model)
+
+    # Resolve the language metadata to stamp on the final write:
+    #   * If source_language is still NULL and we have nothing better
+    #     to fall back to, ask the configured LLM what language the
+    #     summary itself is in (one-shot, ~50 tokens).
+    #   * summary_language follows the `summary_language` setting:
+    #     "auto" / empty / None all mean "track the source language".
+    if not source_lang:
+        try:
+            async def _complete(prompt: str) -> str:
+                return await _completion(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    api_key=api_key or "",
+                    base_url=base_url,
+                )
+
+            detected = await detect_language(summary, complete=_complete)
+            if detected:
+                source_lang = detected
+        except Exception as e:  # noqa: BLE001 — best-effort fallback
+            log.warning(
+                "language detection failed for %s: %s: %s",
+                video_id,
+                type(e).__name__,
+                e,
+            )
+
+    explicit = summary_language_setting and summary_language_setting != "auto"
+    summary_lang = summary_language_setting if explicit else source_lang
+    await videos_repo.set_summary(
+        db, video_id, summary, model, language=summary_lang,
+    )
 
     # Validate any inline [MM:SS](#t=SECONDS) links in the summary
     # against the segment inventory. Anomalies are logged but the

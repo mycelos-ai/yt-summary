@@ -84,9 +84,11 @@ async def test_fetch_subtitles_prefers_manual():
     ):
         result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
     assert result is not None
-    text, segments, source = result
+    text, segments, source, language = result
     assert "FastAPI" in text
     assert source == "manual_subs"
+    # The bundled sample.vtt has no Language: header.
+    assert language is None
     # vtt_to_segments yields (start_seconds, text) tuples
     assert len(segments) > 0
     assert all(isinstance(s, tuple) and len(s) == 2 for s in segments)
@@ -107,7 +109,7 @@ async def test_fetch_subtitles_falls_back_to_auto():
     ):
         result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
     assert result is not None
-    _text, _segments, source = result
+    _text, _segments, source, _language = result
     assert source == "auto_subs"
 
 
@@ -441,3 +443,36 @@ def test_base_opts_omits_cookiefile_when_none():
 
     opts = _base_opts(None)
     assert "cookiefile" not in opts
+
+
+async def test_fetch_subtitles_parses_language_header():
+    """YouTube emits VTT files with a `Language: en` (or `de`, ...)
+    header. fetch_subtitles should surface that as the 4th tuple
+    element so the pipeline can stamp source_language without
+    spending a Whisper run."""
+    from app.services.youtube import fetch_subtitles
+
+    fake_info = {
+        "subtitles": {"de": [{"ext": "vtt", "url": "https://example.com/de.vtt"}]},
+        "automatic_captions": {},
+    }
+    de_vtt = (
+        "WEBVTT\n"
+        "Kind: captions\n"
+        "Language: de\n"
+        "\n"
+        "00:00:00.000 --> 00:00:02.000\n"
+        "Hallo Welt.\n"
+    )
+    with (
+        patch("app.services.youtube._extract_info_with_subs", return_value=fake_info),
+        patch(
+            "app.services.youtube._download_text",
+            AsyncMock(return_value=de_vtt),
+        ),
+    ):
+        result = await fetch_subtitles("https://youtu.be/x", cookies_path=None)
+    assert result is not None
+    _text, _segments, source, language = result
+    assert source == "manual_subs"
+    assert language == "de"

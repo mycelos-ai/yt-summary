@@ -24,14 +24,16 @@ def transcribe(
     model_name: str = "small",
     *,
     progress: ProgressFn | None = None,
-) -> tuple[str, list[tuple[float, str]]]:
+) -> tuple[str, list[tuple[float, str]], str | None]:
     """Run Whisper on `audio_path`.
 
     Returns:
-      (joined_text, segments)
+      (joined_text, segments, language)
       where segments is a list of (start_seconds, text) tuples — same
       shape as the VTT parser's output, so downstream code can treat
-      both transcript sources uniformly.
+      both transcript sources uniformly. `language` is faster-whisper's
+      detected BCP-47-ish code from `info.language` (e.g. "en", "de"),
+      or None if the backend didn't surface one.
 
     If `progress` is provided, it's called as each segment finishes
     with (segment_end_seconds, total_duration_seconds). Faster-whisper
@@ -42,6 +44,10 @@ def transcribe(
         str(audio_path), language=None, vad_filter=True
     )
     total = float(getattr(info, "duration", 0.0) or 0.0)
+    raw_lang = getattr(info, "language", None)
+    language: str | None = None
+    if isinstance(raw_lang, str) and raw_lang.strip():
+        language = raw_lang.strip().lower()
     parts: list[str] = []
     timed: list[tuple[float, str]] = []
     for seg in segments:
@@ -53,7 +59,7 @@ def transcribe(
         if progress is not None:
             current = float(getattr(seg, "end", 0.0) or 0.0)
             progress(current, total)
-    return "".join(parts).strip(), timed
+    return "".join(parts).strip(), timed, language
 
 
 # Hosted Whisper services (faster-whisper-server, Groq, OpenAI) all
@@ -66,14 +72,15 @@ async def transcribe_via_api(
     api_key: str,
     model_name: str,
     timeout_s: float = 300.0,
-) -> tuple[str, list[tuple[float, str]]]:
+) -> tuple[str, list[tuple[float, str]], str | None]:
     """Send `audio_path` to a hosted Whisper endpoint.
 
-    Returns (joined_text, segments). Asks the OpenAI-compatible
-    endpoint for `response_format=verbose_json`, which includes
-    per-segment start times. If the backend ignores that and
-    returns only `{"text": "..."}`, segments comes back empty —
-    the detail-page render falls back to the plain transcript.
+    Returns (joined_text, segments, language). Asks the OpenAI-
+    compatible endpoint for `response_format=verbose_json`, which
+    includes per-segment start times and a top-level `language` field.
+    If the backend ignores that and returns only `{"text": "..."}`,
+    segments comes back empty and language is None — the detail-page
+    render falls back to the plain transcript.
 
     base_url: e.g. "https://api.groq.com/openai/v1" or
       "http://mac-mini.local:8000/v1". A trailing slash is fine.
@@ -115,4 +122,8 @@ async def transcribe_via_api(
         if not seg_text:
             continue
         timed.append((float(seg.get("start", 0.0) or 0.0), seg_text))
-    return text, timed
+    raw_lang = body.get("language")
+    language: str | None = None
+    if isinstance(raw_lang, str) and raw_lang.strip():
+        language = raw_lang.strip().lower()
+    return text, timed, language

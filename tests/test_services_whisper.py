@@ -17,14 +17,17 @@ def test_transcribe_returns_text_and_segments(tmp_path):
     seg2.start = 1.5
     seg2.end = 2.4
 
+    info = MagicMock()
+    info.language = "en"
     fake_model = MagicMock()
-    fake_model.transcribe.return_value = (iter([seg1, seg2]), MagicMock())
+    fake_model.transcribe.return_value = (iter([seg1, seg2]), info)
 
     with patch("app.services.whisper._load_model", return_value=fake_model):
-        text, segments = transcribe(fake_audio, model_name="small")
+        text, segments, language = transcribe(fake_audio, model_name="small")
     assert text.strip() == "Hello and welcome."
     # Segments stripped + paired with their start times
     assert segments == [(0.0, "Hello and"), (1.5, "welcome.")]
+    assert language == "en"
 
 
 def test_load_model_caches_per_name():
@@ -65,7 +68,7 @@ def test_transcribe_invokes_progress_callback_per_segment(tmp_path):
         captured.append((current, total))
 
     with patch("app.services.whisper._load_model", return_value=fake_model):
-        text, _segments = transcribe(fake_audio, model_name="small", progress=progress)
+        text, _segments, _language = transcribe(fake_audio, model_name="small", progress=progress)
 
     assert "Hello world" in text
     # We should have at least one progress report where we're done
@@ -91,6 +94,7 @@ async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
                 200,
                 json={
                     "text": "hello world from whisper",
+                    "language": "en",
                     "segments": [
                         {"start": 0.0, "end": 1.2, "text": "hello world"},
                         {"start": 1.2, "end": 2.4, "text": "from whisper"},
@@ -98,7 +102,7 @@ async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
                 },
             )
         )
-        text, segments = await transcribe_via_api(
+        text, segments, language = await transcribe_via_api(
             audio,
             base_url="https://api.example.com",
             api_key="sk-test",
@@ -107,6 +111,7 @@ async def test_transcribe_via_api_posts_audio_and_returns_text(tmp_path):
 
     assert text == "hello world from whisper"
     assert segments == [(0.0, "hello world"), (1.2, "from whisper")]
+    assert language == "en"
     assert route.called
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer sk-test"
@@ -133,7 +138,7 @@ async def test_transcribe_via_api_handles_text_only_response(tmp_path):
         mock.post("/audio/transcriptions").mock(
             return_value=Response(200, json={"text": "plain"}),
         )
-        text, segments = await transcribe_via_api(
+        text, segments, language = await transcribe_via_api(
             audio,
             base_url="https://api.example.com",
             api_key="k",
@@ -141,6 +146,7 @@ async def test_transcribe_via_api_handles_text_only_response(tmp_path):
         )
     assert text == "plain"
     assert segments == []
+    assert language is None
 
 
 async def test_transcribe_via_api_strips_trailing_slash_in_base_url(tmp_path):
@@ -158,7 +164,7 @@ async def test_transcribe_via_api_strips_trailing_slash_in_base_url(tmp_path):
         route = mock.post("/audio/transcriptions").mock(
             return_value=Response(200, json={"text": "ok"})
         )
-        text, _segments = await transcribe_via_api(
+        text, _segments, _language = await transcribe_via_api(
             audio,
             base_url="https://api.example.com/",
             api_key="k",
