@@ -578,7 +578,8 @@ def test_audio_modal_embeds_cached_keys_for_live_badge(tmp_path, monkeypatch):
         resp = client.get("/v/abc/audio")
     assert resp.status_code == 200
     # The script tag holding the cache keys is present and parseable.
-    import re, json as _json
+    import json as _json
+    import re
     m = re.search(
         r'<script type="application/json" id="audio-cached-keys">'
         r'(.*?)</script>',

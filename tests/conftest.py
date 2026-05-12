@@ -1,6 +1,6 @@
+import urllib.request
 from collections.abc import AsyncIterator
 from pathlib import Path
-import urllib.request
 
 import aiosqlite
 import pytest
@@ -8,7 +8,6 @@ import pytest_asyncio
 
 from app.config import Config
 from app.db import connect, init_schema
-
 
 # Test voice cache. Lives outside the repo so the 60 MB binary never
 # enters git history. First run on a machine downloads the model from

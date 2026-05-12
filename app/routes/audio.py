@@ -244,9 +244,12 @@ async def audio_render(
         raise HTTPException(400, "unsupported target language")
     # Validate source_language: "auto" (default) means "don't override what
     # we already know"; any explicit value must be in the catalogue.
-    if source_language and source_language != "auto":
-        if source_language not in allowed_languages:
-            raise HTTPException(400, "invalid source language")
+    if (
+        source_language
+        and source_language != "auto"
+        and source_language not in allowed_languages
+    ):
+        raise HTTPException(400, "invalid source language")
     qualities = tts_voices.qualities_for_voice(target_language, voice)
     if not qualities:
         raise HTTPException(
