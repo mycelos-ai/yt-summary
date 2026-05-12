@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 import aiosqlite
 
@@ -231,6 +232,35 @@ async def get(db: aiosqlite.Connection, video_id: str) -> Video | None:
     cursor = await db.execute("SELECT * FROM videos WHERE id=?", (video_id,))
     row = await cursor.fetchone()
     return _row_to_video(row) if row else None
+
+
+async def delete(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    data_dir: Path,
+) -> None:
+    """Delete a video and all per-video state, including TTS audio files.
+
+    The FK `ON DELETE CASCADE` on tts_jobs.video_id already removes the
+    DB rows. We pre-fetch the audio paths so they can be unlinked from
+    disk after the cascade commits — a SQL trigger calling a UDF would
+    work too, but pre-fetch + unlink keeps the cleanup logic in Python
+    where it's testable and obvious.
+    """
+    cursor = await db.execute(
+        "SELECT audio_path FROM tts_jobs "
+        "WHERE video_id = ? AND audio_path IS NOT NULL",
+        (video_id,),
+    )
+    paths = [row[0] for row in await cursor.fetchall()]
+    await db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    await db.commit()
+    for rel in paths:
+        (data_dir / rel).unlink(missing_ok=True)
+    video_dir = data_dir / "tts-audio" / video_id
+    if video_dir.exists() and not any(video_dir.iterdir()):
+        video_dir.rmdir()
 
 
 _TAG_FILTER_SQL = (

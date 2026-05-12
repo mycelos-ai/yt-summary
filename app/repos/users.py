@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 import aiosqlite
 
@@ -141,7 +142,12 @@ async def update(
     await db.commit()
 
 
-async def delete(db: aiosqlite.Connection, user_id: int) -> None:
+async def delete(
+    db: aiosqlite.Connection,
+    user_id: int,
+    *,
+    data_dir: Path | None = None,
+) -> None:
     """Delete a profile and all data scoped to it.
 
     Wipes videos / playlists / chat / playlist_videos / video_tags
@@ -150,6 +156,14 @@ async def delete(db: aiosqlite.Connection, user_id: int) -> None:
     DELETE CASCADE on user_id (it was added as a defaulted column
     later) and bolting it on retroactively would require rebuilding
     every table.
+
+    When `data_dir` is provided, also unlink TTS audio files for the
+    deleted videos. The FK cascade on `tts_jobs.video_id` removes the
+    DB rows when the parent `videos` row is deleted, but the MP3s on
+    disk would otherwise become orphaned. Pre-fetch the audio paths
+    before the DELETE so we know what to clean up after it commits.
+    Pass `data_dir=None` to skip the on-disk cleanup (preserves
+    behaviour for tests / callers that don't care).
     """
     # Collect the video ids owned by this profile so we can clean up
     # the satellite tables (playlist_videos, video_tags, chat_messages,
@@ -158,6 +172,20 @@ async def delete(db: aiosqlite.Connection, user_id: int) -> None:
         "SELECT id FROM videos WHERE user_id = ?", (user_id,)
     )
     video_ids = [row[0] for row in await cursor.fetchall()]
+
+    # Pre-fetch TTS audio paths so we can unlink them after the
+    # cascade commits (FK ON DELETE CASCADE on tts_jobs.video_id will
+    # wipe the DB rows when we DELETE from videos below).
+    tts_audio_paths: list[str] = []
+    if data_dir is not None and video_ids:
+        placeholders = ",".join("?" * len(video_ids))
+        cursor = await db.execute(
+            f"SELECT audio_path FROM tts_jobs "
+            f"WHERE video_id IN ({placeholders}) "
+            f"AND audio_path IS NOT NULL",
+            tuple(video_ids),
+        )
+        tts_audio_paths = [row[0] for row in await cursor.fetchall()]
 
     if video_ids:
         placeholders = ",".join("?" * len(video_ids))
@@ -196,6 +224,15 @@ async def delete(db: aiosqlite.Connection, user_id: int) -> None:
     )
     await db.execute("DELETE FROM users WHERE id = ?", (user_id,))
     await db.commit()
+
+    if data_dir is not None:
+        for rel in tts_audio_paths:
+            (data_dir / rel).unlink(missing_ok=True)
+        # Tidy up empty per-video directories under tts-audio/.
+        for vid in video_ids:
+            video_dir = data_dir / "tts-audio" / vid
+            if video_dir.exists() and not any(video_dir.iterdir()):
+                video_dir.rmdir()
 
 
 async def set_api_key(

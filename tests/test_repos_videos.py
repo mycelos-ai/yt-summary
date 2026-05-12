@@ -1,6 +1,8 @@
 import aiosqlite
 
+from app.config import Config
 from app.models import TranscriptSource
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
 
 
@@ -160,6 +162,44 @@ def test_reciprocal_rank_fuse_handles_disjoint():
 def test_reciprocal_rank_fuse_empty_inputs():
     from app.repos.videos import reciprocal_rank_fuse
     assert reciprocal_rank_fuse([], []) == []
+
+
+async def test_deleting_video_removes_tts_jobs_and_files(
+    db: aiosqlite.Connection, config: Config
+):
+    """videos_repo.delete must drop tts_jobs rows (via FK cascade) and
+    unlink their on-disk MP3s — including cleaning up an empty
+    per-video directory under tts-audio/."""
+    await videos_repo.upsert_metadata(
+        db,
+        video_id="abc",
+        url="https://yt/abc",
+        title="T",
+        description="",
+        thumbnail_path=None,
+        duration_seconds=60,
+    )
+    j = await tts_jobs_repo.enqueue(
+        db, "abc", "summary", "de", "thorsten", "medium"
+    )
+    mp3 = config.tts_audio_dir / "abc" / "summary-de-thorsten-medium.mp3"
+    mp3.parent.mkdir(parents=True)
+    mp3.write_bytes(b"x")
+    await tts_jobs_repo.complete(
+        db,
+        j.id,
+        audio_path=str(mp3.relative_to(config.data_dir)),
+        duration_seconds=10.0,
+        translated_text=None,
+    )
+
+    await videos_repo.delete(db, "abc", data_dir=config.data_dir)
+
+    rows = await tts_jobs_repo.list_for_video(db, "abc")
+    assert rows == []
+    assert not mp3.exists()
+    # Empty per-video directory should also be cleaned up
+    assert not (config.tts_audio_dir / "abc").exists()
 
 
 async def test_search_with_vector_ids_fuses_results(db: aiosqlite.Connection):
