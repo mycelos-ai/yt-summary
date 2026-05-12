@@ -141,7 +141,64 @@ async def _download_text(url: str) -> str:
 _VTT_CUE_HEAD = re.compile(
     r"^(\d{2}):(\d{2}):(\d{2})\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}"
 )
-_VTT_TAG = re.compile(r"<[^>]+>")
+# Inline word-timestamp tag emitted by YouTube auto-captions.
+# Example: `released<00:00:01.040>` — the timestamp belongs to the
+# WORD THAT FOLLOWS the tag, not the one that precedes it.
+_VTT_TIMESTAMP_TAG = re.compile(r"<(\d{2}):(\d{2}):(\d{2})\.(\d{3})>")
+# Other VTT styling tags: <c>, </c>, <c.colorE5E5E5>, etc.
+_VTT_STYLE_TAG = re.compile(r"</?c(?:\.[^>]*)?>")
+
+
+def _vtt_time_to_seconds(hh: str, mm: str, ss: str, ms: str) -> float:
+    return int(hh) * 3600 + int(mm) * 60 + int(ss) + int(ms) / 1000
+
+
+def _parse_cue_body(body: str) -> tuple[str, list[tuple[int, float]]]:
+    """Parse the text payload of a single VTT cue.
+
+    YouTube auto-caption cues look like:
+
+        and<00:00:02.399><c> this</c><00:00:02.560><c> little</c>...
+
+    Each `<HH:MM:SS.mmm>` marks the start time of the WORD THAT
+    FOLLOWS it. We split the body around these markers to recover
+    per-word timestamps, then strip the `<c>` styling tags from the
+    text.
+
+    Returns:
+        (clean_text, word_starts)
+      where word_starts is a list of (word_index, start_seconds)
+      tuples — the indices refer to whitespace-split words of
+      clean_text, NOT character offsets. Only words that had a
+      preceding inline timestamp tag in the source appear; words
+      that came before the first tag are omitted.
+
+    HTML entities are decoded so YouTube's `&gt;&gt;` speaker
+    markers don't leak through.
+    """
+    # Strip styling tags first; they carry no timing info and would
+    # otherwise complicate the split below.
+    body = _VTT_STYLE_TAG.sub("", body)
+    # Split around timestamp tags. The capturing groups in the
+    # pattern (hh, mm, ss, ms) appear in the resulting list, so we
+    # walk it in 5-tuples: [text_before, hh, mm, ss, ms, text_after, ...]
+    parts = _VTT_TIMESTAMP_TAG.split(body)
+    pieces: list[str] = []
+    word_starts: list[tuple[int, float]] = []
+    # First piece is the text before any timestamp tag.
+    head = html.unescape(parts[0])
+    pieces.append(head)
+    running_word_count = len(head.split())
+    # Then groups of (hh, mm, ss, ms, text).
+    for i in range(1, len(parts), 5):
+        hh, mm, ss, ms, after = parts[i:i + 5]
+        start = _vtt_time_to_seconds(hh, mm, ss, ms)
+        word_starts.append((running_word_count, start))
+        after_text = html.unescape(after)
+        pieces.append(after_text)
+        running_word_count += len(after_text.split())
+    full_text = " ".join(p for p in (" ".join(pieces).split()) if p)
+    return full_text, word_starts
 
 
 def vtt_to_segments(vtt: str) -> list[tuple[float, str]]:
@@ -149,9 +206,7 @@ def vtt_to_segments(vtt: str) -> list[tuple[float, str]]:
 
     YouTube's VTT files have one block per spoken phrase, each starting
     with an HH:MM:SS.mmm --> HH:MM:SS.mmm header followed by one or more
-    lines of text. We keep the start time and concatenate the text
-    lines for each cue, skipping WEBVTT/NOTE/STYLE/REGION blocks and
-    bare numeric cue identifiers.
+    lines of text.
 
     Three normalisations:
 
@@ -159,97 +214,146 @@ def vtt_to_segments(vtt: str) -> list[tuple[float, str]]:
        speaker markers `>>` as `&gt;&gt;` so they would otherwise leak
        into the rendered transcript as literal `&gt;&gt;`.
 
-    2. Inline VTT styling tags (`<c>`, `<00:00:01.500>`, etc.) are
-       stripped.
+    2. Inline VTT styling tags (`<c>`, `</c>`) are stripped, but inline
+       word-timestamp tags (`<00:00:01.040>`) are PARSED and used to
+       fix up the start time of the trimmed tail (see #3).
 
     3. Auto-caption rolling-window duplication is collapsed by suffix
        trimming: if a new cue starts with the previous emitted text,
-       only the new tail is kept. Plain "exact equality" doesn't work
-       because YouTube's auto-captions emit cumulative cues like:
+       only the new tail is kept. The trimmed tail's start time comes
+       from the inline timestamp of its first word when available —
+       without that fixup the entire transcript drifts earlier by
+       however long the rolling window happened to be. Plain "exact
+       equality" doesn't work because YouTube's auto-captions emit
+       cumulative cues like:
             cue 1: "hello"
             cue 2: "hello world"
             cue 3: "hello world today"
        We want one entry per cue containing only the new words.
+
+    Cue body lines that are whitespace-only (YouTube's auto-captions
+    sometimes emit a single-space line as the first body line) are
+    skipped without flushing the in-progress cue.
     """
     out: list[tuple[float, str]] = []
     last_text = ""
     current_start: float | None = None
-    current_lines: list[str] = []
+    current_body_lines: list[str] = []
+    # True while we're inside a cue (between its header and the next
+    # blank line). YouTube sometimes emits cues whose first body line
+    # is a single space, which we must NOT treat as the cue-terminating
+    # blank line.
+    in_cue = False
 
     def flush() -> None:
-        nonlocal last_text, current_start, current_lines
-        if current_start is None or not current_lines:
+        nonlocal last_text, current_start, current_body_lines, in_cue
+        if current_start is None or not current_body_lines:
             current_start = None
-            current_lines = []
+            current_body_lines = []
+            in_cue = False
             return
-        # 1. Join + decode HTML entities (handles &gt;&gt; speaker marker)
-        text = html.unescape(" ".join(current_lines)).strip()
-        # 2. Collapse runs of internal whitespace introduced by stripped tags
-        text = " ".join(text.split())
+        # Concatenate body lines preserving the inline timestamp tags,
+        # then parse the combined body in one go.
+        raw_body = " ".join(current_body_lines)
+        text, word_starts = _parse_cue_body(raw_body)
         if text:
-            # 3. Rolling-window dedup: if the previous cue ended with
-            #    text we're about to emit, only keep the tail. Words
-            #    are the matching unit so partial-word boundaries
-            #    don't trip us up.
-            trimmed = _trim_overlap(prev=last_text, current=text)
+            # Rolling-window dedup: if the previous cue ended with
+            # text we're about to emit, only keep the tail.
+            trimmed, trim_offset = _trim_overlap_with_offset(
+                prev=last_text, current=text,
+            )
             if trimmed:
-                out.append((current_start, trimmed))
+                # When a tail was trimmed from the front of the cue,
+                # the cue's own start time no longer reflects when the
+                # kept words were actually spoken — it's when the
+                # rolling window opened. Use the inline timestamp of
+                # the first KEPT word when available. For untrimmed
+                # cues (first cue, manual subs, no overlap) keep the
+                # cue's own start verbatim.
+                start = current_start
+                if trim_offset > 0:
+                    for idx, ts in word_starts:
+                        if idx >= trim_offset:
+                            start = ts
+                            break
+                out.append((start, trimmed))
                 last_text = text  # full text drives next overlap check
         current_start = None
-        current_lines = []
+        current_body_lines = []
+        in_cue = False
 
     for raw in vtt.splitlines():
-        line = raw.strip()
-        if not line:
-            flush()
+        # Preserve internal whitespace inside cue bodies — strip only
+        # the trailing newline characters.
+        line = raw.rstrip("\r\n")
+        stripped = line.strip()
+        if not stripped:
+            # A truly blank line ends the current cue — but only if
+            # we've actually collected body text. YouTube auto-captions
+            # sometimes emit a single-space "filler" line as the first
+            # line after the cue header; treating that as a terminator
+            # drops the entire cue. Skip the blank when the body is
+            # still empty.
+            if in_cue and current_body_lines:
+                flush()
             continue
-        if line == "WEBVTT":
+        if stripped == "WEBVTT":
             continue
-        if line.startswith(("NOTE", "STYLE", "REGION")):
+        if stripped.startswith(("NOTE", "STYLE", "REGION")):
             continue
-        m = _VTT_CUE_HEAD.match(line)
+        if stripped.startswith("Kind:") or stripped.startswith("Language:"):
+            # Optional VTT header fields (YouTube emits these).
+            continue
+        m = _VTT_CUE_HEAD.match(stripped)
         if m:
             flush()
             hh, mm, ss = (int(g) for g in m.groups())
             current_start = float(hh * 3600 + mm * 60 + ss)
+            in_cue = True
             continue
-        if line.isdigit():
+        if stripped.isdigit() and not in_cue:
+            # Cue identifier line — only valid outside a cue body.
             continue
-        clean = _VTT_TAG.sub("", line).strip()
-        if clean:
-            current_lines.append(clean)
+        if in_cue:
+            current_body_lines.append(stripped)
     flush()
     return out
 
 
-def _trim_overlap(*, prev: str, current: str) -> str:
-    """Return only the tail of `current` that isn't already a prefix
-    overlap with `prev`. If `current` is fully contained in `prev`
-    (a pure rolling-window repeat), return "".
+def _trim_overlap_with_offset(
+    *, prev: str, current: str
+) -> tuple[str, int]:
+    """Like `_trim_overlap`, but also returns the word-index in
+    `current` where the kept tail starts (0 if no trimming happened).
 
-    Word-level matching: we compare full words, not characters, so
-    "I'm" doesn't accidentally match "I am" or vice versa.
+    The index is used to look up the correct inline timestamp for
+    the trimmed tail in YouTube auto-caption cues. Returns ("", 0)
+    when `current` is a pure repeat of `prev`.
     """
     if not prev:
-        return current
+        return current, 0
     prev_words = prev.split()
     cur_words = current.split()
     if not cur_words:
-        return ""
-    # If the new cue starts with the same words as the end of the
-    # previous one, trim from the right of prev → left of current.
-    # We try the longest possible overlap first.
+        return "", 0
+    # Try the longest possible suffix-of-prev / prefix-of-current
+    # overlap first.
     max_overlap = min(len(prev_words), len(cur_words))
     for n in range(max_overlap, 0, -1):
         if prev_words[-n:] == cur_words[:n]:
             tail = cur_words[n:]
-            return " ".join(tail)
-    # Also catch the "fully duplicate" case: cur_words is a suffix of
-    # prev_words, which sometimes happens at the end of an auto-caption
-    # block when YouTube re-emits the last fragment.
+            return " ".join(tail), n
+    # Fully duplicate case: current is a suffix of prev.
     if cur_words == prev_words[-len(cur_words):]:
-        return ""
-    return current
+        return "", len(cur_words)
+    return current, 0
+
+
+def _trim_overlap(*, prev: str, current: str) -> str:
+    """Backwards-compatible thin wrapper around
+    `_trim_overlap_with_offset` for callers that only need the text."""
+    text, _ = _trim_overlap_with_offset(prev=prev, current=current)
+    return text
 
 
 def vtt_to_plain_text(vtt: str) -> str:

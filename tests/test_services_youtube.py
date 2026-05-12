@@ -333,6 +333,87 @@ Hello world.
     assert segs[0] == (0.0, "Hello world.")
 
 
+def test_vtt_to_segments_uses_inline_word_timestamps_for_auto_captions():
+    """YouTube auto-captions emit per-word inline timestamps inside each
+    cue (<00:00:01.040>). When we trim the rolling-window overlap and
+    keep only the new tail, the tail's TRUE start time is the inline
+    timestamp of its first word — not the cue's start time, which is
+    when the rolling window OPENED for accumulation. Using the cue
+    start makes the entire transcript drift earlier and earlier
+    relative to the video; using the inline timestamp lines them up
+    with the actual audio.
+
+    This is the real-world shape from YouTube's en.vtt for auto-
+    captioned videos (a Claude Code review video served as the
+    canonical sample).
+    """
+    from app.services.youtube import vtt_to_segments
+    sample = (
+        "WEBVTT\n"
+        "\n"
+        "00:00:00.000 --> 00:00:02.149 align:start position:0%\n"
+        " \n"
+        "So<00:00:00.240><c> Claude</c><00:00:00.640><c> Code</c>"
+        "<00:00:00.880><c> just</c><00:00:01.040><c> released</c>"
+        "<00:00:01.439><c> agents</c><00:00:01.920><c> view</c>\n"
+        "\n"
+        "00:00:02.149 --> 00:00:03.990 align:start position:0%\n"
+        "So Claude Code just released agents view\n"
+        "and<00:00:02.399><c> this</c><00:00:02.560><c> little</c>"
+        "<00:00:02.720><c> feature</c><00:00:03.040><c> is</c>"
+        "<00:00:03.200><c> a</c><00:00:03.360><c> godsend</c>"
+        "<00:00:03.840><c> if</c>\n"
+    )
+    segs = vtt_to_segments(sample)
+    # First cue: full opener, starts at the cue's own start (no prior
+    # overlap → no inline timestamp consultation).
+    assert segs[0] == (0.0, "So Claude Code just released agents view")
+    # Second cue: the trimmed tail starts at the inline timestamp of
+    # its first new word, "and" → 2.399. Using the cue start (2.149)
+    # would be too early because the rolling window was already
+    # repeating the previous sentence at that point.
+    assert segs[1][0] == 2.399
+    assert segs[1][1] == "and this little feature is a godsend if"
+
+
+def test_vtt_to_segments_falls_back_to_cue_start_when_no_inline_timestamps():
+    """Manual subtitles and older YouTube auto-caption formats don't
+    carry inline word timestamps. Without them, the cue start is the
+    only timing signal we have — use it. Existing behaviour preserved."""
+    from app.services.youtube import vtt_to_segments
+    sample = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Welcome back
+
+00:00:02.000 --> 00:00:04.000
+Welcome back to MIT.
+
+00:00:04.000 --> 00:00:06.000
+to MIT. Thank you.
+"""
+    segs = vtt_to_segments(sample)
+    assert [s[0] for s in segs] == [0.0, 2.0, 4.0]
+    assert [s[1] for s in segs] == [
+        "Welcome back", "to MIT.", "Thank you.",
+    ]
+
+
+def test_vtt_to_segments_inline_timestamps_for_a_full_cue_with_no_trim():
+    """When the cue has no overlap with the previous one (manual subs
+    or the very first cue), the inline timestamps shouldn't change the
+    cue's own start time — emit the cue start verbatim."""
+    from app.services.youtube import vtt_to_segments
+    sample = (
+        "WEBVTT\n"
+        "\n"
+        "00:00:05.000 --> 00:00:07.000\n"
+        "Hello<00:00:05.500><c> world</c>\n"
+    )
+    segs = vtt_to_segments(sample)
+    assert segs == [(5.0, "Hello world")]
+
+
 def test_base_opts_includes_remote_components_for_ejs():
     """yt-dlp 2026.x needs the EJS challenge-solver script to decode
     YouTube's signed n-parameter; without `remote_components: [ejs:github]`
