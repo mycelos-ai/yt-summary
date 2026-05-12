@@ -24,7 +24,7 @@ import aiosqlite
 from app.config import Config
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
-from app.services.tts_render import render_text_to_mp3
+from app.services.tts_render import render_chunks_to_mp3
 from app.tts_worker import TtsWorker
 
 
@@ -78,7 +78,7 @@ async def test_end_to_end_render_for_summary(
         db=db,
         config=cfg,
         translate=noop_translate,
-        render_text_to_mp3=render_text_to_mp3,
+        render_chunks_to_mp3=render_chunks_to_mp3,
         ensure_voice=real_ensure_voice,
         poll_interval=0.05,
     )

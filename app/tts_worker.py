@@ -6,7 +6,7 @@ are injected via the constructor so tests can stub them without
 touching LiteLLM, Hugging Face, or Piper:
 
 * ``translate(text, *, source_language, target_language, complete, progress=...)``
-* ``render_text_to_mp3(text, voice_file, out_path)``
+* ``render_chunks_to_mp3(chunks, voice_file, out_path, length_scale=..., progress=...)``
 * ``ensure_voice(language, voice, quality) -> Path``
 
 The first active state in the tts_jobs state machine is
@@ -15,6 +15,12 @@ there. When the source language matches the target (or no source
 language is known) the worker skips translation entirely — no
 :func:`translate` call, ``translated_text`` stays ``None`` — and
 flips status straight to ``rendering`` via :func:`set_status`.
+
+The render path is chunked: text is split at sentence boundaries via
+:func:`_split_into_sentence_chunks` so the worker can report per-chunk
+progress to the UI while a long render is in flight. Single-sentence
+texts collapse to a one-chunk list and still go through the same
+path — no branching here.
 """
 from __future__ import annotations
 
@@ -33,6 +39,7 @@ from app.models import TtsJob
 from app.repos import settings as settings_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
+from app.services.tts_render import _split_into_sentence_chunks
 
 log = logging.getLogger(__name__)
 
@@ -49,13 +56,14 @@ class _TranslateFn(Protocol):
     ) -> str: ...
 
 
-class RenderFn(Protocol):
+class RenderChunksFn(Protocol):
     async def __call__(
         self,
-        text: str,
+        chunks: list[str],
         voice_file: Path,
         out_path: Path,
         length_scale: float | None = ...,
+        progress: Callable[[int, int], None] | None = ...,
     ) -> None: ...
 
 
@@ -69,14 +77,14 @@ class TtsWorker:
         db: aiosqlite.Connection,
         config: Config,
         translate: _TranslateFn,
-        render_text_to_mp3: RenderFn,
+        render_chunks_to_mp3: RenderChunksFn,
         ensure_voice: EnsureVoiceFn,
         poll_interval: float = 1.0,
     ) -> None:
         self._db = db
         self._config = config
         self._translate = translate
-        self._render = render_text_to_mp3
+        self._render_chunks = render_chunks_to_mp3
         self._ensure_voice = ensure_voice
         self._poll_interval = poll_interval
         self._stopped = asyncio.Event()
@@ -205,8 +213,30 @@ class TtsWorker:
             / job.video_id
             / f"{job.source}-{target_lang}-{job.voice}-{job.quality}.mp3"
         )
-        await self._render(
-            final_text, voice_path, out_path, length_scale=length_scale,
+        chunks = _split_into_sentence_chunks(final_text)
+        # Capture the running loop BEFORE entering the render: the
+        # progress callback fires synchronously from inside the
+        # render coroutine, and we want to schedule an async
+        # ``set_step`` from it. Using ``run_coroutine_threadsafe`` is
+        # safe regardless of whether the callback eventually fires
+        # from the loop thread or a worker thread — Piper synth uses
+        # ``asyncio.to_thread`` under the hood, and a future refactor
+        # could relocate the callback off-loop. Unlike the translate
+        # progress callback (which always runs on-loop and uses
+        # ``create_task``), this one is defensive.
+        loop = asyncio.get_running_loop()
+
+        def _on_chunk(done: int, total: int) -> None:
+            asyncio.run_coroutine_threadsafe(  # noqa: RUF006
+                set_step(f"rendering audio chunk {done}/{total}"), loop,
+            )
+
+        await self._render_chunks(
+            chunks=chunks,
+            voice_file=voice_path,
+            out_path=out_path,
+            length_scale=length_scale,
+            progress=_on_chunk,
         )
 
         # Step 5: ffprobe for duration (best-effort, nullable).

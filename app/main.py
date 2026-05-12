@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.scheduler import PlaylistScheduler
     from app.services.playlist_sync import sync_playlist
     from app.services.translation import translate
-    from app.services.tts_render import render_text_to_mp3
+    from app.services.tts_render import render_chunks_to_mp3
     from app.services.tts_voices import download_voice
     from app.tts_worker import TtsWorker
     from app.worker import Worker
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db=db,
         config=config,
         translate=translate,
-        render_text_to_mp3=render_text_to_mp3,
+        render_chunks_to_mp3=render_chunks_to_mp3,
         ensure_voice=_ensure_voice,
     )
     tts_worker_task = asyncio.create_task(tts_worker.run())
