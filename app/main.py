@@ -25,6 +25,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.pipeline import process_video
     from app.scheduler import PlaylistScheduler
     from app.services.playlist_sync import sync_playlist
+    from app.services.translation import translate
+    from app.services.tts_render import render_text_to_mp3
+    from app.services.tts_voices import download_voice
+    from app.tts_worker import TtsWorker
     from app.worker import Worker
 
     config = Config.from_env()
@@ -47,20 +51,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     worker = Worker(db=db, config=config, process_video=process_video)
     worker_task = asyncio.create_task(worker.run())
 
+    async def _ensure_voice(language: str, voice: str, quality: str):
+        return await download_voice(
+            config.tts_voices_dir, language, voice, quality, progress=None,
+        )
+
+    tts_worker = TtsWorker(
+        db=db,
+        config=config,
+        translate=translate,
+        render_text_to_mp3=render_text_to_mp3,
+        ensure_voice=_ensure_voice,
+    )
+    tts_worker_task = asyncio.create_task(tts_worker.run())
+
     scheduler = PlaylistScheduler(db=db, config=config, sync_fn=sync_playlist)
     scheduler_task = asyncio.create_task(scheduler.run())
 
     app.state.config = config
     app.state.db = db
     app.state.worker = worker
+    app.state.tts_worker = tts_worker
     app.state.scheduler = scheduler
     try:
         yield
     finally:
         scheduler.stop()
         worker.stop()
+        tts_worker.stop()
         await scheduler_task
         await worker_task
+        await tts_worker_task
         await db.close()
 
 
