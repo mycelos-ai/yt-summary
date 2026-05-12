@@ -138,8 +138,15 @@
                         x-bind:disabled="provider !== '{{ p.id }}'"
                         x-show="!showAll['{{ p.id }}']">
                   {% for m in chat_models %}
-                    <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
-                            {% if m == p.default_llm or m == p.default_llm.split('/', 1)[-1] %}selected{% endif %}>
+                    {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
+                    {# Pre-select the saved llm_model when this provider
+                       is the active one; otherwise fall back to the
+                       provider's curated default so switching providers
+                       in the wizard lands on something sensible. #}
+                    {% set is_active = current_provider_id == p.id %}
+                    {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                    <option value="{{ option_value }}"
+                            {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
                       {{ m }}
                     </option>
                   {% endfor %}
@@ -149,8 +156,11 @@
                           x-bind:disabled="provider !== '{{ p.id }}'"
                           x-show="showAll['{{ p.id }}']" x-cloak>
                     {% for m in chat_models_full %}
-                      <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
-                              {% if m == p.default_llm or m == p.default_llm.split('/', 1)[-1] %}selected{% endif %}>
+                      {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
+                      {% set is_active = current_provider_id == p.id %}
+                      {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                      <option value="{{ option_value }}"
+                              {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
                         {{ m }}
                       </option>
                     {% endfor %}
@@ -168,8 +178,11 @@
                 <select name="embedding_model"
                         x-bind:disabled="provider !== '{{ p.id }}'">
                   {% for m in embed_models %}
-                    <option value="{{ m if '/' in m else (p.litellm_provider + '/' + m) }}"
-                            {% if m == p.default_embedding or m == p.default_embedding.split('/', 1)[-1] %}selected{% endif %}>
+                    {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
+                    {% set is_active = current_provider_id == p.id %}
+                    {% set selected_value = settings.get('embedding_model', '') if is_active else p.default_embedding %}
+                    <option value="{{ option_value }}"
+                            {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
                       {{ m }}
                     </option>
                   {% endfor %}
