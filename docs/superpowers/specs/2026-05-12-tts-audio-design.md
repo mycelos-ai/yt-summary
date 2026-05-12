@@ -65,16 +65,19 @@ Out of scope (explicitly):
 
 ## Data Model
 
-### Language metadata on existing tables
+### Language metadata on the `videos` table
 
-Three new nullable columns, populated for new videos going forward.
-Old rows stay `NULL`; we never read them blindly (every code path
-that needs the language has a fallback path).
+In the current schema, summary and transcript are columns ON the
+`videos` table — there are no separate `summaries` or `transcripts`
+tables. Add three nullable language columns next to the existing
+content columns. Populated for new videos going forward; old rows
+stay `NULL` and every code path that needs the language has a
+fallback.
 
 ```sql
-ALTER TABLE videos       ADD COLUMN source_language TEXT;
-ALTER TABLE summaries    ADD COLUMN language        TEXT;
-ALTER TABLE transcripts  ADD COLUMN language        TEXT;
+ALTER TABLE videos ADD COLUMN source_language     TEXT;
+ALTER TABLE videos ADD COLUMN summary_language    TEXT;
+ALTER TABLE videos ADD COLUMN transcript_language TEXT;
 ```
 
 Conventions:
@@ -84,10 +87,12 @@ Conventions:
   when we transcribe; from the YouTube VTT `Language:` header when we
   pull subs; from a one-shot LLM detection on the summary text as a
   fallback if neither is available.
-- `summaries.language`: language the summary text is ACTUALLY in.
-  Equals `summary_language` setting unless it was `auto`, in which
-  case it equals `videos.source_language`.
-- `transcripts.language`: language of the transcript text. Equals
+- `summary_language`: language the summary text is ACTUALLY in.
+  Equals the `summary_language` setting unless it was `auto`, in
+  which case it equals `videos.source_language`. (Note: the schema
+  column has the same name as the setting — they live in different
+  tables so there's no ambiguity, but mind the difference in code.)
+- `transcript_language`: language of the transcript text. Equals
   `videos.source_language` in 100% of the cases we know about. The
   column exists for symmetry and future-proofing (e.g. dubbed-audio
   videos where Whisper picks up the dub rather than the captions).
@@ -343,8 +348,8 @@ Clicking the button opens an HTMX-driven modal with five fields:
    Default resolution order (first non-`NULL` wins):
    1. If `default_tts_language` is one of the five codes → that.
    2. If `default_tts_language` is `auto` (the install default):
-      `summaries.language` when source=summary, else
-      `transcripts.language`, else `videos.source_language`.
+      `videos.summary_language` when source=summary, else
+      `videos.transcript_language`, else `videos.source_language`.
    3. Hard fallback: `en_US`.
 3. **Voice:** dropdown filtered by the chosen language. Shows the
    `display_name` from the catalogue.
