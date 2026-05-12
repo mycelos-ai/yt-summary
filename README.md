@@ -129,6 +129,7 @@ That's it — Caddy sets the forwarded headers correctly out of the box.
 | Tags | Pulled from yt-dlp metadata, surfaced as filterable pills |
 | REST API + MCP server | One API key gates both. Use it from Claude Desktop, scripts, anything |
 | Settings test buttons | Round-trip a real request to LLM / Whisper / embedding backend before kicking off a job |
+| Audio rendering | Render any summary or transcript to MP3 via local Piper TTS, optionally translating into German / English (US/GB) / French / Spanish first |
 
 ## Provider Quick Setup
 
@@ -169,6 +170,35 @@ waiting for it. Four backends are supported:
 Set Whisper Base URL + (optionally) API key in Settings → Whisper card.
 Each is OpenAI-API-compatible, so the same code path drives all three
 hosted variants.
+
+## Audio (TTS)
+
+Generate an MP3 from any summary or transcript, in any of five
+languages, without leaving the Pi:
+
+1. Open a video detail page, click **🔊 Audio**
+2. Pick source (summary / transcript), language, voice, quality
+3. Wait for the render — the modal polls for progress
+4. Listen in the browser or download the MP3
+
+The first time you pick a new voice, the model file (~80 MB
+medium, ~130 MB high) downloads from Hugging Face into
+`data/tts-voices/`. Subsequent renders are local-only.
+
+Translation reuses your already-configured LLM provider — no
+extra credentials. Chunked with overlap context to keep
+terminology consistent across long transcripts.
+
+| Voice family            | Languages | Notes              |
+|-------------------------|-----------|--------------------|
+| Thorsten / Kerstin      | DE        | Including emotional|
+| Lessac / Amy / Ryan     | en_US     |                    |
+| Alba / Southern English | en_GB     |                    |
+| Siwis                   | FR        |                    |
+| Sharvard                | ES        |                    |
+
+Cloud TTS providers are not (yet) supported — Piper is good
+enough for the use case and removes a second API-key dependency.
 
 ## Programmatic access
 
