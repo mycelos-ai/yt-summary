@@ -102,6 +102,36 @@ A gear icon in the header opens a settings page with these fields:
 - **Whisper Model** (dropdown: `tiny` / `base` / `small` / `medium` / `large-v3`)
 - **YouTube Cookies** — single textarea labeled "Paste curl from DevTools". Backend extracts the `Cookie:` header and writes `cookies.txt`. Status indicator below: "✓ cookies set" with a "clear" button.
 
+### Planned: Anonymous Cookie Auto-Grab (not yet implemented)
+
+For public playlists / videos we don't need a logged-in YouTube session.
+The cookies yt-dlp actually wants are the *anonymous* visitor cookies
+(`VISITOR_INFO1_LIVE`, `YSC`, `PREF`, `CONSENT`) that any first-visit
+browser receives — these signal "consent dialog accepted, region set,
+visitor ID assigned" and unlock the bulk of "Sign in to confirm you're
+not a bot" walls, age-gates on harmless content, and tighter rate limits
+on fresh IPs.
+
+A future enhancement will fetch these anonymously on first container
+start (and refresh on a schedule) via a small HTTP-only flow — visit
+`youtube.com`, follow the consent redirect, POST the consent acceptance,
+keep the resulting `Set-Cookie`s, write them to `cookies.txt`. No
+headless browser, no login.
+
+**Hierarchy when both exist:** if the user has manually placed cookies
+via the curl-paste flow, those win — the auto-grab MUST NOT overwrite a
+user-supplied `cookies.txt`. The auto-grab only fills the file when
+it's missing (first start) or when a scheduled refresh detects that
+the existing cookies are stale (e.g. yt-dlp fails with a sign-in
+redirect AND no manual upload has happened since). A small flag in
+the settings table (`cookies_source = manual | auto`) tracks which
+side wrote the current file so we know whether refreshing is safe.
+
+User-supplied cookies are presumed to be more trustworthy because they
+may include a logged-in session that unlocks additional content
+(age-restricted, region-locked, members-only). Overwriting them with
+anonymous cookies would silently downgrade what works.
+
 ## Worker Behavior
 
 A single asyncio task started at app boot:
