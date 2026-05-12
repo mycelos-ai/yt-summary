@@ -63,6 +63,33 @@ Out of scope (explicitly):
   The render is short enough (Piper is ~5× realtime on Pi 5 for
   medium voices) that polling for a finished file is fine UX.
 
+## Planned: Chunk-Based Render Progress (not yet implemented)
+
+The "polling for a finished file is fine UX" assumption above turned
+out to be optimistic for hour-long transcript renders. On a Pi 5, a
+60-minute audio rendering means ~12 minutes wall time during which the
+modal's `step` reads `rendering audio` with no further detail.
+
+`PiperVoice.synthesize_wav` is atomic from the caller's perspective —
+no internal progress callback. The fix is to chunk the text at sentence
+boundaries (split on `[.!?]+\s+`) and call the already-existing
+`render_chunks_to_mp3(chunks, ...)` helper instead of the single-shot
+`render_text_to_mp3`. Each chunk's completion bumps a `progress(done,
+total)` callback that the worker translates into
+`set_step(f"rendering audio chunk {done}/{total}")`.
+
+Chunking at sentence boundaries means the concat point lands at a
+silence Piper would have emitted anyway — no audible artifacts. Per-
+chunk synthesis does lose some cross-sentence prosody context, but at
+20-30 sentences per chunk it's not perceptible in informal listening
+tests. An explicit A/B comparison should accompany the implementation
+PR before declaring done.
+
+Bonus side effect: per-chunk WAVs land in a temp dir today, but writing
+them to a stable per-job partial dir (e.g.
+`tts-audio/<video_id>/.partial/`) would enable crash-resume on long
+Pi renders. Out of scope for the v1 progress patch.
+
 ## Data Model
 
 ### Language metadata on the `videos` table
