@@ -146,6 +146,25 @@ async def delete(db: aiosqlite.Connection, job_id: int) -> None:
     await db.commit()
 
 
+async def reset_orphaned_active(db: aiosqlite.Connection) -> int:
+    """Called at container startup. tts_jobs left in 'translating' or
+    'rendering' across a restart are orphaned — the in-memory worker
+    that owned them is gone. Reset them to 'queued' so the new worker
+    picks them up.
+
+    Returns the number of rows reset (useful for the boot log).
+    """
+    cursor = await db.execute(
+        """
+        UPDATE tts_jobs
+        SET status='queued', started_at=NULL
+        WHERE status IN ('translating', 'rendering')
+        """
+    )
+    await db.commit()
+    return cursor.rowcount or 0
+
+
 async def list_for_video(db: aiosqlite.Connection, video_id: str) -> list[TtsJob]:
     """Return all tts_jobs for a video. Done rows come first (boolean DESC
     treats true=1 / false=0), newest first within each group."""

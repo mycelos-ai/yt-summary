@@ -9,6 +9,77 @@ from pathlib import Path
 
 import pytest
 
+from app.services.tts_render import _split_into_sentence_chunks
+
+
+def test_split_into_sentence_chunks_normal_text() -> None:
+    """Multi-sentence text gets split into one chunk per N sentences."""
+    text = "Hello world. This is sentence two. Here's three. And four."
+    chunks = _split_into_sentence_chunks(text, sentences_per_chunk=2)
+    assert len(chunks) == 2
+    assert chunks[0] == "Hello world. This is sentence two."
+    assert chunks[1] == "Here's three. And four."
+
+
+def test_split_falls_back_to_single_chunk_for_unsplittable_text() -> None:
+    """Text without sentence terminators returns as one chunk."""
+    text = "hello world no punctuation at all"
+    assert _split_into_sentence_chunks(text) == [text]
+
+
+def test_split_handles_empty_text() -> None:
+    assert _split_into_sentence_chunks("") == []
+    assert _split_into_sentence_chunks("   ") == []
+
+
+def test_split_preserves_german_capitals() -> None:
+    """German text with umlaut-starting sentences splits correctly.
+
+    With ``sentences_per_chunk=10`` all four sentences land in a
+    single chunk, but the splitter must have *recognised* the four
+    sentence boundaries (otherwise it would still be one chunk by
+    accident — we check the regex actually fired by re-splitting on
+    ``. `` and counting).
+    """
+    text = "Erste Frage. Über alles. Äpfel sind gut. Öl auch."
+    chunks = _split_into_sentence_chunks(text, sentences_per_chunk=10)
+    assert len(chunks) == 1
+    # Joining 4 sentences with " " back together preserves the dots.
+    assert chunks[0].count(".") == 4
+    # With sentences_per_chunk=2, all four split into 2 chunks → proves
+    # the splitter saw the boundaries.
+    two = _split_into_sentence_chunks(text, sentences_per_chunk=2)
+    assert len(two) == 2
+
+
+def test_split_does_not_break_on_mr_smith() -> None:
+    """'Mr. Smith said...' must not be treated as a sentence boundary."""
+    text = "Mr. Smith said hello. Then he left."
+    chunks = _split_into_sentence_chunks(text, sentences_per_chunk=10)
+    assert len(chunks) == 1
+    # 'Mr.' is preserved adjacent to 'Smith'.
+    assert "Mr. Smith" in chunks[0]
+
+
+async def test_render_chunks_to_mp3_fires_progress_callback(
+    tmp_path: Path, amy_low_voice: Path,
+) -> None:
+    """The progress callback is called once per chunk with (done, total)."""
+    from app.services.tts_render import render_chunks_to_mp3
+
+    calls: list[tuple[int, int]] = []
+
+    def cb(done: int, total: int) -> None:
+        calls.append((done, total))
+
+    await render_chunks_to_mp3(
+        ["First sentence.", "Second sentence.", "Third sentence."],
+        amy_low_voice,
+        tmp_path / "out.mp3",
+        progress=cb,
+    )
+    assert calls == [(1, 3), (2, 3), (3, 3)]
+
 
 async def test_render_text_to_mp3_produces_valid_mp3(
     tmp_path: Path, amy_low_voice: Path

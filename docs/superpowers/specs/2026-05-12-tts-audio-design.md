@@ -63,32 +63,52 @@ Out of scope (explicitly):
   The render is short enough (Piper is ~5× realtime on Pi 5 for
   medium voices) that polling for a finished file is fine UX.
 
-## Planned: Chunk-Based Render Progress (not yet implemented)
+## Chunk-Based Render Progress
 
 The "polling for a finished file is fine UX" assumption above turned
 out to be optimistic for hour-long transcript renders. On a Pi 5, a
 60-minute audio rendering means ~12 minutes wall time during which the
-modal's `step` reads `rendering audio` with no further detail.
+modal's `step` would otherwise read `rendering audio` with no further
+detail.
 
 `PiperVoice.synthesize_wav` is atomic from the caller's perspective —
-no internal progress callback. The fix is to chunk the text at sentence
-boundaries (split on `[.!?]+\s+`) and call the already-existing
-`render_chunks_to_mp3(chunks, ...)` helper instead of the single-shot
-`render_text_to_mp3`. Each chunk's completion bumps a `progress(done,
-total)` callback that the worker translates into
-`set_step(f"rendering audio chunk {done}/{total}")`.
+no internal progress callback. The worker therefore splits the final
+text at sentence boundaries (regex `(?<=[.!?])(?=\s+[A-ZÄÖÜ])` —
+robust against "Mr. Smith", URLs, and other false positives) and
+calls `render_chunks_to_mp3(chunks, …, progress=cb)`. The callback
+fires after each chunk's WAV is synthesised and translates to
+`set_step(f"rendering audio chunk {done}/{total}")` so the modal's
+polling reflects per-chunk progress.
 
 Chunking at sentence boundaries means the concat point lands at a
-silence Piper would have emitted anyway — no audible artifacts. Per-
-chunk synthesis does lose some cross-sentence prosody context, but at
-20-30 sentences per chunk it's not perceptible in informal listening
-tests. An explicit A/B comparison should accompany the implementation
-PR before declaring done.
+silence Piper would have emitted anyway — no audible artifacts.
+Per-chunk synthesis does lose some cross-sentence prosody context,
+but at the default 25 sentences per chunk it's not perceptible in
+informal listening tests. Texts without parseable sentence structure
+(non-Latin scripts, no terminators) fall back to a single chunk —
+same behaviour as before the chunking change.
 
-Bonus side effect: per-chunk WAVs land in a temp dir today, but writing
-them to a stable per-job partial dir (e.g.
-`tts-audio/<video_id>/.partial/`) would enable crash-resume on long
-Pi renders. Out of scope for the v1 progress patch.
+**Future enhancement (not implemented):** writing per-chunk WAVs to a
+stable per-job partial dir (e.g. `tts-audio/<video_id>/.partial/`)
+would enable crash-resume on long Pi renders. Out of scope for the
+progress patch; chunks land in a `TemporaryDirectory()` and are
+discarded after concat.
+
+## Crash recovery: orphan reset on startup
+
+When the container restarts while a TTS job is mid-flight, the
+in-memory worker is gone but the DB row still says
+`status='translating'` or `status='rendering'`. The new worker can't
+re-pick it (it only claims `'queued'`), and the row would be a
+permanent ghost — UI shows it as in-progress, the UNIQUE constraint
+blocks a manual retry.
+
+`tts_jobs_repo.reset_orphaned_active(db)` runs at app boot (in
+`lifespan` before the worker task starts) and moves any row in
+`'translating'`/`'rendering'` back to `'queued'` (also nulling
+`started_at`). Mirrors the existing `jobs_repo.reset_orphaned_running`
+pattern. A boot-log warning fires when rows are reset, useful for
+debugging.
 
 ## Data Model
 

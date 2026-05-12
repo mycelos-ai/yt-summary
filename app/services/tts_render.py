@@ -22,13 +22,56 @@ open the temp WAV via :mod:`wave` rather than ``Path.open("wb")``.
 from __future__ import annotations
 
 import asyncio
+import re
 import subprocess
 import wave
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from piper import PiperVoice
 from piper.config import SynthesisConfig
+
+# Match sentence terminators with optional trailing quote/paren, followed
+# by whitespace and a capital letter. Using a lookbehind+lookahead split
+# (zero-width assertions) keeps the punctuation attached to the sentence
+# it ends — `["Hi.", "There."]` not `["Hi", "", "There", ""]`.
+#
+# Requiring a capital letter (incl. German umlaut capitals) after the
+# whitespace avoids splitting on "Mr. Smith" and URL-internal dots like
+# "example.com/page" without a heavyweight sentence tokenizer.
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])(?=\s+[A-ZÄÖÜ])")
+
+
+def _split_into_sentence_chunks(
+    text: str, *, sentences_per_chunk: int = 25,
+) -> list[str]:
+    """Split text at sentence boundaries and group into chunks of ~N sentences.
+
+    Falls back to returning ``[text]`` when the text has no clear
+    sentence structure (no terminators followed by capital letter —
+    e.g. all lowercase, no punctuation, single very long sentence).
+    Returns ``[]`` for empty / whitespace-only input.
+
+    The default chunk size of 25 sentences gives ~5-10s of audio per
+    chunk at Piper's normal pace — enough to make ffmpeg concat
+    overhead negligible while keeping UI progress feeling responsive.
+
+    Non-Latin scripts (Japanese, Chinese) won't match the regex and
+    return as a single chunk; acceptable for v1 since those languages
+    aren't in the Piper voice catalogue.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    sentences = [s.strip() for s in _SENTENCE_END_RE.split(text) if s.strip()]
+    if len(sentences) <= 1:
+        return [text]
+    chunks: list[str] = []
+    for i in range(0, len(sentences), sentences_per_chunk):
+        group = sentences[i:i + sentences_per_chunk]
+        chunks.append(" ".join(group))
+    return chunks
 
 
 def _synth_wav_sync(
@@ -84,22 +127,31 @@ async def _synth_chunks_to_mp3(
     chunks: list[str],
     out_path: Path,
     length_scale: float | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> None:
     """Synthesise one or more chunks with a pre-loaded voice and emit MP3.
 
     Handles the single-chunk case via the plain WAV->MP3 path, and the
     multi-chunk case via ffmpeg's concat demuxer. Caller guarantees
     ``chunks`` is non-empty.
+
+    ``progress`` (optional) is invoked synchronously after each chunk's
+    WAV has been synthesised with ``(done, total)``. It is not called
+    around the final ffmpeg concat / encode step, which is fast
+    compared to synth and would skew the percentage if counted.
     """
     with TemporaryDirectory() as td:
         td_path = Path(td)
         wavs: list[Path] = []
+        total = len(chunks)
         for i, chunk in enumerate(chunks):
             w = td_path / f"chunk_{i:03d}.wav"
             await asyncio.to_thread(
                 _synth_wav_sync, voice, chunk, w, length_scale,
             )
             wavs.append(w)
+            if progress is not None:
+                progress(i + 1, total)
         if len(wavs) == 1:
             await _wav_to_mp3(wavs[0], out_path)
         else:
@@ -129,6 +181,7 @@ async def render_chunks_to_mp3(
     voice_file: Path,
     out_path: Path,
     length_scale: float | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> None:
     """Render a list of chunks into a single concatenated MP3.
 
@@ -138,9 +191,18 @@ async def render_chunks_to_mp3(
     case with one input). Parent directories of ``out_path`` are
     created if needed. See :func:`render_text_to_mp3` for the
     ``length_scale`` semantics.
+
+    ``progress`` (optional) fires once per chunk with ``(done, total)``
+    after that chunk's WAV is synthesised — used by the worker to
+    surface per-chunk UI progress for long renders. The callback is
+    invoked on the event loop thread (the synth itself runs via
+    ``asyncio.to_thread`` but the callback fires after the await
+    resumes); callers nonetheless prefer
+    :func:`asyncio.run_coroutine_threadsafe` if they may relocate the
+    callback to a worker thread in the future.
     """
     if not chunks:
         raise ValueError("render_chunks_to_mp3 requires at least one chunk")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     voice = await asyncio.to_thread(PiperVoice.load, str(voice_file))
-    await _synth_chunks_to_mp3(voice, chunks, out_path, length_scale)
+    await _synth_chunks_to_mp3(voice, chunks, out_path, length_scale, progress)

@@ -72,17 +72,21 @@ async def test_worker_runs_queued_job_to_done(
         translator_calls.append(text)
         return "Hallo."
 
-    renders: list[tuple[str, Path, Path]] = []
+    renders: list[tuple[list[str], Path, Path]] = []
 
-    async def fake_render(
-        text: str,
+    async def fake_render_chunks(
+        chunks: list[str],
         voice_file: Path,
         out_path: Path,
         length_scale: float | None = None,
+        progress=None,
     ) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"FAKE-MP3")
-        renders.append((text, voice_file, out_path))
+        renders.append((chunks, voice_file, out_path))
+        if progress is not None:
+            for i in range(len(chunks)):
+                progress(i + 1, len(chunks))
 
     async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
         return tmp_path / "fake.onnx"
@@ -91,7 +95,7 @@ async def test_worker_runs_queued_job_to_done(
         db=db,
         config=cfg,
         translate=fake_translate,
-        render_text_to_mp3=fake_render,
+        render_chunks_to_mp3=fake_render_chunks,
         ensure_voice=fake_ensure_voice,
         poll_interval=0.02,
     )
@@ -105,9 +109,10 @@ async def test_worker_runs_queued_job_to_done(
     assert job.translated_text == "Hallo."
     assert translator_calls == ["Hello."]
     assert len(renders) == 1
-    # Rendered with the translated text.
-    rendered_text, _, rendered_out = renders[0]
-    assert rendered_text == "Hallo."
+    # Rendered with the translated text (as a single-chunk list, since
+    # "Hallo." has no second sentence to split on).
+    rendered_chunks, _, rendered_out = renders[0]
+    assert rendered_chunks == ["Hallo."]
     # Path layout: tts-audio/<video_id>/<source>-<target>-<voice>-<quality>.mp3
     expected_rel = Path("tts-audio") / "abc" / "summary-de-thorsten-medium.mp3"
     assert Path(job.audio_path) == expected_rel
@@ -139,16 +144,17 @@ async def test_worker_passes_length_scale_from_settings(
 
     render_kwargs: list[dict] = []
 
-    async def fake_render(
-        text: str,
+    async def fake_render_chunks(
+        chunks: list[str],
         voice_file: Path,
         out_path: Path,
         length_scale: float | None = None,
+        progress=None,
     ) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"FAKE-MP3")
         render_kwargs.append({
-            "text": text, "voice_file": voice_file,
+            "chunks": chunks, "voice_file": voice_file,
             "out_path": out_path, "length_scale": length_scale,
         })
 
@@ -159,7 +165,7 @@ async def test_worker_passes_length_scale_from_settings(
         db=db,
         config=cfg,
         translate=fake_translate,
-        render_text_to_mp3=fake_render,
+        render_chunks_to_mp3=fake_render_chunks,
         ensure_voice=fake_ensure_voice,
         poll_interval=0.02,
     )
@@ -171,6 +177,81 @@ async def test_worker_passes_length_scale_from_settings(
     assert job.status == "done", f"job failed: {job.error}"
     assert len(render_kwargs) == 1
     assert render_kwargs[0]["length_scale"] == 1.2
+
+
+async def test_worker_emits_per_chunk_render_progress_steps(
+    db: aiosqlite.Connection, tmp_path: Path,
+) -> None:
+    """The worker translates per-chunk render progress callbacks into
+    ``set_step`` calls of the form ``"rendering audio chunk N/M"``.
+
+    Seeds a multi-sentence summary so the splitter produces multiple
+    chunks, then verifies the final ``step`` value persisted on the
+    job row matches the last expected chunk-progress string.
+    """
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    # Three sentences → splitter produces 3 chunks at default
+    # sentences_per_chunk=25 (each chunk holds <= 25 sentences, but
+    # since the default is 25 and we only have 3, they'd collapse to
+    # one chunk — so we explicitly use a smaller chunk grouping in the
+    # fake by NOT relying on the default; instead we craft enough
+    # sentences with the default to land on multiple chunks).
+    # Simpler: 3 sentences with sentences_per_chunk=1 — but the worker
+    # uses the default. Easier path: 26 sentences → 2 chunks of 25+1.
+    sentences = " ".join(
+        f"Sentence number {i}." for i in range(1, 27)
+    )
+    await _seed_video_with_summary(
+        db, summary_text=sentences, source_lang="en", summary_lang="en",
+    )
+    await r.enqueue(db, "abc", "summary", "en", "amy", "low")
+
+    async def fake_translate(
+        text: str, *, source_language: str, target_language: str, complete, **kw
+    ) -> str:
+        return text
+
+    progress_calls: list[tuple[int, int]] = []
+
+    async def fake_render_chunks(
+        chunks: list[str],
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+        progress=None,
+    ) -> None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"FAKE-MP3")
+        if progress is not None:
+            for i in range(len(chunks)):
+                progress(i + 1, len(chunks))
+                # Yield to the loop so the run_coroutine_threadsafe
+                # scheduled set_step actually runs before we move on.
+                await asyncio.sleep(0)
+        progress_calls.extend([(i + 1, len(chunks)) for i in range(len(chunks))])
+
+    async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
+        return tmp_path / "fake.onnx"
+
+    worker = TtsWorker(
+        db=db,
+        config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render_chunks,
+        ensure_voice=fake_ensure_voice,
+        poll_interval=0.02,
+    )
+    await _drain(db, worker, "abc")
+
+    rows = await r.list_for_video(db, "abc")
+    assert rows
+    job = rows[0]
+    assert job.status == "done", f"job failed: {job.error}"
+    # The splitter produced 2 chunks (26 sentences at 25/chunk → 25 + 1).
+    assert progress_calls == [(1, 2), (2, 2)]
+    # Final step persisted on the row is the last chunk-progress string.
+    assert job.step == "rendering audio chunk 2/2"
 
 
 async def test_worker_skips_translation_when_languages_match(
@@ -193,17 +274,18 @@ async def test_worker_skips_translation_when_languages_match(
         translator_calls.append(text)
         return "SHOULD NOT BE CALLED"
 
-    renders: list[str] = []
+    renders: list[list[str]] = []
 
-    async def fake_render(
-        text: str,
+    async def fake_render_chunks(
+        chunks: list[str],
         voice_file: Path,
         out_path: Path,
         length_scale: float | None = None,
+        progress=None,
     ) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"FAKE-MP3")
-        renders.append(text)
+        renders.append(chunks)
 
     async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
         return tmp_path / "fake.onnx"
@@ -212,7 +294,7 @@ async def test_worker_skips_translation_when_languages_match(
         db=db,
         config=cfg,
         translate=fake_translate,
-        render_text_to_mp3=fake_render,
+        render_chunks_to_mp3=fake_render_chunks,
         ensure_voice=fake_ensure_voice,
         poll_interval=0.02,
     )
@@ -224,4 +306,4 @@ async def test_worker_skips_translation_when_languages_match(
     assert job.status == "done", f"job failed: {job.error}"
     assert translator_calls == []
     assert job.translated_text is None
-    assert renders == ["Hallo Welt."]
+    assert renders == [["Hallo Welt."]]
