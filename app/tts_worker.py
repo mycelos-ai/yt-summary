@@ -153,8 +153,18 @@ class TtsWorker:
         # Step 1: translate if source and target differ. When source
         # language is unknown we skip translation rather than risk
         # asking the LLM to translate from a wrong assumed language.
-        translated_text: str | None = None
-        if source_lang and source_lang != target_lang:
+        #
+        # If a previous run already produced a translation (and crashed
+        # before completing the render), reuse it instead of paying for
+        # the LLM call a second time. The `translated_text` column is
+        # written immediately after translate() returns — see below.
+        translated_text: str | None = job.translated_text
+        needs_translation = bool(
+            source_lang
+            and source_lang != target_lang
+            and not translated_text
+        )
+        if needs_translation:
             await set_step("translating")
             complete = await self._build_complete()
             chunks_step_total = {"n": 0}
@@ -175,9 +185,17 @@ class TtsWorker:
                 complete=complete,
                 progress=_progress,
             )
-            final_text = translated_text
-        else:
-            final_text = text
+            # Persist immediately so a restart between here and complete()
+            # doesn't waste the LLM call. complete() will rewrite the
+            # same value at job end — harmless idempotent double-write.
+            await tts_jobs_repo.set_translated_text(
+                self._db, job_id, translated_text,
+            )
+        elif translated_text:
+            # Resuming from a prior crashed run — signal the reuse in the UI.
+            await set_step("translation reused from prior run")
+
+        final_text = translated_text if translated_text else text
 
         # Step 2: status → rendering.
         await tts_jobs_repo.set_status(self._db, job_id, "rendering")

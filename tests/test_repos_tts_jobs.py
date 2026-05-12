@@ -59,6 +59,17 @@ async def test_set_step_updates_progress(db: aiosqlite.Connection):
     assert fresh.step == "rendering chunk 2/5"
 
 
+async def test_set_translated_text_persists_value(db: aiosqlite.Connection):
+    """The mid-flight setter writes translated_text so a container
+    restart between translate() and complete() doesn't lose the work."""
+    await _video(db, "abc")
+    job = await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")
+    await r.set_translated_text(db, job.id, "Hallo Welt.")
+    fresh = await r.get(db, job.id)
+    assert fresh is not None
+    assert fresh.translated_text == "Hallo Welt."
+
+
 async def test_complete_marks_done_with_audio_path(db: aiosqlite.Connection):
     await _video(db, "abc")
     j = await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")

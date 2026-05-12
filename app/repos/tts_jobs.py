@@ -102,6 +102,22 @@ async def set_status(db: aiosqlite.Connection, job_id: int, status: str) -> None
     await db.commit()
 
 
+async def set_translated_text(
+    db: aiosqlite.Connection, job_id: int, text: str,
+) -> None:
+    """Persist the translated text for a TTS job mid-flight.
+
+    Called by the worker right after translate() succeeds, BEFORE the
+    render step. Lets a container restart resume directly into rendering
+    without re-running the LLM translation.
+    """
+    await db.execute(
+        "UPDATE tts_jobs SET translated_text=? WHERE id=?",
+        (text, job_id),
+    )
+    await db.commit()
+
+
 async def complete(
     db: aiosqlite.Connection,
     job_id: int,

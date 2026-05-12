@@ -254,6 +254,129 @@ async def test_worker_emits_per_chunk_render_progress_steps(
     assert job.step == "rendering audio chunk 2/2"
 
 
+async def test_worker_persists_translation_before_render(
+    db: aiosqlite.Connection, tmp_path: Path
+) -> None:
+    """The worker MUST write translated_text to the DB before the
+    render step begins, so a container crash mid-render doesn't waste
+    the LLM translation work. We verify this by having the fake render
+    read the DB and assert the column is already populated by the time
+    it runs."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary(
+        db, summary_text="Hello.", source_lang="en", summary_lang="en",
+    )
+    await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")
+
+    async def fake_translate(
+        text: str, *, source_language: str, target_language: str, complete, **kw
+    ) -> str:
+        return "Hallo."
+
+    translated_at_render_time: list[str | None] = []
+
+    async def fake_render_chunks(
+        chunks: list[str],
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+        progress=None,
+    ) -> None:
+        # Capture the persisted translated_text at the moment render
+        # starts — proves persistence happened before render, not at
+        # job-completion time.
+        rows = await r.list_for_video(db, "abc")
+        translated_at_render_time.append(
+            rows[0].translated_text if rows else None
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"FAKE-MP3")
+
+    async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
+        return tmp_path / "fake.onnx"
+
+    worker = TtsWorker(
+        db=db,
+        config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render_chunks,
+        ensure_voice=fake_ensure_voice,
+        poll_interval=0.02,
+    )
+    await _drain(db, worker, "abc")
+
+    rows = await r.list_for_video(db, "abc")
+    assert rows
+    job = rows[0]
+    assert job.status == "done", f"job failed: {job.error}"
+    # The render-time snapshot shows translated_text was already there.
+    assert translated_at_render_time == ["Hallo."]
+    # And of course the final row still has it.
+    assert job.translated_text == "Hallo."
+
+
+async def test_worker_skips_translation_when_already_persisted(
+    db: aiosqlite.Connection, tmp_path: Path
+) -> None:
+    """Crash-resume case: when claim_next returns a job that already
+    has translated_text set (because a prior run translated then
+    crashed), the worker MUST skip translate() and use the cached text
+    for rendering. We assert this by injecting a fake_translate that
+    raises if invoked."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary(
+        db, summary_text="Hello.", source_lang="en", summary_lang="en",
+    )
+    job = await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")
+    # Simulate the prior crashed run having persisted a translation.
+    await r.set_translated_text(db, job.id, "Hallo aus dem Cache.")
+
+    async def fake_translate(
+        text: str, *, source_language: str, target_language: str, complete, **kw
+    ) -> str:
+        raise AssertionError(
+            "translate() must not be called when translated_text is cached"
+        )
+
+    renders: list[list[str]] = []
+
+    async def fake_render_chunks(
+        chunks: list[str],
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+        progress=None,
+    ) -> None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"FAKE-MP3")
+        renders.append(chunks)
+
+    async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
+        return tmp_path / "fake.onnx"
+
+    worker = TtsWorker(
+        db=db,
+        config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render_chunks,
+        ensure_voice=fake_ensure_voice,
+        poll_interval=0.02,
+    )
+    await _drain(db, worker, "abc")
+
+    rows = await r.list_for_video(db, "abc")
+    assert rows
+    finished = rows[0]
+    assert finished.status == "done", f"job failed: {finished.error}"
+    # The cached translation was used for rendering — not the original
+    # source text.
+    assert renders == [["Hallo aus dem Cache."]]
+    # And it survived into the final row.
+    assert finished.translated_text == "Hallo aus dem Cache."
+
+
 async def test_worker_skips_translation_when_languages_match(
     db: aiosqlite.Connection, tmp_path: Path
 ) -> None:
