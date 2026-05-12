@@ -59,3 +59,60 @@ def test_voice_download_url_en_gb_uses_correct_region():
     from app.services.tts_voices import voice_download_urls
     onnx_url, _ = voice_download_urls("en_GB", "alba", "medium")
     assert "en/en_GB/alba/medium/en_GB-alba-medium.onnx" in onnx_url
+
+
+async def test_download_voice_writes_both_files_atomically(tmp_path):
+    """Voice download writes via .partial and renames atomically.
+    Both .onnx and .onnx.json must end up present."""
+    import respx
+    from httpx import Response
+    from app.services.tts_voices import (
+        download_voice, voice_file_path, voice_download_urls,
+    )
+
+    onnx_url, json_url = voice_download_urls("de", "thorsten", "medium")
+    with respx.mock() as mock:
+        mock.get(onnx_url).mock(return_value=Response(200, content=b"FAKE-ONNX"))
+        mock.get(json_url).mock(return_value=Response(200, content=b"{}"))
+        await download_voice(
+            tmp_path, "de", "thorsten", "medium",
+            progress=None,
+        )
+    p = voice_file_path(tmp_path, "de", "thorsten", "medium")
+    assert p.read_bytes() == b"FAKE-ONNX"
+    assert (p.parent / (p.name + ".json")).read_bytes() == b"{}"
+    # No leftover .partial files
+    assert not any(p.parent.glob("*.partial"))
+
+
+async def test_download_voice_skips_when_already_present(tmp_path):
+    """If both files exist, download is a no-op (no HTTP)."""
+    import respx
+    from app.services.tts_voices import (
+        download_voice, voice_file_path,
+    )
+    p = voice_file_path(tmp_path, "de", "thorsten", "medium")
+    p.write_bytes(b"existing")
+    (p.parent / (p.name + ".json")).write_bytes(b"{}")
+    with respx.mock() as mock:
+        # No routes mocked — any HTTP would error
+        await download_voice(tmp_path, "de", "thorsten", "medium", progress=None)
+        assert not mock.calls
+
+
+async def test_download_voice_cleans_partial_on_failure(tmp_path):
+    """If the .onnx download fails mid-way, no .partial remains."""
+    import httpx
+    import pytest
+    import respx
+    from httpx import Response
+    from app.services.tts_voices import download_voice, voice_download_urls
+
+    onnx_url, _ = voice_download_urls("de", "thorsten", "medium")
+    with respx.mock() as mock:
+        mock.get(onnx_url).mock(return_value=Response(500))
+        with pytest.raises(httpx.HTTPError):
+            await download_voice(tmp_path, "de", "thorsten", "medium",
+                                 progress=None)
+    assert not any(tmp_path.glob("*.partial"))
+    assert not any(tmp_path.glob("*.onnx"))
