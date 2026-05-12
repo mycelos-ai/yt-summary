@@ -49,7 +49,16 @@ class _TranslateFn(Protocol):
     ) -> str: ...
 
 
-RenderFn = Callable[[str, Path, Path], Awaitable[None]]
+class RenderFn(Protocol):
+    async def __call__(
+        self,
+        text: str,
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = ...,
+    ) -> None: ...
+
+
 EnsureVoiceFn = Callable[[str, str, str], Awaitable[Path]]
 
 
@@ -171,14 +180,34 @@ class TtsWorker:
             target_lang, job.voice, job.quality,
         )
 
-        # Step 4: render to MP3.
+        # Step 4: render to MP3. The global speech-speed setting is
+        # read at render time (cheap query, keeps the worker reactive
+        # to settings changes mid-run, same pattern as _build_complete).
+        # An unparseable value is logged and ignored so a bad setting
+        # can't wedge the queue — render simply falls back to the
+        # voice's built-in default.
+        settings = await settings_repo.get_all(self._db)
+        length_scale_raw = settings.get(
+            "default_tts_length_scale", ""
+        ).strip()
+        length_scale: float | None = None
+        if length_scale_raw:
+            try:
+                length_scale = float(length_scale_raw)
+            except ValueError:
+                log.warning(
+                    "ignoring invalid default_tts_length_scale=%r",
+                    length_scale_raw,
+                )
         await set_step("rendering audio")
         out_path = (
             self._config.tts_audio_dir
             / job.video_id
             / f"{job.source}-{target_lang}-{job.voice}-{job.quality}.mp3"
         )
-        await self._render(final_text, voice_path, out_path)
+        await self._render(
+            final_text, voice_path, out_path, length_scale=length_scale,
+        )
 
         # Step 5: ffprobe for duration (best-effort, nullable).
         duration = await _probe_duration(out_path)

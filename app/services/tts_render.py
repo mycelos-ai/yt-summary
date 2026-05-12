@@ -28,12 +28,29 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from piper import PiperVoice
+from piper.config import SynthesisConfig
 
 
-def _synth_wav_sync(voice: PiperVoice, text: str, out_wav: Path) -> None:
-    """Synthesise a single chunk to WAV with an already-loaded voice. Blocking."""
+def _synth_wav_sync(
+    voice: PiperVoice,
+    text: str,
+    out_wav: Path,
+    length_scale: float | None = None,
+) -> None:
+    """Synthesise a single chunk to WAV with an already-loaded voice. Blocking.
+
+    ``length_scale`` controls speech rate: < 1.0 is faster, > 1.0 is
+    slower. When ``None``, Piper's per-voice default is used (we don't
+    build a :class:`SynthesisConfig` at all, so other defaults like
+    ``volume`` stay untouched).
+    """
+    syn_config = (
+        SynthesisConfig(length_scale=length_scale)
+        if length_scale is not None
+        else None
+    )
     with wave.open(str(out_wav), "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
+        voice.synthesize_wav(text, wav_file, syn_config=syn_config)
 
 
 async def _wav_to_mp3(wav: Path, mp3: Path) -> None:
@@ -63,7 +80,10 @@ async def _concat_wavs_to_mp3(wavs: list[Path], manifest: Path, mp3: Path) -> No
 
 
 async def _synth_chunks_to_mp3(
-    voice: PiperVoice, chunks: list[str], out_path: Path
+    voice: PiperVoice,
+    chunks: list[str],
+    out_path: Path,
+    length_scale: float | None = None,
 ) -> None:
     """Synthesise one or more chunks with a pre-loaded voice and emit MP3.
 
@@ -76,7 +96,9 @@ async def _synth_chunks_to_mp3(
         wavs: list[Path] = []
         for i, chunk in enumerate(chunks):
             w = td_path / f"chunk_{i:03d}.wav"
-            await asyncio.to_thread(_synth_wav_sync, voice, chunk, w)
+            await asyncio.to_thread(
+                _synth_wav_sync, voice, chunk, w, length_scale,
+            )
             wavs.append(w)
         if len(wavs) == 1:
             await _wav_to_mp3(wavs[0], out_path)
@@ -85,20 +107,28 @@ async def _synth_chunks_to_mp3(
 
 
 async def render_text_to_mp3(
-    text: str, voice_file: Path, out_path: Path
+    text: str,
+    voice_file: Path,
+    out_path: Path,
+    length_scale: float | None = None,
 ) -> None:
     """Render a single text string to an MP3 file at ``out_path``.
 
     The voice model is loaded once for this call. Parent directories
-    of ``out_path`` are created if needed.
+    of ``out_path`` are created if needed. ``length_scale`` < 1.0 is
+    faster, > 1.0 is slower; ``None`` leaves the voice's built-in
+    default in place.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     voice = await asyncio.to_thread(PiperVoice.load, str(voice_file))
-    await _synth_chunks_to_mp3(voice, [text], out_path)
+    await _synth_chunks_to_mp3(voice, [text], out_path, length_scale)
 
 
 async def render_chunks_to_mp3(
-    chunks: list[str], voice_file: Path, out_path: Path
+    chunks: list[str],
+    voice_file: Path,
+    out_path: Path,
+    length_scale: float | None = None,
 ) -> None:
     """Render a list of chunks into a single concatenated MP3.
 
@@ -106,10 +136,11 @@ async def render_chunks_to_mp3(
     reused for every chunk. A single-chunk list short-circuits to the
     plain WAV->MP3 path (avoiding a known ffmpeg concat-demuxer edge
     case with one input). Parent directories of ``out_path`` are
-    created if needed.
+    created if needed. See :func:`render_text_to_mp3` for the
+    ``length_scale`` semantics.
     """
     if not chunks:
         raise ValueError("render_chunks_to_mp3 requires at least one chunk")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     voice = await asyncio.to_thread(PiperVoice.load, str(voice_file))
-    await _synth_chunks_to_mp3(voice, chunks, out_path)
+    await _synth_chunks_to_mp3(voice, chunks, out_path, length_scale)

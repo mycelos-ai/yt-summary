@@ -499,6 +499,13 @@
         <small>The Listen dialog falls back to the closest available quality if the chosen voice doesn't ship at this tier.</small>
       </label>
 
+      <label class="settings-field">
+        <span class="settings-label">Speech speed</span>
+        <input name="default_tts_length_scale" type="number" min="0.5" max="2.0" step="0.05"
+               value="{{ settings.get('default_tts_length_scale', '1.00') }}">
+        <small>1.0 = default. Lower = faster, higher = slower. The German voices in particular tend to feel rushed — try 1.15–1.25. Range 0.5–2.0.</small>
+      </label>
+
       <div class="settings-field">
         <span class="settings-label">Voice cache</span>
         <p class="settings-card-sub">

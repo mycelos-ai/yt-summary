@@ -74,7 +74,12 @@ async def test_worker_runs_queued_job_to_done(
 
     renders: list[tuple[str, Path, Path]] = []
 
-    async def fake_render(text: str, voice_file: Path, out_path: Path) -> None:
+    async def fake_render(
+        text: str,
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+    ) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"FAKE-MP3")
         renders.append((text, voice_file, out_path))
@@ -111,6 +116,63 @@ async def test_worker_runs_queued_job_to_done(
     assert rendered_out.exists()
 
 
+async def test_worker_passes_length_scale_from_settings(
+    db: aiosqlite.Connection, tmp_path: Path
+) -> None:
+    """The worker must read ``default_tts_length_scale`` from settings
+    and forward it as a kwarg to the render function so per-install
+    speech-speed tuning actually reaches Piper."""
+    from app.repos import settings as settings_repo
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary(
+        db, summary_text="Hello.", source_lang="de", summary_lang="de",
+    )
+    await settings_repo.set(db, "default_tts_length_scale", "1.20")
+    await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")
+
+    async def fake_translate(
+        text: str, *, source_language: str, target_language: str, complete, **kw
+    ) -> str:
+        return text
+
+    render_kwargs: list[dict] = []
+
+    async def fake_render(
+        text: str,
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+    ) -> None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"FAKE-MP3")
+        render_kwargs.append({
+            "text": text, "voice_file": voice_file,
+            "out_path": out_path, "length_scale": length_scale,
+        })
+
+    async def fake_ensure_voice(language: str, voice: str, quality: str) -> Path:
+        return tmp_path / "fake.onnx"
+
+    worker = TtsWorker(
+        db=db,
+        config=cfg,
+        translate=fake_translate,
+        render_text_to_mp3=fake_render,
+        ensure_voice=fake_ensure_voice,
+        poll_interval=0.02,
+    )
+    await _drain(db, worker, "abc")
+
+    rows = await r.list_for_video(db, "abc")
+    assert rows
+    job = rows[0]
+    assert job.status == "done", f"job failed: {job.error}"
+    assert len(render_kwargs) == 1
+    assert render_kwargs[0]["length_scale"] == 1.2
+
+
 async def test_worker_skips_translation_when_languages_match(
     db: aiosqlite.Connection, tmp_path: Path
 ) -> None:
@@ -133,7 +195,12 @@ async def test_worker_skips_translation_when_languages_match(
 
     renders: list[str] = []
 
-    async def fake_render(text: str, voice_file: Path, out_path: Path) -> None:
+    async def fake_render(
+        text: str,
+        voice_file: Path,
+        out_path: Path,
+        length_scale: float | None = None,
+    ) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"FAKE-MP3")
         renders.append(text)

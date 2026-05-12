@@ -196,6 +196,7 @@ async def save_settings(
     default_tts_voice_fr: str = Form(""),
     default_tts_voice_es: str = Form(""),
     default_tts_quality: str = Form("medium"),
+    default_tts_length_scale: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM and httpx clients append paths to base; a trailing "/"
@@ -228,6 +229,26 @@ async def save_settings(
             await settings_repo.set(db, key, value)
         else:
             await settings_repo.delete(db, key)
+    # Speech speed: must be a float in [0.5, 2.0]. Anything outside
+    # that range (or unparseable) clears the setting so the renderer
+    # falls back to the voice's built-in default — better than letting
+    # a user accidentally save length_scale=50 and produce minutes of
+    # silence per sentence.
+    raw_length_scale = default_tts_length_scale.strip()
+    if raw_length_scale:
+        try:
+            v = float(raw_length_scale)
+        except ValueError:
+            await settings_repo.delete(db, "default_tts_length_scale")
+        else:
+            if 0.5 <= v <= 2.0:
+                await settings_repo.set(
+                    db, "default_tts_length_scale", f"{v:.2f}",
+                )
+            else:
+                await settings_repo.delete(db, "default_tts_length_scale")
+    else:
+        await settings_repo.delete(db, "default_tts_length_scale")
     if llm_api_key:
         await settings_repo.set(db, "llm_api_key", llm_api_key)
     if whisper_api_key:

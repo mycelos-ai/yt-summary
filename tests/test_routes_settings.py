@@ -943,6 +943,78 @@ def test_save_settings_persists_tts_defaults(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(check())
 
 
+def test_save_settings_persists_tts_length_scale(tmp_path, monkeypatch):
+    """A valid length_scale (in [0.5, 2.0]) is persisted formatted to
+    two decimals — keeps storage tidy so the form re-renders the same
+    value the user typed without floating-point noise."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings",
+            data={
+                "llm_model": "openai/gpt-4o",
+                "llm_api_key": "",
+                "llm_base_url": "",
+                "whisper_model": "small",
+                "default_tts_length_scale": "1.20",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code in (200, 303)
+
+        async def check():
+            from app.repos import settings as settings_repo
+            assert (
+                await settings_repo.get(
+                    app.state.db, "default_tts_length_scale"
+                )
+                == "1.20"
+            )
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_save_settings_rejects_out_of_range_length_scale(tmp_path, monkeypatch):
+    """Values outside [0.5, 2.0] (here: 5.0) must clear the setting
+    rather than save it — better to fall back to the voice default
+    than ship the user a 5x-slow render they didn't ask for."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Seed a prior valid value so we can confirm it gets deleted.
+        async def seed():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(
+                app.state.db, "default_tts_length_scale", "1.20"
+            )
+
+        asyncio.get_event_loop().run_until_complete(seed())
+        resp = client.post(
+            "/settings",
+            data={
+                "llm_model": "openai/gpt-4o",
+                "llm_api_key": "",
+                "llm_base_url": "",
+                "whisper_model": "small",
+                "default_tts_length_scale": "5.0",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code in (200, 303)
+
+        async def check():
+            from app.repos import settings as settings_repo
+            s = await settings_repo.get_all(app.state.db)
+            assert "default_tts_length_scale" not in s
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
 def test_settings_shows_voice_cache_size(tmp_path, monkeypatch):
     """Pre-create two fake .onnx voice files in the cache dir; the
     settings page reports the count and total size in MB."""

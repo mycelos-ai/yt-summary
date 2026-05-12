@@ -79,3 +79,23 @@ async def test_render_chunks_single_chunk_produces_valid_mp3(
     assert out.stat().st_size > 1000
     head = out.read_bytes()[:3]
     assert head[:3] == b"ID3" or head[0] == 0xFF
+
+
+async def test_render_respects_length_scale(
+    tmp_path: Path, amy_low_voice: Path
+) -> None:
+    """``length_scale`` > 1.0 must produce a longer (= larger MP3 at
+    128 kbps CBR) render than ``length_scale`` < 1.0 for the same
+    input text. This pins down that the Piper SynthesisConfig is
+    actually being passed through, not silently dropped on the floor."""
+    from app.services.tts_render import render_text_to_mp3
+
+    fast = tmp_path / "fast.mp3"
+    slow = tmp_path / "slow.mp3"
+    text = "Hello world, this is a test of speech rate."
+    await render_text_to_mp3(text, amy_low_voice, fast, length_scale=0.7)
+    await render_text_to_mp3(text, amy_low_voice, slow, length_scale=1.5)
+    # Slow rendering should produce at least 1.4x the bytes of fast.
+    # Both files share the same MP3 header overhead; at 128 kbps CBR
+    # the difference scales near-linearly with audio duration.
+    assert slow.stat().st_size > 1.4 * fast.stat().st_size
