@@ -9,6 +9,7 @@ from app.models import VideoKind
 from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
 from app.repos import tags as tags_repo
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
 from app.services.markdown import render_markdown
 from app.services.reader import fetch_article
@@ -379,6 +380,7 @@ async def video_detail(
     # Parse the JSON-stored transcript segments into render-ready blocks.
     # The template falls back to the plain transcript if blocks is empty.
     transcript_blocks = _parse_transcript_blocks(video)
+    audio_renderings = await tts_jobs_repo.list_for_video(db, video_id)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -391,6 +393,7 @@ async def video_detail(
             "elapsed_s": _elapsed_seconds(job),
             "transcript_blocks": transcript_blocks,
             "current_user": current_user,
+            "renderings": audio_renderings,
         },
     )
 

@@ -225,3 +225,127 @@ async def test_init_schema_default_user_has_no_key(db: aiosqlite.Connection):
     assert row is not None
     assert row[0] is None
     assert row[1] is None
+
+
+def test_db_has_tts_jobs_table_and_language_columns(tmp_path, monkeypatch):
+    """tts_jobs table exists; videos gains three nullable language
+    columns (source_language, summary_language, transcript_language).
+    Summaries and transcripts live as columns ON videos in this
+    schema — there are no separate summaries/transcripts tables."""
+    import asyncio
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+
+    async def check():
+        from app.config import Config
+        from app.db import connect, init_schema
+        cfg = Config(data_dir=tmp_path)
+        cfg.ensure_dirs()
+        db = await connect(cfg)
+        try:
+            await init_schema(db)
+            # tts_jobs columns
+            async with db.execute("PRAGMA table_info(tts_jobs)") as cur:
+                cols = {row[1] for row in await cur.fetchall()}
+            for expected in (
+                "id", "video_id", "source", "target_language", "voice",
+                "quality", "status", "step", "translated_text",
+                "audio_path", "duration_seconds", "error",
+                "created_at", "started_at", "finished_at",
+            ):
+                assert expected in cols, f"missing column: {expected}"
+            # Three new language columns on videos
+            async with db.execute("PRAGMA table_info(videos)") as cur:
+                v_cols = {row[1] for row in await cur.fetchall()}
+            for c in ("source_language", "summary_language", "transcript_language"):
+                assert c in v_cols, f"videos missing column: {c}"
+        finally:
+            await db.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(check())
+    finally:
+        loop.close()
+
+
+def test_tts_jobs_check_constraint_rejects_invalid_source(tmp_path, monkeypatch):
+    """The source CHECK should reject anything other than
+    'summary' or 'transcript'."""
+    import asyncio
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+
+    async def check():
+        import aiosqlite
+
+        from app.config import Config
+        from app.db import connect, init_schema
+        cfg = Config(data_dir=tmp_path)
+        cfg.ensure_dirs()
+        db = await connect(cfg)
+        try:
+            await init_schema(db)
+            # Need a parent video row first so FK doesn't fire first
+            await db.execute(
+                "INSERT INTO videos (id, url, title) VALUES (?, ?, ?)",
+                ("abc", "http://x", "T"),
+            )
+            await db.commit()
+            try:
+                await db.execute(
+                    "INSERT INTO tts_jobs (video_id, source, target_language, "
+                    "voice, quality) VALUES (?, ?, ?, ?, ?)",
+                    ("abc", "BOGUS", "de", "thorsten", "medium"),
+                )
+                await db.commit()
+                raise AssertionError("CHECK should have rejected 'BOGUS'")
+            except aiosqlite.IntegrityError:
+                pass
+        finally:
+            await db.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(check())
+    finally:
+        loop.close()
+
+
+def test_tts_jobs_cascade_deletes_with_video(tmp_path, monkeypatch):
+    """Deleting a video must remove its tts_jobs rows via FK cascade."""
+    import asyncio
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+
+    async def check():
+        from app.config import Config
+        from app.db import connect, init_schema
+        cfg = Config(data_dir=tmp_path)
+        cfg.ensure_dirs()
+        db = await connect(cfg)
+        try:
+            await init_schema(db)
+            await db.execute(
+                "INSERT INTO videos (id, url, title) VALUES (?, ?, ?)",
+                ("abc", "http://x", "T"),
+            )
+            await db.execute(
+                "INSERT INTO tts_jobs (video_id, source, target_language, "
+                "voice, quality) VALUES (?, ?, ?, ?, ?)",
+                ("abc", "summary", "de", "thorsten", "medium"),
+            )
+            await db.commit()
+            await db.execute("DELETE FROM videos WHERE id = 'abc'")
+            await db.commit()
+            async with db.execute(
+                "SELECT COUNT(*) FROM tts_jobs WHERE video_id = 'abc'"
+            ) as cur:
+                row = await cur.fetchone()
+            assert row is not None
+            assert row[0] == 0, "cascade-delete should have removed the tts_jobs row"
+        finally:
+            await db.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(check())
+    finally:
+        loop.close()

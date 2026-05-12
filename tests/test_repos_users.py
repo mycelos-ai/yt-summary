@@ -1,6 +1,9 @@
 import aiosqlite
 
+from app.config import Config
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
+from app.repos import videos as videos_repo
 
 
 async def test_get_default_user_returns_seeded_user(db: aiosqlite.Connection):
@@ -46,3 +49,40 @@ async def test_find_by_api_key_hash_returns_user(db: aiosqlite.Connection):
 async def test_find_by_api_key_hash_returns_none_for_unknown(db: aiosqlite.Connection):
     found = await users_repo.find_by_api_key_hash(db, "no-such-hash")
     assert found is None
+
+
+async def test_delete_user_removes_tts_audio_files(
+    db: aiosqlite.Connection, config: Config
+):
+    """users_repo.delete must also unlink TTS MP3s for videos owned by
+    the deleted profile, otherwise the files become orphaned on disk
+    after the FK cascade nukes the tts_jobs rows."""
+    user = await users_repo.create(db, name="Bob")
+    await videos_repo.upsert_metadata(
+        db,
+        video_id="vidu",
+        url="https://yt/vidu",
+        title="T",
+        description="",
+        thumbnail_path=None,
+        duration_seconds=60,
+        user_id=user.id,
+    )
+    j = await tts_jobs_repo.enqueue(
+        db, "vidu", "summary", "de", "thorsten", "medium"
+    )
+    mp3 = config.tts_audio_dir / "vidu" / "summary-de-thorsten-medium.mp3"
+    mp3.parent.mkdir(parents=True)
+    mp3.write_bytes(b"x")
+    await tts_jobs_repo.complete(
+        db,
+        j.id,
+        audio_path=str(mp3.relative_to(config.data_dir)),
+        duration_seconds=10.0,
+        translated_text=None,
+    )
+
+    await users_repo.delete(db, user.id, data_dir=config.data_dir)
+
+    assert not mp3.exists()
+    assert not (config.tts_audio_dir / "vidu").exists()

@@ -397,13 +397,26 @@ async def _try_download_subtitle(url: str) -> str | None:
         raise
 
 
+_VTT_LANGUAGE_HEADER_RE = re.compile(r"^Language:\s*([a-z]{2})\b", re.M | re.I)
+
+
+def _parse_vtt_language(vtt: str) -> str | None:
+    """Extract the BCP-47-ish two-letter code from the VTT `Language:`
+    header that YouTube emits. Returns None when the header is absent.
+    """
+    m = _VTT_LANGUAGE_HEADER_RE.search(vtt or "")
+    return m.group(1).lower() if m else None
+
+
 async def fetch_subtitles(
     url: str, cookies_path: Path | None
-) -> tuple[str, list[tuple[float, str]], SubtitleSource] | None:
-    """Return (plain_text, segments, source) or None.
+) -> tuple[str, list[tuple[float, str]], SubtitleSource, str | None] | None:
+    """Return (plain_text, segments, source, language) or None.
 
     `segments` is a list of (start_seconds, text) tuples derived from
     the VTT cues — used for timestamped detail-page rendering.
+    `language` is the two-letter code from the VTT `Language:` header
+    (e.g. "en", "de"), or None if the header was absent.
     """
     info = await asyncio.to_thread(_extract_info_with_subs, url, cookies_path)
     manual_url = _pick_subtitle_url(info, "subtitles")
@@ -412,14 +425,14 @@ async def fetch_subtitles(
         if vtt is not None:
             segments = vtt_to_segments(vtt)
             plain = "\n".join(t for _s, t in segments)
-            return plain, segments, "manual_subs"
+            return plain, segments, "manual_subs", _parse_vtt_language(vtt)
     auto_url = _pick_subtitle_url(info, "automatic_captions")
     if auto_url:
         vtt = await _try_download_subtitle(auto_url)
         if vtt is not None:
             segments = vtt_to_segments(vtt)
             plain = "\n".join(t for _s, t in segments)
-            return plain, segments, "auto_subs"
+            return plain, segments, "auto_subs", _parse_vtt_language(vtt)
     return None
 
 

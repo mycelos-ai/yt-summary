@@ -51,6 +51,17 @@ class Video:
     # Bare 11-char YouTube id (separate from `id` so we can dedupe
     # transcripts across profiles). NULL for web articles.
     youtube_id: str | None = None
+    # Language metadata stamped during processing (V6 migration).
+    # `source_language` is what the video is in (best signal across
+    # Whisper / VTT / LLM-detect fallback). `transcript_language`
+    # matches `source_language` in 100% of known cases — kept
+    # separate so later features (e.g. translated transcripts) can
+    # diverge them. `summary_language` is what the summary itself
+    # was generated in (driven by the `summary_language` setting,
+    # which can be "auto" or an explicit two-letter code).
+    source_language: str | None = None
+    summary_language: str | None = None
+    transcript_language: str | None = None
 
 
 @dataclass
@@ -62,6 +73,25 @@ class Job:
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass
+class TtsJob:
+    id: int
+    video_id: str
+    source: str  # 'summary' | 'transcript'
+    target_language: str
+    voice: str
+    quality: str  # 'low' | 'medium' | 'high'
+    status: str  # 'queued' | 'translating' | 'rendering' | 'done' | 'failed'
+    step: str | None
+    translated_text: str | None
+    audio_path: str | None
+    duration_seconds: float | None
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
 
 
 @dataclass

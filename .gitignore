@@ -29,7 +29,8 @@ drown*.png
 
 # Local Piper-voice and TTS test artifacts dropped at repo root
 # during manual experiments. Voice models live in `data/tts-voices/`
-# at runtime — they should never end up in git.
+# at runtime — they should never end up in git. Test voices are
+# cached under ~/.cache/yt-summary-test-voices/ (see tests/conftest.py).
 *.onnx
 *.onnx.json
 test.wav

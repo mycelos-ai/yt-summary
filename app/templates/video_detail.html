@@ -73,6 +73,8 @@
 
   {% include "video_summary_section.html" %}
 
+  {% include "audio_renderings_block.html" %}
+
   {% if video.transcript %}
     <details class="transcript">
       <summary class="section-heading">
@@ -83,9 +85,17 @@
             Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
           {% endif %}
         </span>
-        <a class="section-download" href="/v/{{ video.id }}/transcript.md"
-           title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
-           onclick="event.stopPropagation()">↓ .md</a>
+        <span class="section-controls">
+          <a class="section-download" href="/v/{{ video.id }}/transcript.md"
+             title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
+             onclick="event.stopPropagation()">↓ .md</a>
+          <button type="button" class="section-download"
+                  hx-get="/v/{{ video.id }}/audio?source=transcript"
+                  hx-target="#audio-modal-content"
+                  hx-swap="innerHTML"
+                  onclick="event.stopPropagation()"
+                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %}">🎧 Audio</button>
+        </span>
       </summary>
       {% if transcript_blocks and video.kind.value != 'web' %}
         <div class="transcript-body">
@@ -133,6 +143,50 @@
       </p>
     </section>
   {% endif %}
+
+  {# Audio modal. A native <dialog> kept at the end of the article so
+     opening it doesn't depend on scroll position — clicking either
+     section's "🎧 Audio" button (Summary heading or Transcript
+     heading) injects the form into `#audio-modal-content` and the
+     `htmx:afterSwap` hook below calls `.showModal()` to center it
+     in the viewport. Backdrop click + ESC both close. #}
+  <dialog id="audio-modal" class="audio-dialog">
+    <button type="button" class="audio-dialog-close"
+            aria-label="Close"
+            onclick="document.getElementById('audio-modal').close()">×</button>
+    <div id="audio-modal-content"></div>
+  </dialog>
+  <script>
+    (function () {
+      "use strict";
+      const dialog = document.getElementById('audio-modal');
+      const content = document.getElementById('audio-modal-content');
+      if (!dialog || !content) return;
+      // Open the dialog every time HTMX finishes injecting fresh
+      // content into the container. The "done" view replaces the
+      // form inside the same container, so we only call showModal()
+      // when the dialog isn't already open — repeat swaps stay in
+      // the same dialog session.
+      document.body.addEventListener('htmx:afterSwap', function (e) {
+        if (e.target && e.target.id === 'audio-modal-content' && !dialog.open) {
+          dialog.showModal();
+        }
+      });
+      // Native <dialog> doesn't close on backdrop click — the click
+      // event fires on the dialog itself when it lands on the
+      // backdrop (everything inside the dialog body bubbles from
+      // children first), so the target check is reliable.
+      dialog.addEventListener('click', function (e) {
+        if (e.target === dialog) dialog.close();
+      });
+      // Empty the content on close so reopening starts from a clean
+      // slate — otherwise the previous form / done view would flash
+      // before HTMX swaps in the next response.
+      dialog.addEventListener('close', function () {
+        content.innerHTML = '';
+      });
+    })();
+  </script>
 </article>
 
 {% if video.kind.value != 'web' %}

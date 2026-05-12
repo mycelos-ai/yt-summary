@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 import aiosqlite
 
@@ -25,6 +26,19 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         youtube_id = row["youtube_id"]
     except (IndexError, KeyError):
         youtube_id = None
+    # V6: language metadata columns.
+    try:
+        source_language = row["source_language"]
+    except (IndexError, KeyError):
+        source_language = None
+    try:
+        summary_language = row["summary_language"]
+    except (IndexError, KeyError):
+        summary_language = None
+    try:
+        transcript_language = row["transcript_language"]
+    except (IndexError, KeyError):
+        transcript_language = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -42,6 +56,9 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         transcript_segments=segments_raw,
         user_id=user_id,
         youtube_id=youtube_id,
+        source_language=source_language,
+        summary_language=summary_language,
+        transcript_language=transcript_language,
     )
 
 
@@ -88,6 +105,8 @@ async def set_transcript(
     transcript: str,
     source: TranscriptSource,
     segments_json: str | None = None,
+    *,
+    language: str | None = None,
 ) -> None:
     """Save the transcript text plus an optional structured-segments
     JSON for timestamped rendering.
@@ -95,14 +114,33 @@ async def set_transcript(
     `segments_json` is a JSON-serialised list of {"start": float,
     "text": str} entries. None for web articles or transcribers that
     don't expose timing.
+
+    `language`, when provided, stamps both `transcript_language` and
+    `source_language` with the same value (they match in 100% of
+    known cases — keep them separate at the schema level so later
+    features can diverge them without another migration). When
+    `language is None` the language columns are left untouched.
     """
-    await db.execute(
-        """
-        UPDATE videos SET transcript=?, transcript_segments=?,
-        transcript_source=?, updated_at=datetime('now') WHERE id=?
-        """,
-        (transcript, segments_json, source.value, video_id),
-    )
+    if language is None:
+        await db.execute(
+            """
+            UPDATE videos SET transcript=?, transcript_segments=?,
+            transcript_source=?, updated_at=datetime('now') WHERE id=?
+            """,
+            (transcript, segments_json, source.value, video_id),
+        )
+    else:
+        await db.execute(
+            """
+            UPDATE videos SET transcript=?, transcript_segments=?,
+            transcript_source=?, transcript_language=?,
+            source_language=?, updated_at=datetime('now') WHERE id=?
+            """,
+            (
+                transcript, segments_json, source.value,
+                language, language, video_id,
+            ),
+        )
     await db.commit()
 
 
@@ -125,16 +163,68 @@ async def clear_transcript(
     await db.commit()
 
 
+async def set_source_language(
+    db: aiosqlite.Connection,
+    video_id: str,
+    language: str,
+) -> None:
+    """Stamp `source_language` for a video iff it's still NULL.
+
+    Used by the pipeline's LLM-detect fallback so the detected code
+    isn't lost when the user has an explicit `summary_language` set.
+    `set_summary`'s COALESCE-on-summary-language trick handles the
+    auto / matching case, but when the two diverge we need to write
+    the source value through a dedicated path BEFORE `set_summary`
+    runs (otherwise the COALESCE would backfill with the summary
+    language, hiding the actual source language).
+
+    No-op when `language` is empty.
+    """
+    if not language:
+        return
+    await db.execute(
+        """
+        UPDATE videos SET source_language=?, updated_at=datetime('now')
+        WHERE id=? AND source_language IS NULL
+        """,
+        (language, video_id),
+    )
+    await db.commit()
+
+
 async def set_summary(
     db: aiosqlite.Connection,
     video_id: str,
     summary: str,
     model: str,
+    *,
+    language: str | None = None,
 ) -> None:
-    await db.execute(
-        "UPDATE videos SET summary=?, summary_model=?, updated_at=datetime('now') WHERE id=?",
-        (summary, model, video_id),
-    )
+    """Save the rendered summary and its source model.
+
+    `language`, when provided, stamps `summary_language`. If
+    `source_language` is currently NULL we also backfill it with
+    `language` — this is the LLM-detected fallback path for videos
+    that came in without either a Whisper or VTT language signal
+    (e.g. web articles whose author the LLM identified after the
+    summary was generated).
+    """
+    if language is None:
+        await db.execute(
+            "UPDATE videos SET summary=?, summary_model=?, "
+            "updated_at=datetime('now') WHERE id=?",
+            (summary, model, video_id),
+        )
+    else:
+        await db.execute(
+            """
+            UPDATE videos SET summary=?, summary_model=?,
+            summary_language=?,
+            source_language=COALESCE(source_language, ?),
+            updated_at=datetime('now') WHERE id=?
+            """,
+            (summary, model, language, language, video_id),
+        )
     await db.commit()
 
 
@@ -142,6 +232,35 @@ async def get(db: aiosqlite.Connection, video_id: str) -> Video | None:
     cursor = await db.execute("SELECT * FROM videos WHERE id=?", (video_id,))
     row = await cursor.fetchone()
     return _row_to_video(row) if row else None
+
+
+async def delete(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    data_dir: Path,
+) -> None:
+    """Delete a video and all per-video state, including TTS audio files.
+
+    The FK `ON DELETE CASCADE` on tts_jobs.video_id already removes the
+    DB rows. We pre-fetch the audio paths so they can be unlinked from
+    disk after the cascade commits — a SQL trigger calling a UDF would
+    work too, but pre-fetch + unlink keeps the cleanup logic in Python
+    where it's testable and obvious.
+    """
+    cursor = await db.execute(
+        "SELECT audio_path FROM tts_jobs "
+        "WHERE video_id = ? AND audio_path IS NOT NULL",
+        (video_id,),
+    )
+    paths = [row[0] for row in await cursor.fetchall()]
+    await db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    await db.commit()
+    for rel in paths:
+        (data_dir / rel).unlink(missing_ok=True)
+    video_dir = data_dir / "tts-audio" / video_id
+    if video_dir.exists() and not any(video_dir.iterdir()):
+        video_dir.rmdir()
 
 
 _TAG_FILTER_SQL = (

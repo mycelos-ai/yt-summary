@@ -12,8 +12,15 @@
   <h2 class="section-heading">
     Summary
     {% if video.summary %}
-      <a class="section-download" href="/v/{{ video.id }}/summary.md"
-         title="Download summary as Markdown">↓ .md</a>
+      <span class="section-controls">
+        <a class="section-download" href="/v/{{ video.id }}/summary.md"
+           title="Download summary as Markdown">↓ .md</a>
+        <button type="button" class="section-download"
+                hx-get="/v/{{ video.id }}/audio?source=summary"
+                hx-target="#audio-modal-content"
+                hx-swap="innerHTML"
+                title="Generate audio from this summary">🎧 Audio</button>
+      </span>
     {% endif %}
   </h2>
   {% if video.summary %}

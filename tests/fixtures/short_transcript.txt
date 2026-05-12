@@ -1,0 +1,14 @@
+Welcome to today's discussion on the history of computing. We will cover some of the
+most important milestones that shaped the modern digital world, from early mechanical
+calculators to the rise of personal computers and the internet.
+
+In the mid-twentieth century, researchers began building electronic computers that
+could perform complex calculations far faster than any human. Early machines like ENIAC
+filled entire rooms and required teams of engineers to operate them. Despite their size,
+these pioneering systems laid the groundwork for everything that followed.
+
+By the 1970s, advances in semiconductor technology made it possible to fit thousands
+of transistors onto a single chip. This breakthrough led directly to the microprocessor,
+which in turn made the personal computer a practical reality for ordinary people. The
+pace of innovation accelerated rapidly, and within a generation, computing power that
+once required a warehouse could fit comfortably in a pocket.

@@ -447,6 +447,73 @@
         {% endif %}
       </div>
     </section>
+    <!-- ── /Playlists ──────────────────────────────────────────── -->
+
+    <!-- ── Audio (TTS) ─────────────────────────────────────────── -->
+    <section class="settings-card">
+      <header class="settings-card-head">
+        <span class="settings-card-icon" aria-hidden="true">🔊</span>
+        <div class="settings-card-head-text">
+          <h2>Audio (TTS)</h2>
+          <p class="settings-card-sub">Defaults for the "Listen" modal. Voices are downloaded on demand the first time you render in that voice + quality.</p>
+        </div>
+      </header>
+
+      <label class="settings-field">
+        <span class="settings-label">Default language</span>
+        <select name="default_tts_language">
+          {% for code, label in tts_languages %}
+            <option value="{{ code }}" {% if settings.get('default_tts_language', 'auto') == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <small>Picked in the Listen dialog by default. "Auto" uses the video's source language when known.</small>
+      </label>
+
+      {% for lang in tts_voice_langs %}
+        <label class="settings-field">
+          <span class="settings-label">
+            {% if lang == 'de' %}Voice for German
+            {% elif lang == 'en_US' %}Voice for US English
+            {% elif lang == 'en_GB' %}Voice for UK English
+            {% elif lang == 'fr' %}Voice for French
+            {% elif lang == 'es' %}Voice for Spanish
+            {% else %}Voice for {{ lang }}{% endif %}
+          </span>
+          <select name="default_tts_voice_{{ lang }}">
+            <option value="">(first available)</option>
+            {% for v in voices_by_language[lang] %}
+              <option value="{{ v.id }}" {% if settings.get('default_tts_voice_' ~ lang) == v.id %}selected{% endif %}>{{ v.display_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endfor %}
+
+      <label class="settings-field">
+        <span class="settings-label">Default quality</span>
+        <select name="default_tts_quality">
+          {% set current_quality = settings.get('default_tts_quality', 'medium') %}
+          <option value="low" {% if current_quality == 'low' %}selected{% endif %}>Low — fastest, smallest</option>
+          <option value="medium" {% if current_quality == 'medium' %}selected{% endif %}>Medium — balanced</option>
+          <option value="high" {% if current_quality == 'high' %}selected{% endif %}>High — best quality, biggest model</option>
+        </select>
+        <small>The Listen dialog falls back to the closest available quality if the chosen voice doesn't ship at this tier.</small>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Speech speed</span>
+        <input name="default_tts_length_scale" type="number" min="0.5" max="2.0" step="0.05"
+               value="{{ settings.get('default_tts_length_scale', '1.00') }}">
+        <small>1.0 = default. Lower = faster, higher = slower. The German voices in particular tend to feel rushed — try 1.15–1.25. Range 0.5–2.0.</small>
+      </label>
+
+      <div class="settings-field">
+        <span class="settings-label">Voice cache</span>
+        <p class="settings-card-sub">
+          {{ voice_cache_summary.count }} voice{% if voice_cache_summary.count != 1 %}s{% endif %} installed · {{ voice_cache_summary.size_mb }} MB
+        </p>
+      </div>
+    </section>
+    <!-- ── /Audio (TTS) ────────────────────────────────────────── -->
 
     <div class="settings-save-row">
       <button type="submit" class="btn btn-primary">Save</button>

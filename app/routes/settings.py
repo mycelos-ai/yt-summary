@@ -25,6 +25,8 @@ from app.services.providers import (
     list_embedding_models,
     split_ollama_tags,
 )
+from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
+from app.services.tts_voices import voices_for_language
 from app.services.whisper import transcribe, transcribe_via_api
 from app.template_filters import register_filters
 
@@ -35,6 +37,18 @@ register_filters(templates)
 # Bundled audio sample for /settings/test-whisper. Short clip of "This
 # is a test" so the round-trip stays cheap on a Pi5.
 WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
+
+# Languages exposed in the Audio (TTS) settings card. The (code, label)
+# pairs live in app/services/tts_voices.py so the audio modal and
+# settings card share the same flag-prefixed labels; here we just
+# prepend the "Auto" sentinel that's specific to the settings card.
+_TTS_LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("auto",  "Auto (use video's language)"),
+    *_TTS_VOICE_LANGUAGES,
+)
+_TTS_VOICE_LANGS: tuple[str, ...] = tuple(
+    code for code, _ in _TTS_VOICE_LANGUAGES
+)
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -113,6 +127,23 @@ async def settings_page(
         if p.default_embedding:
             preset_embed_models[p.id] = list_embedding_models(p.id)
 
+    # TTS voice cache: scan tts_voices_dir for .onnx files so the card
+    # can surface "N voices installed · M MB" without keeping a separate
+    # index. Cheap — the dir tops out at ~10 files for the curated set.
+    voices_dir = config.tts_voices_dir
+    voice_files = list(voices_dir.glob("*.onnx")) if voices_dir.exists() else []
+    voice_cache_summary = {
+        "count": len(voice_files),
+        "size_mb": round(
+            sum(f.stat().st_size for f in voice_files) / (1024 * 1024)
+        ),
+    }
+    # Pre-compute per-language voice options so the template stays
+    # logic-free; cheaper than registering a Jinja global for the helper.
+    voices_by_language = {
+        lang: voices_for_language(lang) for lang in _TTS_VOICE_LANGS
+    }
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -135,6 +166,10 @@ async def settings_page(
             "scheduler_last_tick_at": settings.get(
                 "scheduler_last_tick_at"
             ),
+            "tts_languages": _TTS_LANGUAGES,
+            "tts_voice_langs": _TTS_VOICE_LANGS,
+            "voices_by_language": voices_by_language,
+            "voice_cache_summary": voice_cache_summary,
         },
     )
 
@@ -153,6 +188,14 @@ async def save_settings(
     playlist_refresh_interval_hours: str = Form(""),
     playlist_refresh_interval_minutes: str = Form(""),
     playlist_initial_import_limit: str = Form("20"),
+    default_tts_language: str = Form("auto"),
+    default_tts_voice_de: str = Form(""),
+    default_tts_voice_en_US: str = Form(""),  # noqa: N803 - locale code is upstream-defined
+    default_tts_voice_en_GB: str = Form(""),  # noqa: N803 - locale code is upstream-defined
+    default_tts_voice_fr: str = Form(""),
+    default_tts_voice_es: str = Form(""),
+    default_tts_quality: str = Form("medium"),
+    default_tts_length_scale: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM and httpx clients append paths to base; a trailing "/"
@@ -171,11 +214,40 @@ async def save_settings(
         ("embedding_base_url", embedding_base_url),
         ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
+        # TTS defaults — empty value clears the key, matching the
+        # set/delete pattern used by every field above.
+        ("default_tts_language", default_tts_language.strip()),
+        ("default_tts_voice_de", default_tts_voice_de.strip()),
+        ("default_tts_voice_en_US", default_tts_voice_en_US.strip()),
+        ("default_tts_voice_en_GB", default_tts_voice_en_GB.strip()),
+        ("default_tts_voice_fr", default_tts_voice_fr.strip()),
+        ("default_tts_voice_es", default_tts_voice_es.strip()),
+        ("default_tts_quality", default_tts_quality.strip()),
     ):
         if value:
             await settings_repo.set(db, key, value)
         else:
             await settings_repo.delete(db, key)
+    # Speech speed: must be a float in [0.5, 2.0]. Anything outside
+    # that range (or unparseable) clears the setting so the renderer
+    # falls back to the voice's built-in default — better than letting
+    # a user accidentally save length_scale=50 and produce minutes of
+    # silence per sentence.
+    raw_length_scale = default_tts_length_scale.strip()
+    if raw_length_scale:
+        try:
+            v = float(raw_length_scale)
+        except ValueError:
+            await settings_repo.delete(db, "default_tts_length_scale")
+        else:
+            if 0.5 <= v <= 2.0:
+                await settings_repo.set(
+                    db, "default_tts_length_scale", f"{v:.2f}",
+                )
+            else:
+                await settings_repo.delete(db, "default_tts_length_scale")
+    else:
+        await settings_repo.delete(db, "default_tts_length_scale")
     if llm_api_key:
         await settings_repo.set(db, "llm_api_key", llm_api_key)
     if whisper_api_key:

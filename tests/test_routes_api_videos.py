@@ -175,3 +175,315 @@ def test_api_accepts_valid_bearer_after_key_set(tmp_path, monkeypatch):
             headers={"Authorization": f"Bearer {plaintext}"},
         )
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------- audio API
+
+
+def _seed_video_and_summary(app, vid, source_language="en"):
+    async def go():
+        from app.models import TranscriptSource
+        from app.repos import videos as vrepo
+        db = app.state.db
+        await vrepo.upsert_metadata(
+            db, video_id=vid, url=f"https://yt/{vid}",
+            title="T", description="", thumbnail_path=None,
+            duration_seconds=60,
+        )
+        await vrepo.set_transcript(
+            db, vid, "x", TranscriptSource.AUTO_SUBS, language=source_language
+        )
+        await vrepo.set_summary(
+            db, vid, "Hello.", "gpt-4o", language=source_language
+        )
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(go())
+
+
+def _seed_tts_job(app, *, video_id, source, target_language, voice, quality,
+                  status="queued", audio_path=None):
+    async def go():
+        db = app.state.db
+        cur = await db.execute(
+            "INSERT INTO tts_jobs (video_id, source, target_language, voice, "
+            "quality, status, audio_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (video_id, source, target_language, voice, quality, status,
+             audio_path),
+        )
+        await db.commit()
+        return cur.lastrowid
+    import asyncio
+    return asyncio.get_event_loop().run_until_complete(go())
+
+
+def test_api_post_audio_enqueues_and_returns_202(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "aud1")
+        resp = client.post(
+            "/api/v1/videos/aud1/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert isinstance(body["job_id"], int)
+    assert body["cached"] is False
+    assert body["audio_url"] is None
+
+
+def test_api_post_audio_returns_200_when_cached(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "aud2")
+        job_id = _seed_tts_job(
+            app, video_id="aud2", source="summary", target_language="de",
+            voice="thorsten", quality="medium",
+            status="done", audio_path="tts/aud2.mp3",
+        )
+        resp = client.post(
+            "/api/v1/videos/aud2/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["job_id"] == job_id
+    assert body["cached"] is True
+    assert body["audio_url"] == f"/v/aud2/audio/file/{job_id}"
+
+
+def test_api_get_audio_status_returns_step_and_url_when_done(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "aud3")
+        done_id = _seed_tts_job(
+            app, video_id="aud3", source="summary", target_language="de",
+            voice="thorsten", quality="medium",
+            status="done", audio_path="tts/aud3.mp3",
+        )
+        queued_id = _seed_tts_job(
+            app, video_id="aud3", source="transcript", target_language="de",
+            voice="thorsten", quality="medium",
+            status="queued",
+        )
+        resp_done = client.get(f"/api/v1/videos/aud3/audio/{done_id}")
+        resp_queued = client.get(f"/api/v1/videos/aud3/audio/{queued_id}")
+    assert resp_done.status_code == 200
+    done_body = resp_done.json()
+    assert done_body["status"] == "done"
+    assert done_body["audio_url"] == f"/v/aud3/audio/file/{done_id}"
+    assert resp_queued.status_code == 200
+    queued_body = resp_queued.json()
+    assert queued_body["status"] == "queued"
+    assert queued_body["audio_url"] is None
+
+
+def test_api_get_audio_status_404_when_job_belongs_to_other_video(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audA")
+        _seed_video_and_summary(app, "audB")
+        job_id = _seed_tts_job(
+            app, video_id="audA", source="summary", target_language="de",
+            voice="thorsten", quality="medium", status="queued",
+        )
+        resp = client.get(f"/api/v1/videos/audB/audio/{job_id}")
+    assert resp.status_code == 404
+
+
+def test_api_post_audio_404_when_video_unknown(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/v1/videos/nope/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 404
+
+
+def test_api_post_audio_400_when_source_not_in_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audS")
+        resp = client.post(
+            "/api/v1/videos/audS/audio",
+            json={
+                "source": "bogus",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_SOURCE"
+
+
+def test_api_post_audio_400_when_voice_invalid_for_language(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audV")
+        resp = client.post(
+            "/api/v1/videos/audV/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "lessac",  # en_US voice, not de
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_VOICE"
+
+
+def test_api_post_audio_400_when_target_language_invalid(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audL")
+        resp = client.post(
+            "/api/v1/videos/audL/audio",
+            json={
+                "source": "summary",
+                "target_language": "xx",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_TARGET_LANGUAGE"
+
+
+def test_api_post_audio_400_when_quality_invalid(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audQ")
+        resp = client.post(
+            "/api/v1/videos/audQ/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "kerstin",  # only ships "low"
+                "quality": "high",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_QUALITY"
+
+
+def test_api_post_audio_persists_explicit_source_language(tmp_path, monkeypatch):
+    """A fresh video with source_language=None and an explicit
+    `source_language` in the body must have its column populated
+    after the POST so the worker translates correctly."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        async def setup():
+            from app.repos import videos as vrepo
+            await vrepo.upsert_metadata(
+                app.state.db, video_id="audSL", url="u", title="T",
+                description="", thumbnail_path=None, duration_seconds=60,
+            )
+            await vrepo.set_summary(
+                app.state.db, "audSL", "Hello.", "gpt-4o", language=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            "/api/v1/videos/audSL/audio",
+            json={
+                "source": "summary",
+                "source_language": "en_US",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+        assert resp.status_code == 202
+
+        async def check():
+            from app.repos import videos as vrepo
+            v = await vrepo.get(app.state.db, "audSL")
+            return v.source_language
+        assert asyncio.get_event_loop().run_until_complete(check()) == "en_US"
+
+
+def test_api_post_audio_400_on_invalid_source_language(tmp_path, monkeypatch):
+    """source_language not in catalogue → 400 INVALID_SOURCE_LANGUAGE."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_and_summary(app, "audSLbad")
+        resp = client.post(
+            "/api/v1/videos/audSLbad/audio",
+            json={
+                "source": "summary",
+                "source_language": "xx",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "INVALID_SOURCE_LANGUAGE"
+
+
+def test_api_post_audio_400_when_source_not_ready(tmp_path, monkeypatch):
+    """Video exists but the requested source text is empty/NULL."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        async def setup():
+            from app.repos import videos as vrepo
+            await vrepo.upsert_metadata(
+                app.state.db, video_id="audN", url="u", title="T",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            "/api/v1/videos/audN/audio",
+            json={
+                "source": "summary",
+                "target_language": "de",
+                "voice": "thorsten",
+                "quality": "medium",
+            },
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"]["code"] == "SOURCE_NOT_READY"

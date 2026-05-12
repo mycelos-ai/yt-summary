@@ -14,8 +14,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.config import Config
 from app.main import (
     PROFILE_COOKIE,
+    get_config,
     get_current_user,
     get_current_user_id,
     get_db,
@@ -208,6 +210,7 @@ async def profile_delete(
     user_id: int,
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
+    config: Config = Depends(get_config),
 ):
     profile = await users_repo.get_by_id(db, user_id)
     if profile is None:
@@ -229,7 +232,7 @@ async def profile_delete(
     except (TypeError, ValueError):
         active_id = 1
 
-    await users_repo.delete(db, user_id)
+    await users_repo.delete(db, user_id, data_dir=config.data_dir)
 
     response = RedirectResponse("/profiles", status_code=303)
     if active_id == user_id:

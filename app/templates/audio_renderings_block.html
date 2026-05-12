@@ -1,0 +1,48 @@
+{# Persistent list of done/in-progress renderings for a video.
+   Re-renders in-place on delete via hx-swap="outerHTML". #}
+<section class="audio-renderings"
+         hx-get="/v/{{ video.id }}/audio/renderings"
+         hx-trigger="audio:rendered from:body"
+         hx-swap="outerHTML">
+  {% if renderings %}
+    <h3 class="section-heading">Audio renderings</h3>
+    <ul class="audio-rendering-list">
+      {% for r in renderings %}
+        <li class="audio-rendering" data-job-id="{{ r.id }}" data-status="{{ r.status }}">
+          <div class="audio-rendering-meta">
+            <strong>{{ r.source }}</strong>
+            <span>· {{ r.target_language }}</span>
+            <span>· {{ r.voice }} ({{ r.quality }})</span>
+            {% if r.duration_seconds %}
+              <span>· {{ r.duration_seconds | int }}s</span>
+            {% endif %}
+          </div>
+          {% if r.status == 'done' %}
+            <audio controls src="/v/{{ video.id }}/audio/file/{{ r.id }}"></audio>
+            <div class="audio-rendering-actions">
+              <a href="/v/{{ video.id }}/audio/file/{{ r.id }}" download>↓ MP3</a>
+              <form hx-post="/v/{{ video.id }}/audio/{{ r.id }}/delete"
+                    hx-target="closest .audio-renderings"
+                    hx-swap="outerHTML"
+                    hx-confirm="Delete this audio rendering?">
+                <button type="submit" class="link-button">Delete</button>
+              </form>
+            </div>
+          {% elif r.status == 'failed' %}
+            <p class="status status-failed">⚠ {{ r.error or 'rendering failed' }}</p>
+            <form hx-post="/v/{{ video.id }}/audio/{{ r.id }}/delete"
+                  hx-target="closest .audio-renderings"
+                  hx-swap="outerHTML">
+              <button type="submit" class="link-button">Dismiss</button>
+            </form>
+          {% else %}
+            <p class="status status-running">
+              <span class="spinner" aria-hidden="true"></span>
+              {{ r.step or r.status }}…
+            </p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>

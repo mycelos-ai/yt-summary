@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS videos (
     -- transcript instead of re-running Whisper. NULL for web articles —
     -- they dedupe by `url` instead.
     youtube_id TEXT,
+    source_language TEXT,
+    summary_language TEXT,
+    transcript_language TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -154,6 +157,29 @@ CREATE TRIGGER IF NOT EXISTS videos_au AFTER UPDATE ON videos BEGIN
     INSERT INTO videos_fts(rowid, id, title, description)
     VALUES (new.rowid, new.id, new.title, new.description);
 END;
+
+CREATE TABLE IF NOT EXISTS tts_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('summary', 'transcript')),
+    target_language TEXT NOT NULL,
+    voice TEXT NOT NULL,
+    quality TEXT NOT NULL CHECK (quality IN ('low','medium','high')),
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'translating', 'rendering', 'done', 'failed')),
+    step TEXT,
+    translated_text TEXT,
+    audio_path TEXT,
+    duration_seconds REAL,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    finished_at TEXT,
+    UNIQUE (video_id, source, target_language, voice, quality),
+    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tts_jobs_status ON tts_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_tts_jobs_video  ON tts_jobs(video_id);
 """
 
 
@@ -167,6 +193,17 @@ async def _table_exists(conn: aiosqlite.Connection, table: str) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
     )
     return await cursor.fetchone() is not None
+
+
+async def _ensure_column(
+    conn: aiosqlite.Connection, table: str, column: str, col_type: str
+) -> None:
+    """Add `column` to `table` if not present. Idempotent."""
+    cols = await _table_columns(conn, table)
+    if column not in cols:
+        await conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
+        )
 
 
 async def _run_migrations(conn: aiosqlite.Connection) -> None:
@@ -213,6 +250,14 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 "UPDATE videos SET youtube_id = id "
                 "WHERE youtube_id IS NULL AND kind = 'youtube'"
             )
+
+        # TTS (V6): per-video language columns added so the audio-
+        # render pipeline can decide whether translation is needed
+        # before TTS. NULL on all pre-existing rows — they get
+        # populated on the next re-process / new ingest.
+        await _ensure_column(conn, "videos", "source_language",     "TEXT")
+        await _ensure_column(conn, "videos", "summary_language",    "TEXT")
+        await _ensure_column(conn, "videos", "transcript_language", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
@@ -264,6 +309,9 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             "WHERE custom_summary_prompt IS NULL",
             (seed_prompt,),
         )
+
+    # tts_jobs: created via SCHEMA's `CREATE TABLE IF NOT EXISTS`
+    # for both fresh installs and upgrades. No ALTER needed.
 
     if await _table_exists(conn, "settings"):
         # Settings: PK migration. SQLite cannot change a PK in place, so we
