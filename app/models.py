@@ -76,6 +76,25 @@ class Job:
 
 
 @dataclass
+class TtsJob:
+    id: int
+    video_id: str
+    source: str  # 'summary' | 'transcript'
+    target_language: str
+    voice: str
+    quality: str  # 'low' | 'medium' | 'high'
+    status: str  # 'queued' | 'translating' | 'rendering' | 'done' | 'failed'
+    step: str | None
+    translated_text: str | None
+    audio_path: str | None
+    duration_seconds: float | None
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+@dataclass
 class ChatMessage:
     id: int
     video_id: str
