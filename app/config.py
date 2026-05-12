@@ -20,6 +20,14 @@ class Config:
         return self.data_dir / "audio"
 
     @property
+    def tts_voices_dir(self) -> Path:
+        return self.data_dir / "tts-voices"
+
+    @property
+    def tts_audio_dir(self) -> Path:
+        return self.data_dir / "tts-audio"
+
+    @property
     def cookies_path(self) -> Path:
         return self.data_dir / "cookies.txt"
 
@@ -31,3 +39,5 @@ class Config:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.audio_dir.mkdir(parents=True, exist_ok=True)
+        self.tts_voices_dir.mkdir(parents=True, exist_ok=True)
+        self.tts_audio_dir.mkdir(parents=True, exist_ok=True)

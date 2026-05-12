@@ -18,3 +18,13 @@ def test_config_creates_subdirs(tmp_path, monkeypatch):
     cfg.ensure_dirs()
     assert (tmp_path / "thumbnails").is_dir()
     assert (tmp_path / "audio").is_dir()
+
+
+def test_config_has_tts_voices_and_audio_dirs(tmp_path):
+    from app.config import Config
+    cfg = Config(data_dir=tmp_path)
+    assert cfg.tts_voices_dir == tmp_path / "tts-voices"
+    assert cfg.tts_audio_dir == tmp_path / "tts-audio"
+    cfg.ensure_dirs()
+    assert cfg.tts_voices_dir.exists()
+    assert cfg.tts_audio_dir.exists()
