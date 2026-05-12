@@ -25,8 +25,15 @@
             <button type="submit" class="link-button">Re-transcribe</button>
           </form>
         {% endif %}
+        {% if video.summary or video.transcript %}
+          <button type="button" class="link-button"
+                  hx-get="/v/{{ video.id }}/audio"
+                  hx-target="#audio-modal"
+                  hx-swap="innerHTML">Audio</button>
+        {% endif %}
       </div>
     </div>
+    <div id="audio-modal" class="audio-modal-target"></div>
     {% if video_tags %}
       <div class="tag-pills">
         {% for tag_name in video_tags %}
@@ -72,6 +79,8 @@
   {% endif %}
 
   {% include "video_summary_section.html" %}
+
+  {% include "audio_renderings_block.html" %}
 
   {% if video.transcript %}
     <details class="transcript">

@@ -191,6 +191,8 @@ def create_app() -> FastAPI:
     app.include_router(profiles_router)
     from app.routes.onboarding import router as onboarding_router
     app.include_router(onboarding_router)
+    from app.routes.audio import router as audio_router
+    app.include_router(audio_router)
     from app.routes.api import router as api_router
     app.include_router(api_router)
     from app.routes.mcp import build_mcp_server

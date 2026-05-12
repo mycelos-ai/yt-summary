@@ -139,6 +139,13 @@ async def fail(db: aiosqlite.Connection, job_id: int, message: str) -> None:
     await db.commit()
 
 
+async def delete(db: aiosqlite.Connection, job_id: int) -> None:
+    """Delete a tts_jobs row by id. The on-disk MP3 (if any) is the
+    caller's responsibility — this only touches the database."""
+    await db.execute("DELETE FROM tts_jobs WHERE id=?", (job_id,))
+    await db.commit()
+
+
 async def list_for_video(db: aiosqlite.Connection, video_id: str) -> list[TtsJob]:
     """Return all tts_jobs for a video. Done rows come first (boolean DESC
     treats true=1 / false=0), newest first within each group."""

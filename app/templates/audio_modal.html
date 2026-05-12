@@ -1,0 +1,142 @@
+{# Polymorphic modal fragment driven by `view`:
+   - form     : the parameter form
+   - progress : a self-polling status block
+   - done     : finished audio + download link
+   - failed   : error message
+   Every shape replaces its outer element via hx-swap="outerHTML" so
+   the calling button / poll target stays anchored in the page. #}
+{% if view == 'form' %}
+  <form class="audio-form"
+        hx-post="/v/{{ video.id }}/audio/render"
+        hx-target="this"
+        hx-swap="outerHTML">
+    <h3>Generate audio</h3>
+
+    <label>
+      Source
+      <select name="source">
+        {% if has_summary %}<option value="summary">Summary</option>{% endif %}
+        {% if has_transcript %}<option value="transcript">Transcript</option>{% endif %}
+      </select>
+    </label>
+
+    <label>
+      Target language
+      <select name="target_language" data-audio-language>
+        {% for code, label in languages %}
+          <option value="{{ code }}"{% if code == default_target %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Voice
+      <select name="voice" data-audio-voice>
+        {# All voices are rendered up-front and hidden via data-language;
+           an inline script filters them when the language changes. #}
+        {% for v in voices %}
+          <option value="{{ v.id }}"
+                  data-language="{{ v.language }}"
+                  data-qualities="{{ v.qualities | join(',') }}"
+                  {% if v.language != default_target %}hidden{% endif %}
+                  {% if v.language == default_target and v.id == default_voice %}selected{% endif %}>
+            {{ v.display_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Quality
+      <select name="quality" data-audio-quality>
+        {% for q in ['low', 'medium', 'high'] %}
+          <option value="{{ q }}"{% if q == default_quality %} selected{% endif %}>{{ q }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <div class="audio-form-actions">
+      <button type="submit" class="btn btn-accent">Render</button>
+    </div>
+
+    <script>
+      (function () {
+        const form = document.currentScript.closest('.audio-form');
+        if (!form) return;
+        const langSel = form.querySelector('[data-audio-language]');
+        const voiceSel = form.querySelector('[data-audio-voice]');
+        const qualSel = form.querySelector('[data-audio-quality]');
+
+        function refreshVoices() {
+          const lang = langSel.value;
+          let firstVisible = null;
+          for (const opt of voiceSel.options) {
+            const match = opt.dataset.language === lang;
+            opt.hidden = !match;
+            opt.disabled = !match;
+            if (match && firstVisible === null) firstVisible = opt;
+          }
+          if (voiceSel.selectedOptions[0] && voiceSel.selectedOptions[0].hidden) {
+            if (firstVisible) voiceSel.value = firstVisible.value;
+          }
+          refreshQualities();
+        }
+        function refreshQualities() {
+          const sel = voiceSel.selectedOptions[0];
+          const allowed = sel ? (sel.dataset.qualities || '').split(',') : [];
+          let firstVisible = null;
+          for (const opt of qualSel.options) {
+            const match = allowed.indexOf(opt.value) !== -1;
+            opt.hidden = !match;
+            opt.disabled = !match;
+            if (match && firstVisible === null) firstVisible = opt;
+          }
+          if (qualSel.selectedOptions[0] && qualSel.selectedOptions[0].hidden) {
+            if (firstVisible) qualSel.value = firstVisible.value;
+          }
+        }
+        langSel.addEventListener('change', refreshVoices);
+        voiceSel.addEventListener('change', refreshQualities);
+      })();
+    </script>
+  </form>
+{% elif view == 'progress' %}
+  <div class="audio-progress"
+       hx-get="/v/{{ video.id }}/audio/status/{{ job.id }}"
+       hx-trigger="every 2s"
+       hx-target="this"
+       hx-swap="outerHTML">
+    <p class="status status-running">
+      <span class="spinner" aria-hidden="true"></span>
+      {% if job.step %}
+        {{ job.step }}…
+      {% elif job.status == 'queued' %}
+        queued…
+      {% elif job.status == 'translating' %}
+        translating…
+      {% elif job.status == 'rendering' %}
+        rendering audio…
+      {% else %}
+        {{ job.status }}…
+      {% endif %}
+    </p>
+  </div>
+{% elif view == 'done' %}
+  {# HX-Trigger=audio:rendered (set in the route, eventually) lets the
+     persistent renderings list refresh itself; for now we just render
+     the finished block and the user reloads to see it move into the
+     list. The block has hx-trigger='audio:rendered from:body' on the
+     renderings list to make the auto-refresh trivial to wire later. #}
+  <div class="audio-done"
+       hx-trigger="audio:rendered"
+       data-job-id="{{ job.id }}">
+    <audio controls src="/v/{{ video.id }}/audio/file/{{ job.id }}"></audio>
+    <p>
+      <a href="/v/{{ video.id }}/audio/file/{{ job.id }}" download>↓ Download MP3</a>
+    </p>
+  </div>
+{% elif view == 'failed' %}
+  <div class="audio-failed">
+    <p class="status status-failed">⚠ {{ job.error or 'rendering failed' }}</p>
+  </div>
+{% endif %}
