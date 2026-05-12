@@ -437,7 +437,7 @@ button.section-download {
   cursor: pointer;
   font-family: inherit;
 }
-/* Wrapper that keeps the right-side controls (↓ .md + 🔊 Audio)
+/* Wrapper that keeps the right-side controls (↓ .md + 🎧 Audio)
    grouped on the right of the section heading. Without this the
    flexbox space-between would push them apart. */
 .section-controls {
@@ -1809,7 +1809,7 @@ button.section-download {
 }
 
 /* ---------------------------------------------------------- TTS / Audio
-   Inline "🔊 Audio" buttons next to each section's ↓ .md download open
+   Inline "🎧 Audio" buttons next to each section's ↓ .md download open
    the audio modal pre-scoped to that source. The modal is a native
    <dialog> kept at the end of the article, so it centers in the
    viewport regardless of how far down the page the user has scrolled.
@@ -1943,6 +1943,38 @@ button.section-download {
 .audio-source-hint strong,
 .audio-source-language-detected strong {
   color: var(--ink);
+}
+
+/* Heads-up banner above the form: "you already have N renderings".
+   Spans both grid columns; subtle surface tone, no border. The actual
+   rendering list lives below the summary on the detail page — this is
+   just a pointer + count. */
+.audio-existing-banner {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border-radius: var(--rounded-md);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--steel);
+}
+.audio-existing-banner p {
+  margin: 0;
+}
+.audio-existing-banner strong {
+  color: var(--ink);
+}
+
+/* Live "instant render" badge that sits between Cancel and Render in
+   the actions row. Lit up by the inline script when the current
+   (source, target, voice, quality) tuple matches a cached row.
+   `hidden` attribute does the show/hide. */
+.audio-cache-badge {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--brand-green-deep);
+  text-align: center;
+  flex: 1;
+  padding: 0 8px;
 }
 
 /* Progress / done / failed states share the dialog content area. */

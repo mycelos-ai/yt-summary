@@ -531,6 +531,85 @@ def test_audio_modal_opens_via_dialog_element(tmp_path, monkeypatch):
     assert 'class="audio-modal-target"' not in resp.text
 
 
+def test_audio_modal_shows_existing_renderings_banner(tmp_path, monkeypatch):
+    """When there are done renderings for this video, the modal form
+    shows a banner indicating how many exist."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        # Two done rows — different voices so the unique constraint is
+        # happy. The banner shows the count regardless of variant.
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten", quality="medium",
+            status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="en_US", voice="lessac", quality="medium",
+            status="done",
+            audio_path="tts-audio/abc/summary-en_US-lessac-medium.mp3",
+        )
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    assert "2</strong>" in resp.text  # the count strongly emphasised
+    assert "existing rendering" in resp.text
+    # The banner is plural for >1.
+    assert "renderings" in resp.text
+
+
+def test_audio_modal_embeds_cached_keys_for_live_badge(tmp_path, monkeypatch):
+    """The form includes a JSON script tag with the cached (source,
+    target, voice, quality) tuples for the JS to use."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten", quality="medium",
+            status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    # The script tag holding the cache keys is present and parseable.
+    import re, json as _json
+    m = re.search(
+        r'<script type="application/json" id="audio-cached-keys">'
+        r'(.*?)</script>',
+        resp.text, re.DOTALL,
+    )
+    assert m is not None
+    keys = _json.loads(m.group(1))
+    assert keys == [
+        {
+            "source": "summary",
+            "target_language": "de",
+            "voice": "thorsten",
+            "quality": "medium",
+        }
+    ]
+
+
+def test_audio_modal_no_banner_when_no_renderings(tmp_path, monkeypatch):
+    """If there are no done renderings yet, the banner is omitted."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en_US")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en_US")
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    assert "audio-existing-banner" not in resp.text
+    # The script tag is always present (empty list when nothing cached).
+    assert 'id="audio-cached-keys"' in resp.text
+
+
 def test_audio_modal_form_uses_flag_prefixed_language_labels(
     tmp_path, monkeypatch,
 ):

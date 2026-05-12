@@ -94,7 +94,7 @@
                   hx-target="#audio-modal-content"
                   hx-swap="innerHTML"
                   onclick="event.stopPropagation()"
-                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %}">🔊 Audio</button>
+                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %}">🎧 Audio</button>
         </span>
       </summary>
       {% if transcript_blocks and video.kind.value != 'web' %}
@@ -146,7 +146,7 @@
 
   {# Audio modal. A native <dialog> kept at the end of the article so
      opening it doesn't depend on scroll position — clicking either
-     section's "🔊 Audio" button (Summary heading or Transcript
+     section's "🎧 Audio" button (Summary heading or Transcript
      heading) injects the form into `#audio-modal-content` and the
      `htmx:afterSwap` hook below calls `.showModal()` to center it
      in the viewport. Backdrop click + ESC both close. #}

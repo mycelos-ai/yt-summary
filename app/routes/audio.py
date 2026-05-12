@@ -20,6 +20,7 @@ that re-renders in place on delete.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import aiosqlite
@@ -173,6 +174,22 @@ async def audio_modal(
     default_voice = _default_voice(settings, default_target)
     default_quality = _default_quality(settings, default_target, default_voice)
     preselected_source = source if source in ("summary", "transcript") else None
+    # Existing done renderings power both the "you already have N renderings"
+    # banner at the top of the form and the live "instant render" badge that
+    # lights up when the user's current (source, target, voice, quality) tuple
+    # matches a cached row. Server-side dedup still kicks in regardless, but
+    # surfacing it up front saves the user a click + a roundtrip.
+    all_renderings = await tts_jobs_repo.list_for_video(db, video_id)
+    done_renderings = [r for r in all_renderings if r.status == "done"]
+    done_keys_json = json.dumps([
+        {
+            "source": r.source,
+            "target_language": r.target_language,
+            "voice": r.voice,
+            "quality": r.quality,
+        }
+        for r in done_renderings
+    ])
     return templates.TemplateResponse(
         request,
         "audio_modal.html",
@@ -192,6 +209,8 @@ async def audio_modal(
             "has_summary": video.summary is not None,
             "has_transcript": video.transcript is not None,
             "preselected_source": preselected_source,
+            "done_renderings": done_renderings,
+            "done_keys_json": done_keys_json,
         },
     )
 

@@ -14,6 +14,28 @@
         hx-swap="outerHTML">
     <h3 class="audio-form-title">Generate audio</h3>
 
+    {% if done_renderings %}
+      {# Heads-up banner so the user knows the persistent renderings list
+         underneath the summary already has finished MP3s for this video.
+         The live cache badge below the form takes care of the per-tuple
+         "this exact combination exists" signal — this is just the count
+         + a nudge to scroll down. #}
+      <div class="audio-existing-banner">
+        <p>
+          <strong>{{ done_renderings | length }}</strong>
+          existing rendering{% if done_renderings | length != 1 %}s{% endif %}
+          for this video — scroll down to the list to find them, or pick
+          a different combination below.
+        </p>
+      </div>
+    {% endif %}
+
+    {# Cached (source, target_language, voice, quality) tuples for the
+       live "instant render" badge. Read by the inline script below. #}
+    <script type="application/json" id="audio-cached-keys">
+      {{ done_keys_json | default('[]') | safe }}
+    </script>
+
     {% if preselected_source %}
       {# Inline-button entry point: caller already told us which section
          to render, so we hide the source select and stash the value in
@@ -92,6 +114,7 @@
     <div class="audio-form-actions">
       <button type="button" class="link-button"
               onclick="document.getElementById('audio-modal').close()">Cancel</button>
+      <span class="audio-cache-badge" hidden>⚡ Already rendered — instant</span>
       <button type="submit" class="btn btn-accent">Render</button>
     </div>
 
@@ -102,6 +125,33 @@
         const langSel = form.querySelector('[data-audio-language]');
         const voiceSel = form.querySelector('[data-audio-voice]');
         const qualSel = form.querySelector('[data-audio-quality]');
+
+        // Source selector: either a <select> (full form) or a hidden
+        // <input> when the caller pre-selected the source via ?source=.
+        // Both expose `.value`, so the JS treats them uniformly.
+        const sourceSel = form.querySelector('select[name="source"]')
+          || form.querySelector('input[name="source"]');
+        const cachedKeys = JSON.parse(
+          form.querySelector('#audio-cached-keys').textContent || '[]'
+        );
+        const cacheBadge = form.querySelector('.audio-cache-badge');
+
+        function refreshCacheBadge() {
+          if (!cacheBadge) return;
+          const cur = {
+            source: sourceSel ? sourceSel.value : '',
+            target_language: langSel.value,
+            voice: voiceSel.value,
+            quality: qualSel.value,
+          };
+          const hit = cachedKeys.some(function (k) {
+            return k.source === cur.source
+              && k.target_language === cur.target_language
+              && k.voice === cur.voice
+              && k.quality === cur.quality;
+          });
+          cacheBadge.hidden = !hit;
+        }
 
         function refreshVoices() {
           const lang = langSel.value;
@@ -130,9 +180,18 @@
           if (qualSel.selectedOptions[0] && qualSel.selectedOptions[0].hidden) {
             if (firstVisible) qualSel.value = firstVisible.value;
           }
+          refreshCacheBadge();
         }
         langSel.addEventListener('change', refreshVoices);
         voiceSel.addEventListener('change', refreshQualities);
+        // sourceSel/qualSel cover their own changes; voice/lang fall
+        // through to refreshCacheBadge via the cascade above.
+        [sourceSel, qualSel].forEach(function (el) {
+          if (el && el.addEventListener) {
+            el.addEventListener('change', refreshCacheBadge);
+          }
+        });
+        refreshCacheBadge();
       })();
     </script>
   </form>
