@@ -616,8 +616,8 @@ async def test_pipeline_falls_back_to_llm_language_detect_when_no_signal(db, tmp
     """When both Whisper and VTT come back without a language, the
     pipeline asks the language_detect helper for one based on the
     summary text and stamps that as source_language + summary_language."""
-    from app.services.reader import ArticleMetadata
     from app.models import VideoKind
+    from app.services.reader import ArticleMetadata
 
     config = Config(data_dir=tmp_path)
     config.ensure_dirs()

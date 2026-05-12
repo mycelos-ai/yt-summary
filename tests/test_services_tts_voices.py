@@ -32,6 +32,7 @@ def test_qualities_for_voice_filters_correctly():
 
 def test_voice_file_path_uses_huggingface_naming():
     from pathlib import Path
+
     from app.services.tts_voices import voice_file_path
 
     base = Path("/data/tts-voices")
@@ -66,8 +67,11 @@ async def test_download_voice_writes_both_files_atomically(tmp_path):
     Both .onnx and .onnx.json must end up present."""
     import respx
     from httpx import Response
+
     from app.services.tts_voices import (
-        download_voice, voice_file_path, voice_download_urls,
+        download_voice,
+        voice_download_urls,
+        voice_file_path,
     )
 
     onnx_url, json_url = voice_download_urls("de", "thorsten", "medium")
@@ -88,8 +92,10 @@ async def test_download_voice_writes_both_files_atomically(tmp_path):
 async def test_download_voice_skips_when_already_present(tmp_path):
     """If both files exist, download is a no-op (no HTTP)."""
     import respx
+
     from app.services.tts_voices import (
-        download_voice, voice_file_path,
+        download_voice,
+        voice_file_path,
     )
     p = voice_file_path(tmp_path, "de", "thorsten", "medium")
     p.write_bytes(b"existing")
@@ -106,6 +112,7 @@ async def test_download_voice_cleans_partial_on_failure(tmp_path):
     import pytest
     import respx
     from httpx import Response
+
     from app.services.tts_voices import download_voice, voice_download_urls
 
     onnx_url, _ = voice_download_urls("de", "thorsten", "medium")

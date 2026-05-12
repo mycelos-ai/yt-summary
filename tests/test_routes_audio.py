@@ -203,6 +203,90 @@ def test_delete_rendering_removes_row_and_file(tmp_path, monkeypatch):
     assert not mp3.exists()
 
 
+def test_audio_renderings_endpoint_returns_block(tmp_path, monkeypatch):
+    """GET /v/{id}/audio/renderings returns the persistent list block
+    with the <audio> element and delete button for a done job."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten", quality="medium",
+            status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        resp = client.get("/v/abc/audio/renderings")
+    assert resp.status_code == 200
+    assert "<audio" in resp.text
+    assert "Delete" in resp.text
+    # The block wraps itself with the same hx-trigger so subsequent
+    # render completions keep refreshing it.
+    assert "audio:rendered" in resp.text
+
+
+def test_render_endpoint_emits_audio_rendered_event_when_cached_done(
+    tmp_path, monkeypatch,
+):
+    """When the modal returns the done view (cached done case),
+    HX-Trigger: audio:rendered fires so the renderings list refreshes."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en")
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten",
+            quality="medium", status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        resp = client.post(
+            "/v/abc/audio/render",
+            data={"source": "summary", "target_language": "de",
+                  "voice": "thorsten", "quality": "medium"},
+        )
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Trigger") == "audio:rendered"
+
+
+def test_status_endpoint_emits_audio_rendered_event_when_done(
+    tmp_path, monkeypatch,
+):
+    """A polling tick that lands on a `done` job emits HX-Trigger so
+    the renderings block re-fetches itself."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")
+        job_id = _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten", quality="medium",
+            status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        resp = client.get(f"/v/abc/audio/status/{job_id}")
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Trigger") == "audio:rendered"
+
+
+def test_status_endpoint_no_event_while_progress(tmp_path, monkeypatch):
+    """While the job is still progressing, no HX-Trigger fires (the
+    persistent list shouldn't refresh until the job is done)."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc")
+        job_id = _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten", quality="medium",
+            status="rendering", step="rendering audio",
+        )
+        resp = client.get(f"/v/abc/audio/status/{job_id}")
+    assert resp.status_code == 200
+    assert "HX-Trigger" not in resp.headers
+
+
 def test_audio_file_endpoint_serves_mp3(tmp_path, monkeypatch):
     """GET /v/{id}/audio/file/{job_id} → 200, content-type audio/mpeg."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))

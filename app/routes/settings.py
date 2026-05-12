@@ -191,8 +191,8 @@ async def save_settings(
     playlist_initial_import_limit: str = Form("20"),
     default_tts_language: str = Form("auto"),
     default_tts_voice_de: str = Form(""),
-    default_tts_voice_en_US: str = Form(""),
-    default_tts_voice_en_GB: str = Form(""),
+    default_tts_voice_en_US: str = Form(""),  # noqa: N803 - locale code is upstream-defined
+    default_tts_voice_en_GB: str = Form(""),  # noqa: N803 - locale code is upstream-defined
     default_tts_voice_fr: str = Form(""),
     default_tts_voice_es: str = Form(""),
     default_tts_quality: str = Form("medium"),

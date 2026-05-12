@@ -236,8 +236,8 @@ def test_db_has_tts_jobs_table_and_language_columns(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
 
     async def check():
-        from app.db import connect, init_schema
         from app.config import Config
+        from app.db import connect, init_schema
         cfg = Config(data_dir=tmp_path)
         cfg.ensure_dirs()
         db = await connect(cfg)
@@ -276,6 +276,7 @@ def test_tts_jobs_check_constraint_rejects_invalid_source(tmp_path, monkeypatch)
 
     async def check():
         import aiosqlite
+
         from app.config import Config
         from app.db import connect, init_schema
         cfg = Config(data_dir=tmp_path)

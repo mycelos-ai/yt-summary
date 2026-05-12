@@ -110,17 +110,21 @@ async def _download_to_path(
         # is unbounded — a 130 MB high-quality voice on a 1 Mbit/s link
         # legitimately takes minutes.
         timeout = httpx.Timeout(300.0, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, trust_env=False) as c:
-            async with c.stream("GET", url) as r:
-                r.raise_for_status()
-                total = int(r.headers.get("content-length") or 0)
-                done = 0
-                with partial.open("wb") as f:
-                    async for chunk in r.aiter_bytes():
-                        f.write(chunk)
-                        done += len(chunk)
-                        if progress is not None:
-                            progress(done, total)
+        async with (
+            httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True, trust_env=False,
+            ) as c,
+            c.stream("GET", url) as r,
+        ):
+            r.raise_for_status()
+            total = int(r.headers.get("content-length") or 0)
+            done = 0
+            with partial.open("wb") as f:
+                async for chunk in r.aiter_bytes():
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress is not None:
+                        progress(done, total)
         partial.replace(target)
     except Exception:
         partial.unlink(missing_ok=True)

@@ -6,8 +6,8 @@ header on the subs path, but a summary written by the user-
 configured LLM in `auto` mode has neither attached. A 50-token
 LLM call labels it cheaply.
 """
-from collections.abc import Awaitable, Callable
 import re
+from collections.abc import Awaitable, Callable
 
 CompleteFn = Callable[[str], Awaitable[str]]
 

@@ -228,14 +228,21 @@ async def audio_render(
         voice=voice,
         quality=quality,
     )
+    view = _view_for_status(job.status)
+    # When the enqueue resolves directly to a cached `done` job, fire
+    # `audio:rendered` so the persistent renderings list on the detail
+    # page re-fetches itself (the block listens for the event via
+    # `hx-trigger="audio:rendered from:body"`).
+    headers = {"HX-Trigger": "audio:rendered"} if view == "done" else {}
     return templates.TemplateResponse(
         request,
         "audio_modal.html",
         {
-            "view": _view_for_status(job.status),
+            "view": view,
             "video": video,
             "job": job,
         },
+        headers=headers,
     )
 
 
@@ -254,14 +261,40 @@ async def audio_status(
     job = await tts_jobs_repo.get(db, job_id)
     if job is None or job.video_id != video.id:
         raise HTTPException(404)
+    view = _view_for_status(job.status)
+    # Polling tick that finds the job is now `done` is the moment the
+    # persistent renderings list should refresh — emit the event so
+    # the listening block re-fetches itself.
+    headers = {"HX-Trigger": "audio:rendered"} if view == "done" else {}
     return templates.TemplateResponse(
         request,
         "audio_modal.html",
         {
-            "view": _view_for_status(job.status),
+            "view": view,
             "video": video,
             "job": job,
         },
+        headers=headers,
+    )
+
+
+@router.get("/v/{video_id}/audio/renderings", response_class=HTMLResponse)
+async def audio_renderings(
+    video_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Re-render the persistent renderings list. Fired by HTMX after
+    a render completes — the modal emits ``HX-Trigger: audio:rendered``
+    when it switches to the ``done`` view, and the block listens via
+    ``hx-trigger="audio:rendered from:body"``."""
+    video = await _get_owned_video(db, video_id, current_user_id)
+    renderings = await tts_jobs_repo.list_for_video(db, video_id)
+    return templates.TemplateResponse(
+        request,
+        "audio_renderings_block.html",
+        {"video": video, "renderings": renderings},
     )
 
 

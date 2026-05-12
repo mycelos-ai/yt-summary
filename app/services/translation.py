@@ -6,8 +6,8 @@ Every non-first/non-last chunk gets a 50-word overlap context
 window from the surrounding chunks, marked as "do not translate"
 in the prompt so terminology stays consistent across the seams.
 """
-from collections.abc import Awaitable, Callable
 import re
+from collections.abc import Awaitable, Callable
 
 DEFAULT_TARGET_WORDS = 1500
 DEFAULT_OVERLAP_WORDS = 50
