@@ -12,6 +12,7 @@ from app.config import Config
 from app.db import connect, init_schema
 from app.repos import jobs as jobs_repo
 from app.repos import settings as settings_repo
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
 
 # Cookie carrying the active profile id. Single integer, no signing —
@@ -36,6 +37,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = await connect(config)
     await init_schema(db)
     await jobs_repo.reset_orphaned_running(db)
+    n_reset = await tts_jobs_repo.reset_orphaned_active(db)
+    if n_reset:
+        logging.getLogger("yt_summary.boot").warning(
+            "Reset %d orphaned TTS job(s) to 'queued' after restart", n_reset
+        )
 
     # Warn loudly if no API key is set — anyone on the LAN can call
     # the API. Useful default for first run, but the user should
