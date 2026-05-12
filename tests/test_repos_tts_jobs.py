@@ -35,16 +35,17 @@ async def test_enqueue_returns_existing_when_duplicate(db: aiosqlite.Connection)
     assert first.id == second.id
 
 
-async def test_claim_next_transitions_queued_to_running(db: aiosqlite.Connection):
-    # Spec asserted status=="running"; schema CHECK only allows
-    # queued/translating/rendering/done/failed, so claim_next moves the
-    # job to 'rendering' (the first active phase) and the worker flips
-    # transient sub-states via set_status as needed.
+async def test_claim_next_transitions_queued_to_translating(db: aiosqlite.Connection):
+    # Schema CHECK only allows queued/translating/rendering/done/failed.
+    # claim_next lands on 'translating' as the first active phase in the
+    # queued → translating → rendering → done state machine; the worker
+    # advances to 'rendering' via set_status (immediately when no
+    # translation is needed).
     await _video(db, "abc")
     await r.enqueue(db, "abc", "summary", "de", "thorsten", "medium")
     job = await r.claim_next(db)
     assert job is not None
-    assert job.status == "rendering"
+    assert job.status == "translating"
     assert job.started_at is not None
     assert await r.claim_next(db) is None
 

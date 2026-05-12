@@ -56,14 +56,15 @@ async def enqueue(
 
 
 async def claim_next(db: aiosqlite.Connection) -> TtsJob | None:
-    """Atomically transition the oldest queued job to 'rendering' (the
-    first active phase per the schema's CHECK constraint) and return it.
-    The worker can later flip it to 'translating' via set_status if it
-    needs the translate step first."""
+    """Atomically transition the oldest queued job to 'translating' (the
+    first active phase in the queued → translating → rendering → done
+    state machine) and return it. The worker advances to 'rendering' via
+    set_status once translation finishes, or immediately when no
+    translation is needed (source_language == target_language)."""
     cursor = await db.execute(
         """
         UPDATE tts_jobs
-        SET status='rendering', started_at=datetime('now')
+        SET status='translating', started_at=datetime('now')
         WHERE id = (
             SELECT id FROM tts_jobs
             WHERE status='queued'
