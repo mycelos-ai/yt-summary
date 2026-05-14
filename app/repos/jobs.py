@@ -116,15 +116,16 @@ async def counts(db: aiosqlite.Connection) -> dict[str, int]:
         """
     )
     row = await cursor.fetchone()
-    # SELECT … FROM jobs always returns exactly one row (even on an
-    # empty table — SUM returns NULL there). The `assert` keeps the
-    # type checker happy while documenting the invariant.
-    assert row is not None
-    # COALESCE the NULLs that SUM returns on an empty table.
+    # `SELECT SUM(...) FROM jobs` always returns exactly one row
+    # (NULLs on an empty table). The `if row is None` branch is
+    # unreachable in practice but guards against -O builds stripping
+    # an `assert` and against future driver quirks.
+    if row is None:
+        return {"pending": 0, "running": 0, "failed": 0, "done_24h": 0}
     return {
         "pending": row["pending"] or 0,
         "running": row["running"] or 0,
-        "failed":  row["failed"]  or 0,
+        "failed": row["failed"] or 0,
         "done_24h": row["done_24h"] or 0,
     }
 

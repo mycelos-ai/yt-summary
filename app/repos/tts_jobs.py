@@ -194,3 +194,97 @@ async def list_for_video(db: aiosqlite.Connection, video_id: str) -> list[TtsJob
     )
     rows = await cursor.fetchall()
     return [_row_to_tts_job(r) for r in rows]
+
+
+async def counts(db: aiosqlite.Connection) -> dict[str, int]:
+    """Aggregate TTS-job status counts for the diagnostics page.
+
+    Returns ``{"queued": N, "running": N, "failed": N, "done_24h": N}``.
+    Both ``translating`` and ``rendering`` are folded into ``running``
+    so the chip stays readable. ``done_24h`` filters by ``finished_at``
+    inside the last 24 h.
+    """
+    cursor = await db.execute(
+        """
+        SELECT
+          SUM(status='queued') AS queued,
+          SUM(status IN ('translating','rendering')) AS running,
+          SUM(status='failed') AS failed,
+          SUM(status='done' AND finished_at >= datetime('now','-1 day')) AS done_24h
+        FROM tts_jobs
+        """
+    )
+    row = await cursor.fetchone()
+    # `SELECT SUM(...) FROM tts_jobs` always returns exactly one row
+    # (NULLs on an empty table). The `if row is None` branch is
+    # unreachable in practice but guards against -O builds stripping
+    # an `assert` and against future driver quirks.
+    if row is None:
+        return {"queued": 0, "running": 0, "failed": 0, "done_24h": 0}
+    return {
+        "queued": row["queued"] or 0,
+        "running": row["running"] or 0,
+        "failed": row["failed"] or 0,
+        "done_24h": row["done_24h"] or 0,
+    }
+
+
+async def list_queue(
+    db: aiosqlite.Connection, limit: int = 10,
+) -> list[tuple[TtsJob, str]]:
+    """Queued + active TTS jobs in FIFO order with video title.
+
+    Active = 'translating' or 'rendering' — both are pre-terminal.
+    """
+    cursor = await db.execute(
+        """
+        SELECT t.*, v.title AS video_title
+        FROM tts_jobs t
+        LEFT JOIN videos v ON v.id = t.video_id
+        WHERE t.status IN ('queued','translating','rendering')
+        ORDER BY t.id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = await cursor.fetchall()
+    return [(_row_to_tts_job(r), r["video_title"] or r["video_id"]) for r in rows]
+
+
+async def list_recent_failed(
+    db: aiosqlite.Connection, limit: int = 10,
+) -> list[tuple[TtsJob, str]]:
+    """Failed TTS jobs, newest first."""
+    cursor = await db.execute(
+        """
+        SELECT t.*, v.title AS video_title
+        FROM tts_jobs t
+        LEFT JOIN videos v ON v.id = t.video_id
+        WHERE t.status='failed'
+        ORDER BY t.finished_at DESC NULLS LAST, t.id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = await cursor.fetchall()
+    return [(_row_to_tts_job(r), r["video_title"] or r["video_id"]) for r in rows]
+
+
+async def retry(db: aiosqlite.Connection, job_id: int) -> int:
+    """Reset a failed TTS job back to 'queued'. Preserves
+    ``translated_text`` so a render-stage failure doesn't waste the
+    LLM translation cost on re-run. Returns rows changed (0 => 404).
+    """
+    cursor = await db.execute(
+        """
+        UPDATE tts_jobs
+        SET status='queued',
+            error=NULL,
+            started_at=NULL,
+            finished_at=NULL
+        WHERE id=? AND status='failed'
+        """,
+        (job_id,),
+    )
+    await db.commit()
+    return cursor.rowcount or 0
