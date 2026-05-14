@@ -87,3 +87,158 @@ def test_get_diagnostics_shows_queued_video_title(tmp_path, monkeypatch):
         resp = client.get("/settings/diagnostics")
     assert resp.status_code == 200
     assert "MyQueuedVideo" in resp.text
+
+
+def test_post_retry_job_resets_failed_to_pending(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.models import JobState
+    from app.repos import jobs as jobs_repo
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            jid = await jobs_repo.enqueue(app.state.db, "v1")
+            await jobs_repo.fail(app.state.db, jid, "oops")
+            return jid
+        jid = asyncio.get_event_loop().run_until_complete(seed())
+
+        resp = client.post(
+            f"/settings/diagnostics/retry-job/{jid}", follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            j = await jobs_repo.get(app.state.db, jid)
+            return j
+        job = asyncio.get_event_loop().run_until_complete(check())
+        assert job is not None
+        assert job.state is JobState.PENDING
+
+
+def test_post_retry_job_unknown_id_returns_404(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/diagnostics/retry-job/99999", follow_redirects=False,
+        )
+    assert resp.status_code == 404
+
+
+def test_post_delete_job_removes_failed_row(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.repos import jobs as jobs_repo
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            jid = await jobs_repo.enqueue(app.state.db, "v1")
+            await jobs_repo.fail(app.state.db, jid, "boom")
+            return jid
+        jid = asyncio.get_event_loop().run_until_complete(seed())
+
+        resp = client.post(
+            f"/settings/diagnostics/delete-job/{jid}", follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            return await jobs_repo.get(app.state.db, jid)
+        assert asyncio.get_event_loop().run_until_complete(check()) is None
+
+
+def test_post_retry_tts_preserves_translated_text(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.repos import tts_jobs as r
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            j = await r.enqueue(
+                app.state.db, "v1", "summary", "de", "v", "low",
+            )
+            await r.set_translated_text(app.state.db, j.id, "Hallo Welt")
+            await r.fail(app.state.db, j.id, "render crashed")
+            return j.id
+        jid = asyncio.get_event_loop().run_until_complete(seed())
+
+        resp = client.post(
+            f"/settings/diagnostics/retry-tts/{jid}", follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            return await r.get(app.state.db, jid)
+        fresh = asyncio.get_event_loop().run_until_complete(check())
+        assert fresh is not None
+        assert fresh.status == "queued"
+        assert fresh.translated_text == "Hallo Welt"
+
+
+def test_post_delete_tts_removes_row(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.repos import tts_jobs as r
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            j = await r.enqueue(
+                app.state.db, "v1", "summary", "de", "v", "low",
+            )
+            await r.fail(app.state.db, j.id, "x")
+            return j.id
+        jid = asyncio.get_event_loop().run_until_complete(seed())
+
+        resp = client.post(
+            f"/settings/diagnostics/delete-tts/{jid}", follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            return await r.get(app.state.db, jid)
+        assert asyncio.get_event_loop().run_until_complete(check()) is None
+
+
+def test_post_tick_scheduler_returns_303(tmp_path, monkeypatch):
+    """POST /tick-scheduler wakes the PlaylistScheduler.
+
+    We assert the 303 redirect, not the _tick_requested flag, because
+    the running scheduler may already have woken and cleared the flag
+    by the time the assertion runs. The wake-up behaviour itself is
+    proven by tests/test_scheduler.py::test_request_tick_wakes_a_long_sleep.
+    """
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/diagnostics/tick-scheduler", follow_redirects=False,
+        )
+        assert resp.status_code == 303

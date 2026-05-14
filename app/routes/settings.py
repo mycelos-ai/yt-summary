@@ -670,6 +670,77 @@ async def diagnostics_page(
     )
 
 
+@router.post("/settings/diagnostics/retry-job/{job_id}")
+async def diagnostics_retry_job(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Reset a failed summary job back to 'pending'. 404 if the job
+    is missing or not in 'failed' state."""
+    affected = await jobs_repo.retry(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/delete-job/{job_id}")
+async def diagnostics_delete_job(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Delete a failed summary job row. The video is untouched. 404
+    if the job is missing or not in 'failed' state."""
+    affected = await jobs_repo.delete(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/retry-tts/{job_id}")
+async def diagnostics_retry_tts(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Reset a failed TTS job back to 'queued'. Preserves
+    translated_text so we don't pay the LLM cost again."""
+    affected = await tts_jobs_repo.retry(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed tts_job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/delete-tts/{job_id}")
+async def diagnostics_delete_tts(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Delete a failed TTS job row. We deliberately do NOT clean up any
+    MP3 on disk — failed jobs typically have none; orphan cleanup is a
+    separate concern. 404 unless the row exists AND is in 'failed' state."""
+    # Pre-check that the row is failed; the existing tts_jobs_repo.delete()
+    # is unconditional, so we gate manually here. The two-statement
+    # pattern is a small race but harmless on a single-writer SQLite —
+    # a failed → succeeded transition between the check and delete is
+    # impossible (terminal states don't change).
+    async with db.execute(
+        "SELECT id FROM tts_jobs WHERE id=? AND status='failed'",
+        (job_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(404, detail=f"No failed tts_job {job_id}")
+    await tts_jobs_repo.delete(db, job_id)
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/tick-scheduler")
+async def diagnostics_tick_scheduler(request: Request):
+    """Wake the PlaylistScheduler so its next iteration runs
+    immediately, instead of waiting out the rest of the interval."""
+    request.app.state.scheduler.request_tick()
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
 @router.post("/settings/custom-prompt")
 async def save_custom_prompt(
     custom_summary_prompt: str = Form(""),
