@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.heartbeat import HeartbeatRegistry
 
 import aiosqlite
 
@@ -38,11 +44,13 @@ class PlaylistScheduler:
         sync_fn: SyncFn,
         *,
         min_sleep_seconds: float = 1.0,
+        heartbeat: HeartbeatRegistry | None = None,
     ) -> None:
         self._db = db
         self._config = config
         self._sync_fn = sync_fn
         self._min_sleep_seconds = min_sleep_seconds
+        self._heartbeat = heartbeat
         self._stopped = asyncio.Event()
         self._tick_requested = asyncio.Event()
 
@@ -113,9 +121,17 @@ class PlaylistScheduler:
 
     async def run(self) -> None:
         while not self._stopped.is_set():
-            await self._sleep_or_stop(await self._interval_seconds())
+            # Resolve the interval BEFORE the heartbeat so the
+            # last_tick_at timestamp truthfully marks the start of
+            # the idle period — the DB round-trip can take tens of ms
+            # on a busy Pi and that staleness matters for the
+            # diagnostics page's 3× alive/stale threshold.
+            interval = await self._interval_seconds()
+            self._touch(current_step="sleeping")
+            await self._sleep_or_stop(interval)
             if self._stopped.is_set():
                 return
+            self._touch(current_step="scanning")
             try:
                 playlists = await playlists_repo.list_for_user(self._db, 1)
             except Exception:
@@ -125,6 +141,7 @@ class PlaylistScheduler:
             for playlist in playlists:
                 if self._stopped.is_set():
                     return
+                self._touch(current_step=f"syncing {playlist.id}")
                 try:
                     await self._sync_fn(self._db, self._config, playlist.id)
                 except Exception:
@@ -140,6 +157,10 @@ class PlaylistScheduler:
         (asyncio.Event is set-once-until-cleared).
         """
         self._tick_requested.set()
+
+    def _touch(self, *, current_step: str | None = None) -> None:
+        if self._heartbeat is not None:
+            self._heartbeat.touch("scheduler", current_step=current_step)
 
     async def current_interval_seconds(self) -> float:
         """Public wrapper around the resolved interval.

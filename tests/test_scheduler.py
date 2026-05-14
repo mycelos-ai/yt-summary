@@ -243,3 +243,30 @@ async def test_current_interval_seconds_exposes_resolved_value(
         db=db, config=config, sync_fn=AsyncMock(), min_sleep_seconds=0.05
     )
     assert await scheduler.current_interval_seconds() == 5 * 60
+
+
+async def test_scheduler_touches_heartbeat_each_iteration(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """The scheduler must heartbeat so the diagnostics page can tell
+    it's alive even when no playlists are configured."""
+    from app.services.heartbeat import HeartbeatRegistry
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await settings_repo.set(db, "playlist_refresh_interval_minutes", "0")
+    hb = HeartbeatRegistry()
+
+    scheduler = PlaylistScheduler(
+        db=db, config=config, sync_fn=AsyncMock(),
+        min_sleep_seconds=0.05, heartbeat=hb,
+    )
+    task = asyncio.create_task(scheduler.run())
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if "scheduler" in hb.snapshot():
+            break
+    scheduler.stop()
+    await task
+
+    assert "scheduler" in hb.snapshot()
