@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Diagnose — yt-summary{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <header class="diagnostics-header">
+    <h1>Diagnose</h1>
+    <p class="settings-card-sub">
+      Worker-Status, Queue-Inhalt und Log-Tail. Snapshot vom Aufruf —
+      kein Auto-Refresh.
+      <strong>Stand:</strong>
+      <code>{{ now.isoformat(timespec='seconds') }}</code>
+    </p>
+    <p>
+      <a href="/settings">← Zurück zu Settings</a>
+      &middot;
+      <a href="/settings/diagnostics">Aktualisieren</a>
+    </p>
+  </header>
+
+  {# ── Workers ─────────────────────────────────────────────── #}
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🫀</span>
+      <div class="settings-card-head-text">
+        <h2>Worker-Status</h2>
+        <p class="settings-card-sub">
+          Pro Hintergrund-Task: zuletzt beobachtete Aktivität.
+        </p>
+      </div>
+    </header>
+    <table class="playlist-refresh-table">
+      <thead>
+        <tr>
+          <th>Worker</th>
+          <th>Status</th>
+          <th>Letztes Lebenszeichen</th>
+          <th>Aktueller Schritt</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for name in ['summary_worker', 'tts_worker', 'scheduler'] %}
+          {% set hb = heartbeats.get(name) %}
+          {% set threshold = worker_thresholds_seconds[name] %}
+          <tr>
+            <td><code>{{ name }}</code></td>
+            <td>
+              {% if hb is none %}
+                ⛔ never
+              {% else %}
+                {% set age = (now - hb.last_tick_at).total_seconds() %}
+                {% if age < threshold %}
+                  ✅ alive
+                {% else %}
+                  ⚠ stale ({{ age | int }}s)
+                {% endif %}
+              {% endif %}
+            </td>
+            <td>
+              {% if hb %}
+                <code>{{ hb.last_tick_at.isoformat(timespec='seconds') }}</code>
+              {% else %}
+                <em>—</em>
+              {% endif %}
+            </td>
+            <td>
+              {% if hb and hb.current_step %}
+                {{ hb.current_step }}
+                {% if hb.current_job_id %}
+                  (job {{ hb.current_job_id }})
+                {% endif %}
+              {% else %}
+                <em>idle</em>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {# ── Helper macro: queue card ───────────────────────────── #}
+  {% macro queue_card(label, counts, queue_rows, failed_rows,
+                      retry_url, delete_url,
+                      video_link_prefix='/v/') %}
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">📋</span>
+      <div class="settings-card-head-text">
+        <h2>{{ label }}</h2>
+        <p class="settings-card-sub">
+          queued: <strong>{{ counts.get('queued', counts.get('pending', 0)) }}</strong>
+          · running: <strong>{{ counts['running'] }}</strong>
+          · failed: <strong>{{ counts['failed'] }}</strong>
+          · done (24h): <strong>{{ counts['done_24h'] }}</strong>
+        </p>
+      </div>
+    </header>
+
+    <h3>Als Nächstes</h3>
+    {% if queue_rows %}
+      <table class="playlist-refresh-table">
+        <thead><tr><th>Video</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for job, title in queue_rows %}
+            <tr>
+              <td>
+                <a href="{{ video_link_prefix }}{{ job.video_id }}">{{ title }}</a>
+              </td>
+              <td>
+                {% if job.state is defined %}
+                  {{ job.state.value }}
+                {% else %}
+                  {{ job.status }}
+                {% endif %}
+                {% if job.step %} · {{ job.step }}{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="settings-card-sub"><em>Nichts in der Warteschlange.</em></p>
+    {% endif %}
+
+    <h3>Letzte Fehler</h3>
+    {% if failed_rows %}
+      <table class="playlist-refresh-table">
+        <thead>
+          <tr><th>Video</th><th>Fehler</th><th>Aktion</th></tr>
+        </thead>
+        <tbody>
+          {% for job, title in failed_rows %}
+            <tr>
+              <td>
+                <a href="{{ video_link_prefix }}{{ job.video_id }}">{{ title }}</a>
+              </td>
+              <td>
+                {% set msg = job.error_message if job.error_message is defined else job.error %}
+                <code>{{ (msg or '')[:200] }}</code>
+              </td>
+              <td>
+                <form method="post" action="{{ retry_url }}/{{ job.id }}" style="display:inline">
+                  <button type="submit" class="btn btn-secondary">Retry</button>
+                </form>
+                <form method="post" action="{{ delete_url }}/{{ job.id }}" style="display:inline"
+                      onsubmit="return confirm('Diesen Job-Eintrag löschen?')">
+                  <button type="submit" class="btn btn-secondary">Löschen</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="settings-card-sub"><em>Keine Fehler.</em></p>
+    {% endif %}
+  </section>
+  {% endmacro %}
+
+  {{ queue_card('Summary-Queue', summary_counts, summary_queue, summary_failed,
+                '/settings/diagnostics/retry-job',
+                '/settings/diagnostics/delete-job') }}
+
+  {{ queue_card('TTS-Queue', tts_counts, tts_queue, tts_failed,
+                '/settings/diagnostics/retry-tts',
+                '/settings/diagnostics/delete-tts') }}
+
+  {# ── Scheduler ────────────────────────────────────────────── #}
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">⏰</span>
+      <div class="settings-card-head-text">
+        <h2>Scheduler</h2>
+        <p class="settings-card-sub">
+          Letzter Tick:
+          {% if scheduler_last_tick_at %}
+            <code>{{ scheduler_last_tick_at }}</code>
+          {% else %}
+            <em>noch keiner</em>
+          {% endif %}
+        </p>
+      </div>
+    </header>
+
+    {% if scheduled_playlists %}
+      <table class="playlist-refresh-table">
+        <thead>
+          <tr><th>Playlist</th><th>Zuletzt aktualisiert</th></tr>
+        </thead>
+        <tbody>
+          {% for pl in scheduled_playlists %}
+            <tr>
+              <td>{{ pl.title or pl.id }}</td>
+              <td>
+                {% if pl.last_refreshed_at %}
+                  {{ pl.last_refreshed_at.isoformat(timespec='seconds') }}
+                {% else %}
+                  <em>nie</em>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="settings-card-sub"><em>Keine Playlists konfiguriert.</em></p>
+    {% endif %}
+
+    <form method="post" action="/settings/diagnostics/tick-scheduler"
+          style="margin-top: 0.5rem">
+      <button type="submit" class="btn btn-primary">Jetzt prüfen</button>
+    </form>
+  </section>
+
+  {# ── Log tail ────────────────────────────────────────────── #}
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">📜</span>
+      <div class="settings-card-head-text">
+        <h2>Log</h2>
+        <p class="settings-card-sub">
+          Letzte {{ log_lines | length }} Zeilen (max 500 im RAM, weg
+          nach Container-Restart). Default 200 — mehr via
+          <code>?lines=500</code>.
+        </p>
+      </div>
+    </header>
+    {% if log_lines %}
+      <pre class="diagnostics-log">{% for line in log_lines %}{{ line }}
+{% endfor %}</pre>
+    {% else %}
+      <p class="settings-card-sub"><em>Buffer ist leer.</em></p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

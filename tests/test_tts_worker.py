@@ -430,3 +430,47 @@ async def test_worker_skips_translation_when_languages_match(
     assert translator_calls == []
     assert job.translated_text is None
     assert renders == [["Hallo Welt."]]
+
+
+async def test_tts_worker_touches_heartbeat(
+    db: aiosqlite.Connection, tmp_path: Path,
+) -> None:
+    """Same contract as Worker: the loop must heartbeat each iteration."""
+    from app.services.heartbeat import HeartbeatRegistry
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    hb = HeartbeatRegistry()
+
+    async def fake_translate(*a, **kw): return ""
+    async def fake_render(*a, **kw): return None
+    async def fake_voice(*a, **kw): return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+        heartbeat=hb,
+    )
+    task = asyncio.create_task(worker.run())
+    for _ in range(20):
+        await asyncio.sleep(0.05)
+        if "tts_worker" in hb.snapshot():
+            break
+    worker.stop()
+    await task
+
+    assert "tts_worker" in hb.snapshot()
+
+
+def test_tts_worker_poll_interval_seconds_property():
+    from app.services.heartbeat import HeartbeatRegistry
+    async def _noop(*a, **kw): return None
+    worker = TtsWorker(
+        db=None, config=None,
+        translate=_noop, render_chunks_to_mp3=_noop, ensure_voice=_noop,
+        poll_interval=0.25, heartbeat=HeartbeatRegistry(),
+    )
+    assert worker.poll_interval_seconds == 0.25

@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -11,8 +12,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
+from app.repos import jobs as jobs_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
@@ -597,6 +600,145 @@ async def revoke_api_key_route(
 ):
     await users_repo.clear_api_key(db, user_id=1)
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.get("/settings/diagnostics", response_class=HTMLResponse)
+async def diagnostics_page(
+    request: Request,
+    lines: int = 200,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Render the diagnostics dashboard.
+
+    Reads from app.state (heartbeats, log_buffer, the three workers
+    for poll-interval thresholds), the DB (queue counts + recent
+    jobs), and the persisted scheduler tick stamp. No mutation.
+    """
+    heartbeats = request.app.state.heartbeats.snapshot()
+    log_buffer = request.app.state.log_buffer
+    worker = request.app.state.worker
+    tts_worker = request.app.state.tts_worker
+    scheduler = request.app.state.scheduler
+
+    # Resolve the per-worker stale threshold = 3 × poll_interval.
+    # 3× gives the 1s pollers a ~3s budget and the 60-min scheduler
+    # a ~3h budget — matches what the spec calls for.
+    worker_thresholds_seconds = {
+        "summary_worker": worker.poll_interval_seconds * 3,
+        "tts_worker":     tts_worker.poll_interval_seconds * 3,
+        "scheduler":      (await scheduler.current_interval_seconds()) * 3,
+    }
+
+    summary_counts = await jobs_repo.counts(db)
+    summary_queue = await jobs_repo.list_queue(db, limit=10)
+    summary_failed = await jobs_repo.list_recent_failed(db, limit=10)
+
+    tts_counts = await tts_jobs_repo.counts(db)
+    tts_queue = await tts_jobs_repo.list_queue(db, limit=10)
+    tts_failed = await tts_jobs_repo.list_recent_failed(db, limit=10)
+
+    scheduler_last_tick_at = await settings_repo.get(
+        db, "scheduler_last_tick_at",
+    )
+    scheduled_playlists = await playlists_repo.list_for_user(db, 1)
+
+    # Bound the requested line count to the buffer capacity.
+    log_lines = log_buffer.snapshot(limit=max(1, min(lines, 500)))
+
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+
+    return templates.TemplateResponse(
+        request,
+        "diagnostics.html",
+        {
+            "current_user": current_user,
+            "now": now_naive,
+            "heartbeats": heartbeats,
+            "worker_thresholds_seconds": worker_thresholds_seconds,
+            "summary_counts": summary_counts,
+            "summary_queue": summary_queue,
+            "summary_failed": summary_failed,
+            "tts_counts": tts_counts,
+            "tts_queue": tts_queue,
+            "tts_failed": tts_failed,
+            "scheduler_last_tick_at": scheduler_last_tick_at,
+            "scheduled_playlists": scheduled_playlists,
+            "log_lines": log_lines,
+            "lines_requested": lines,
+        },
+    )
+
+
+@router.post("/settings/diagnostics/retry-job/{job_id}")
+async def diagnostics_retry_job(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Reset a failed summary job back to 'pending'. 404 if the job
+    is missing or not in 'failed' state."""
+    affected = await jobs_repo.retry(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/delete-job/{job_id}")
+async def diagnostics_delete_job(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Delete a failed summary job row. The video is untouched. 404
+    if the job is missing or not in 'failed' state."""
+    affected = await jobs_repo.delete(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/retry-tts/{job_id}")
+async def diagnostics_retry_tts(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Reset a failed TTS job back to 'queued'. Preserves
+    translated_text so we don't pay the LLM cost again."""
+    affected = await tts_jobs_repo.retry(db, job_id)
+    if affected == 0:
+        raise HTTPException(404, detail=f"No failed tts_job {job_id}")
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/delete-tts/{job_id}")
+async def diagnostics_delete_tts(
+    job_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Delete a failed TTS job row. We deliberately do NOT clean up any
+    MP3 on disk — failed jobs typically have none; orphan cleanup is a
+    separate concern. 404 unless the row exists AND is in 'failed' state."""
+    # Pre-check that the row is failed; the existing tts_jobs_repo.delete()
+    # is unconditional, so we gate manually here. The two-statement
+    # pattern is a small race but harmless on a single-writer SQLite —
+    # a failed → succeeded transition between the check and delete is
+    # impossible (terminal states don't change).
+    async with db.execute(
+        "SELECT id FROM tts_jobs WHERE id=? AND status='failed'",
+        (job_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(404, detail=f"No failed tts_job {job_id}")
+    await tts_jobs_repo.delete(db, job_id)
+    return RedirectResponse("/settings/diagnostics", status_code=303)
+
+
+@router.post("/settings/diagnostics/tick-scheduler")
+async def diagnostics_tick_scheduler(request: Request):
+    """Wake the PlaylistScheduler so its next iteration runs
+    immediately, instead of waiting out the rest of the interval."""
+    request.app.state.scheduler.request_tick()
+    return RedirectResponse("/settings/diagnostics", status_code=303)
 
 
 @router.post("/settings/custom-prompt")

@@ -29,10 +29,13 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import aiosqlite
 import litellm
+
+if TYPE_CHECKING:
+    from app.services.heartbeat import HeartbeatRegistry
 
 from app.config import Config
 from app.models import TtsJob
@@ -80,6 +83,7 @@ class TtsWorker:
         render_chunks_to_mp3: RenderChunksFn,
         ensure_voice: EnsureVoiceFn,
         poll_interval: float = 1.0,
+        heartbeat: HeartbeatRegistry | None = None,
     ) -> None:
         self._db = db
         self._config = config
@@ -87,7 +91,24 @@ class TtsWorker:
         self._render_chunks = render_chunks_to_mp3
         self._ensure_voice = ensure_voice
         self._poll_interval = poll_interval
+        self._heartbeat = heartbeat
         self._stopped = asyncio.Event()
+
+    @property
+    def poll_interval_seconds(self) -> float:
+        """Public read-only accessor — the diagnostics page uses this
+        to compute the alive/stale threshold (3 × poll_interval)."""
+        return self._poll_interval
+
+    def _touch(
+        self, *, current_job_id: int | None = None, current_step: str | None = None,
+    ) -> None:
+        if self._heartbeat is not None:
+            self._heartbeat.touch(
+                "tts_worker",
+                current_job_id=current_job_id,
+                current_step=current_step,
+            )
 
     def stop(self) -> None:
         self._stopped.set()
@@ -96,12 +117,14 @@ class TtsWorker:
         while not self._stopped.is_set():
             job = await tts_jobs_repo.claim_next(self._db)
             if job is None:
+                self._touch()
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(
                         self._stopped.wait(), self._poll_interval
                     )
                 continue
             try:
+                self._touch(current_job_id=job.id, current_step=job.step or "starting")
                 audio_rel, duration, translated = await self._process(job)
                 await tts_jobs_repo.complete(
                     self._db,
@@ -124,6 +147,7 @@ class TtsWorker:
 
         async def set_step(step: str) -> None:
             await tts_jobs_repo.set_step(self._db, job_id, step)
+            self._touch(current_job_id=job_id, current_step=step)
 
         video = await videos_repo.get(self._db, job.video_id)
         if video is None:
@@ -197,8 +221,11 @@ class TtsWorker:
 
         final_text = translated_text if translated_text else text
 
-        # Step 2: status → rendering.
+        # Step 2: status → rendering. Mirror to the heartbeat so the
+        # diagnostics page reflects the transition without a DB read,
+        # consistent with the set_step() mirror above.
         await tts_jobs_repo.set_status(self._db, job_id, "rendering")
+        self._touch(current_job_id=job_id, current_step="rendering")
 
         # Step 3: ensure voice file is downloaded.
         await set_step("downloading voice")

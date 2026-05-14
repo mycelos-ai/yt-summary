@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import asyncio
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.heartbeat import HeartbeatRegistry
 
 import aiosqlite
 
@@ -39,12 +44,15 @@ class PlaylistScheduler:
         sync_fn: SyncFn,
         *,
         min_sleep_seconds: float = 1.0,
+        heartbeat: HeartbeatRegistry | None = None,
     ) -> None:
         self._db = db
         self._config = config
         self._sync_fn = sync_fn
         self._min_sleep_seconds = min_sleep_seconds
+        self._heartbeat = heartbeat
         self._stopped = asyncio.Event()
+        self._tick_requested = asyncio.Event()
 
     def stop(self) -> None:
         self._stopped.set()
@@ -81,8 +89,26 @@ class PlaylistScheduler:
         return max(self._min_sleep_seconds, minutes * 60)
 
     async def _sleep_or_stop(self, seconds: float) -> None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._stopped.wait(), seconds)
+        """Wait up to ``seconds``, but return early on stop OR tick request.
+
+        The tick-request event lets the diagnostics page's 'Jetzt prüfen'
+        button trigger a refresh without waiting out the rest of the
+        interval. The flag is cleared on wakeup so the next iteration
+        sleeps normally — otherwise the loop would hot-spin.
+        """
+        stop_task = asyncio.create_task(self._stopped.wait())
+        tick_task = asyncio.create_task(self._tick_requested.wait())
+        try:
+            await asyncio.wait(
+                {stop_task, tick_task},
+                timeout=seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for t in (stop_task, tick_task):
+                if not t.done():
+                    t.cancel()
+            self._tick_requested.clear()
 
     async def _record_tick(self) -> None:
         """Stamp 'scheduler_last_tick_at' with the current UTC time."""
@@ -95,9 +121,17 @@ class PlaylistScheduler:
 
     async def run(self) -> None:
         while not self._stopped.is_set():
-            await self._sleep_or_stop(await self._interval_seconds())
+            # Resolve the interval BEFORE the heartbeat so the
+            # last_tick_at timestamp truthfully marks the start of
+            # the idle period — the DB round-trip can take tens of ms
+            # on a busy Pi and that staleness matters for the
+            # diagnostics page's 3× alive/stale threshold.
+            interval = await self._interval_seconds()
+            self._touch(current_step="sleeping")
+            await self._sleep_or_stop(interval)
             if self._stopped.is_set():
                 return
+            self._touch(current_step="scanning")
             try:
                 playlists = await playlists_repo.list_for_user(self._db, 1)
             except Exception:
@@ -107,6 +141,7 @@ class PlaylistScheduler:
             for playlist in playlists:
                 if self._stopped.is_set():
                     return
+                self._touch(current_step=f"syncing {playlist.id}")
                 try:
                     await self._sync_fn(self._db, self._config, playlist.id)
                 except Exception:
@@ -114,3 +149,23 @@ class PlaylistScheduler:
                         "scheduler: sync failed for playlist %s", playlist.id
                     )
             await self._record_tick()
+
+    def request_tick(self) -> None:
+        """Wake the scheduler so the next iteration runs immediately.
+
+        Idempotent — a second request before the loop wakes is a no-op
+        (asyncio.Event is set-once-until-cleared).
+        """
+        self._tick_requested.set()
+
+    def _touch(self, *, current_step: str | None = None) -> None:
+        if self._heartbeat is not None:
+            self._heartbeat.touch("scheduler", current_step=current_step)
+
+    async def current_interval_seconds(self) -> float:
+        """Public wrapper around the resolved interval.
+
+        The diagnostics page calls this to compute the 'alive vs stale'
+        threshold for the scheduler heartbeat (3× this value).
+        """
+        return await self._interval_seconds()

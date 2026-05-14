@@ -1028,3 +1028,13 @@ def test_settings_shows_voice_cache_size(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert "2 voices installed" in resp.text
     assert "3" in resp.text  # 3 MB
+
+
+def test_settings_page_links_to_diagnostics(tmp_path, monkeypatch):
+    """The diagnostics subpage must be reachable from /settings."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "/settings/diagnostics" in resp.text
