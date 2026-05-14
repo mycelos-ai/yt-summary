@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -11,8 +12,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
+from app.repos import jobs as jobs_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
@@ -597,6 +600,74 @@ async def revoke_api_key_route(
 ):
     await users_repo.clear_api_key(db, user_id=1)
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.get("/settings/diagnostics", response_class=HTMLResponse)
+async def diagnostics_page(
+    request: Request,
+    lines: int = 200,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Render the diagnostics dashboard.
+
+    Reads from app.state (heartbeats, log_buffer, the three workers
+    for poll-interval thresholds), the DB (queue counts + recent
+    jobs), and the persisted scheduler tick stamp. No mutation.
+    """
+    heartbeats = request.app.state.heartbeats.snapshot()
+    log_buffer = request.app.state.log_buffer
+    worker = request.app.state.worker
+    tts_worker = request.app.state.tts_worker
+    scheduler = request.app.state.scheduler
+
+    # Resolve the per-worker stale threshold = 3 × poll_interval.
+    # 3× gives the 1s pollers a ~3s budget and the 60-min scheduler
+    # a ~3h budget — matches what the spec calls for.
+    worker_thresholds_seconds = {
+        "summary_worker": worker.poll_interval_seconds * 3,
+        "tts_worker":     tts_worker.poll_interval_seconds * 3,
+        "scheduler":      (await scheduler.current_interval_seconds()) * 3,
+    }
+
+    summary_counts = await jobs_repo.counts(db)
+    summary_queue = await jobs_repo.list_queue(db, limit=10)
+    summary_failed = await jobs_repo.list_recent_failed(db, limit=10)
+
+    tts_counts = await tts_jobs_repo.counts(db)
+    tts_queue = await tts_jobs_repo.list_queue(db, limit=10)
+    tts_failed = await tts_jobs_repo.list_recent_failed(db, limit=10)
+
+    scheduler_last_tick_at = await settings_repo.get(
+        db, "scheduler_last_tick_at",
+    )
+    scheduled_playlists = await playlists_repo.list_for_user(db, 1)
+
+    # Bound the requested line count to the buffer capacity.
+    log_lines = log_buffer.snapshot(limit=max(1, min(lines, 500)))
+
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
+
+    return templates.TemplateResponse(
+        request,
+        "diagnostics.html",
+        {
+            "current_user": current_user,
+            "now": now_naive,
+            "heartbeats": heartbeats,
+            "worker_thresholds_seconds": worker_thresholds_seconds,
+            "summary_counts": summary_counts,
+            "summary_queue": summary_queue,
+            "summary_failed": summary_failed,
+            "tts_counts": tts_counts,
+            "tts_queue": tts_queue,
+            "tts_failed": tts_failed,
+            "scheduler_last_tick_at": scheduler_last_tick_at,
+            "scheduled_playlists": scheduled_playlists,
+            "log_lines": log_lines,
+            "lines_requested": lines,
+        },
+    )
 
 
 @router.post("/settings/custom-prompt")
