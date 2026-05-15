@@ -37,8 +37,9 @@
             ({{ settings.get('llm_model', '') }}).
             Click another tile to switch, or fine-tune each card afterwards.
           {% else %}
-            Pick a provider to fill in sensible defaults for LLM, Embeddings,
-            and Whisper in one go. You can fine-tune each card afterwards.
+            Pick a provider to fill in sensible defaults for LLM and
+            Whisper in one go. You can fine-tune each card afterwards.
+            Embeddings run locally — no provider configuration needed.
           {% endif %}
         </p>
       </div>
@@ -59,7 +60,6 @@
             </span>
             <span class="quicksetup-option-tags">
               {% if p.default_llm %}<span class="quicksetup-tag">LLM</span>{% endif %}
-              {% if p.default_embedding %}<span class="quicksetup-tag">Embedding</span>{% endif %}
               {% if p.whisper_base_url %}<span class="quicksetup-tag">Whisper</span>{% endif %}
             </span>
           </label>
@@ -171,31 +171,10 @@
                   included).</small>
               </label>
             {% endif %}
-            {% set embed_models = preset_embed_models.get(p.id, []) %}
-            {% if embed_models %}
-              <label class="settings-field">
-                <span class="settings-label">Embedding model</span>
-                <select name="embedding_model"
-                        x-bind:disabled="provider !== '{{ p.id }}'">
-                  {% for m in embed_models %}
-                    {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
-                    {% set is_active = current_provider_id == p.id %}
-                    {% set selected_value = settings.get('embedding_model', '') if is_active else p.default_embedding %}
-                    <option value="{{ option_value }}"
-                            {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
-                      {{ m }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </label>
-            {% endif %}
           {% endif %}
           <p class="quicksetup-summary">
             Will set:
             <code>{{ p.default_llm }}</code>
-            {% if p.default_embedding %}
-              · <code>{{ p.default_embedding }}</code>
-            {% endif %}
             {% if p.whisper_base_url %}
               · whisper at <code>{{ p.whisper_base_url }}</code>
             {% endif %}
@@ -257,10 +236,10 @@
       </p>
     </section>
 
-    <!-- ── Advanced manual config (LLM + Whisper + Embeddings) ──
-         Quick Setup above already configures all three in one go for
-         the supported providers. The cards in this collapsible block
-         are for power users with custom setups (self-hosted LiteLLM
+    <!-- ── Advanced manual config (LLM + Whisper) ──
+         Quick Setup above already configures both in one go for the
+         supported providers. The cards in this collapsible block are
+         for power users with custom setups (self-hosted LiteLLM
          proxy, exotic Whisper backend, mixed providers). Closed by
          default — most users will never touch it. -->
     <details class="settings-advanced">
@@ -269,8 +248,8 @@
         <span>
           <strong>Advanced — configure manually</strong>
           <span class="settings-advanced-hint">
-            Override LLM, Whisper, or Embedding settings individually. Most users
-            don't need this — the Quick Setup wizard above covers the supported
+            Override LLM or Whisper settings individually. Most users don't
+            need this — the Quick Setup wizard above covers the supported
             providers.
           </span>
         </span>
@@ -358,41 +337,6 @@
         <div id="whisper-test-result" class="settings-test-result"></div>
       </div>
       <p class="settings-test-hint">Sends a 3-second audio sample (<code>app/static/samples/whisper_test.m4a</code>) through the configured backend.</p>
-    </section>
-
-    <!-- ── Embeddings ──────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/embedding.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Embeddings (semantic search)</h2>
-          <p class="settings-card-sub">Used for hybrid search across summaries on the home page. Optional; keyword-only search still works without it.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Embedding model</span>
-        <input name="embedding_model" value="{{ settings.get('embedding_model', '') }}"
-               placeholder="ollama/nomic-embed-text">
-        <small>Empty falls back to <code>ollama/nomic-embed-text</code>. Other Ollama embedders work too: <code>ollama/mxbai-embed-large</code>.</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Embedding base URL <span class="settings-hint-inline">— optional, falls back to LLM Base URL</span></span>
-        <input name="embedding_base_url" value="{{ settings.get('embedding_base_url', '') }}">
-        <small>Where to reach the embedding model. Leave blank to reuse the LLM Base URL above.</small>
-      </label>
-
-      <div class="settings-test-row">
-        <button type="button" class="btn btn-secondary"
-                hx-post="/settings/test-embedding" hx-target="#embedding-test-result" hx-swap="innerHTML"
-                hx-disabled-elt="this">
-          Test Embedding
-        </button>
-        <div id="embedding-test-result" class="settings-test-result"></div>
-      </div>
     </section>
 
     </details>

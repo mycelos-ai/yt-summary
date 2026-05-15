@@ -20,13 +20,11 @@ from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
-from app.services.embeddings import embed_text
 from app.services.providers import (
     PROVIDER_PRESETS,
     apply_preset,
     fetch_ollama_models,
     list_chat_models,
-    list_embedding_models,
     split_ollama_tags,
 )
 from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
@@ -111,12 +109,11 @@ async def settings_page(
                 current_provider_id = p.id
                 break
 
-    # Per-provider chat / embedding model lists for cloud providers.
+    # Per-provider chat model lists for cloud providers.
     # Ollama gets its list dynamically from /api/tags via HTMX, so we
     # don't pre-fill those here.
     preset_chat_models: dict[str, list[str]] = {}
     preset_chat_models_full: dict[str, list[str]] = {}
-    preset_embed_models: dict[str, list[str]] = {}
     for p in presets:
         if p.id == "ollama":
             continue
@@ -128,8 +125,6 @@ async def settings_page(
         preset_chat_models_full[p.id] = list_chat_models(
             p.id, include_legacy=True
         )
-        if p.default_embedding:
-            preset_embed_models[p.id] = list_embedding_models(p.id)
 
     # TTS voice cache: scan tts_voices_dir for .onnx files so the card
     # can surface "N voices installed · M MB" without keeping a separate
@@ -155,7 +150,6 @@ async def settings_page(
             "presets": presets,
             "preset_chat_models": preset_chat_models,
             "preset_chat_models_full": preset_chat_models_full,
-            "preset_embed_models": preset_embed_models,
             "applied_preset": applied_preset,
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
@@ -187,8 +181,6 @@ async def save_settings(
     whisper_base_url: str = Form(""),
     whisper_api_key: str = Form(""),
     summary_language: str = Form("auto"),
-    embedding_model: str = Form(""),
-    embedding_base_url: str = Form(""),
     playlist_refresh_interval_hours: str = Form(""),
     playlist_refresh_interval_minutes: str = Form(""),
     playlist_initial_import_limit: str = Form("20"),
@@ -206,7 +198,6 @@ async def save_settings(
     # would produce "//audio/transcriptions" or "//api/chat" which some
     # providers reject with 405.
     llm_base_url = llm_base_url.strip().rstrip("/")
-    embedding_base_url = embedding_base_url.strip().rstrip("/")
     whisper_base_url = whisper_base_url.strip().rstrip("/")
     for key, value in (
         ("llm_model", llm_model.strip()),
@@ -214,8 +205,6 @@ async def save_settings(
         ("whisper_model", whisper_model.strip() or "small"),
         ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
-        ("embedding_model", embedding_model.strip()),
-        ("embedding_base_url", embedding_base_url),
         ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
         # TTS defaults — empty value clears the key, matching the
@@ -284,7 +273,6 @@ async def quick_setup(
     api_key: str = Form(""),
     llm_model: str = Form(""),
     llm_base_url: str = Form(""),
-    embedding_model: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """Apply a curated provider preset.
@@ -302,7 +290,6 @@ async def quick_setup(
         current_settings=current,
         llm_model_override=llm_model.strip() or None,
         llm_base_url_override=llm_base_url.strip() or None,
-        embedding_model_override=embedding_model.strip() or None,
     )
 
     for key, value in updates.items():
@@ -372,28 +359,12 @@ async def quick_setup_ollama_models(llm_base_url: str = ""):
             'found. Pull one with <code>ollama pull llama3.1</code>.</p>'
         )
 
-    # Embedding dropdown — only render if the server has anything that
-    # looks like an embedder. Otherwise the wizard's preset-default
-    # (ollama/nomic-embed-text) is used as-is.
-    embed_block = ""
-    if embed_tags:
-        embed_options = "".join(
-            f'<option value="ollama/{tag}">{tag}</option>'
-            for tag in embed_tags
-        )
-        embed_block = (
-            '<label class="settings-field">'
-            '<span class="settings-label">Embedding model</span>'
-            f'<select name="embedding_model">{embed_options}</select>'
-            '</label>'
-        )
-
     summary = (
         f'<small class="settings-test-hint">Found {len(tags)} model'
         f'{"" if len(tags) == 1 else "s"} on {base_url} — '
         f'{len(chat_tags)} chat, {len(embed_tags)} embedding.</small>'
     )
-    return HTMLResponse(chat_block + embed_block + summary)
+    return HTMLResponse(chat_block + summary)
 
 
 async def _probe_ollama_reachable(base_url: str) -> str | None:
@@ -490,55 +461,6 @@ async def test_whisper(db: aiosqlite.Connection = Depends(get_db)):
     return HTMLResponse(
         f'<p class="status status-done">✓ {backend} '
         f'transcribed in {elapsed:.1f}s: <em>{snippet}</em></p>'
-    )
-
-
-@router.post("/settings/test-embedding", response_class=HTMLResponse)
-async def test_embedding(db: aiosqlite.Connection = Depends(get_db)):
-    """Embed a fixed short string through the configured embedding
-    backend. Reports the vector dimension and timing."""
-    settings = await settings_repo.get_all(db)
-    model = (settings.get("embedding_model") or "").strip()
-    # embed_text falls back to ollama/nomic-embed-text but only makes
-    # sense if there's *some* base URL it can hit.
-    has_base = bool(
-        settings.get("embedding_base_url") or settings.get("llm_base_url")
-    )
-    if not model and not has_base:
-        return HTMLResponse(
-            '<p class="status status-failed">⚠ Configure an embedding '
-            'model (or an LLM Base URL to fall back on).</p>'
-        )
-
-    embedding_base = (
-        settings.get("embedding_base_url") or settings.get("llm_base_url") or None
-    )
-    embedding_key = settings.get("llm_api_key") or ""
-    started = time.monotonic()
-    try:
-        vec = await embed_text(
-            "yt-summary embedding test",
-            model=model or None,
-            api_key=embedding_key,
-            base_url=embedding_base,
-        )
-    except Exception as e:
-        return HTMLResponse(
-            f'<p class="status status-failed">⚠ {type(e).__name__}: {e}</p>'
-        )
-    elapsed = time.monotonic() - started
-    dim = len(vec) if vec else 0
-    if dim == 0:
-        return HTMLResponse(
-            '<p class="status status-failed">⚠ Embedding returned an '
-            'empty vector.</p>'
-        )
-    preview = ", ".join(f"{v:.3f}" for v in vec[:3])
-    label = model or "(default ollama/nomic-embed-text)"
-    return HTMLResponse(
-        f'<p class="status status-done">✓ {label} returned a '
-        f'{dim}-dim vector in {elapsed:.2f}s. First values: '
-        f'[{preview}, …]</p>'
     )
 
 

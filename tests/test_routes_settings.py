@@ -558,62 +558,14 @@ def test_test_whisper_reports_error(tmp_path, monkeypatch):
     assert "boom" in resp.text
 
 
-def test_test_embedding_without_model_returns_warning(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post("/settings/test-embedding")
-    # No embedding_model and no LLM base URL fallback → "configure"
-    assert resp.status_code == 200
-    assert "embed" in resp.text.lower()
-
-
-def test_test_embedding_returns_dimension(tmp_path, monkeypatch):
-    """Successful embedding test reports the vector dimension and a
-    short preview of the values."""
-    from unittest.mock import AsyncMock, patch
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        import asyncio
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "embedding_model", "ollama/nomic-embed-text"
-            )
-            await settings_repo.set(
-                app.state.db, "embedding_base_url", "http://localhost:11434"
-            )
-
-        asyncio.get_event_loop().run_until_complete(setup())
-        with patch(
-            "app.routes.settings.embed_text",
-            AsyncMock(return_value=[0.1, 0.2, 0.3] * 256),  # 768-dim
-        ):
-            resp = client.post("/settings/test-embedding")
-    assert resp.status_code == 200
-    assert "768" in resp.text
-    assert "ollama/nomic-embed-text" in resp.text
-
-
 def test_quick_setup_anthropic_writes_llm_only(tmp_path, monkeypatch):
     """POSTing to /settings/quick-setup with provider=anthropic should
-    set llm_model + llm_api_key but leave embedding/whisper alone."""
+    set llm_model + llm_api_key."""
     import asyncio
 
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "embedding_model", "ollama/nomic-embed-text"
-            )
-
-        asyncio.get_event_loop().run_until_complete(setup())
         resp = client.post(
             "/settings/quick-setup",
             data={"provider": "anthropic", "api_key": "sk-ant-test"},
@@ -627,8 +579,6 @@ def test_quick_setup_anthropic_writes_llm_only(tmp_path, monkeypatch):
             s = await settings_repo.get_all(app.state.db)
             assert s["llm_model"] == "anthropic/claude-sonnet-4-6"
             assert s["llm_api_key"] == "sk-ant-test"
-            # Embedding untouched
-            assert s["embedding_model"] == "ollama/nomic-embed-text"
 
         asyncio.get_event_loop().run_until_complete(check())
 
@@ -790,8 +740,8 @@ def test_quick_setup_ollama_models_handles_fetch_error(tmp_path, monkeypatch):
 
 
 def test_quick_setup_ollama_models_renders_both_dropdowns(tmp_path, monkeypatch):
-    """When the server has both chat and embedding models, render two
-    separate selects so the user can pick each."""
+    """When the server has both chat and embedding models, the chat select
+    is rendered and the summary mentions the embedding count."""
     from unittest.mock import AsyncMock, patch
 
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
@@ -814,15 +764,15 @@ def test_quick_setup_ollama_models_renders_both_dropdowns(tmp_path, monkeypatch)
         )
     assert resp.status_code == 200
     text = resp.text
-    # Two named selects
+    # Chat select is rendered
     assert 'name="llm_model"' in text
-    assert 'name="embedding_model"' in text
+    # No embedding select (embed_block removed)
+    assert 'name="embedding_model"' not in text
     # Chat tags appear as ollama_chat/...
     assert "ollama_chat/llama3.1:latest" in text
     assert "ollama_chat/qwen2.5:14b" in text
-    # Embedding tags appear as ollama/... (no _chat)
-    assert "ollama/nomic-embed-text:latest" in text
-    assert "ollama/mxbai-embed-large:latest" in text
+    # Summary still mentions the embedding count
+    assert "2 embedding" in text
 
 
 def test_quick_setup_ollama_models_no_embedders(tmp_path, monkeypatch):
@@ -871,16 +821,15 @@ def test_settings_page_renders_cloud_provider_dropdowns(tmp_path, monkeypatch):
 
 
 def test_settings_page_renders_cloud_embedding_dropdowns(tmp_path, monkeypatch):
-    """Providers with embedding support (OpenAI, Gemini) should render
-    an embedding model dropdown, but Anthropic and Groq should not."""
+    """The settings page renders without error even though the embedding
+    model dropdowns have been removed (embedding config is now internal)."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         resp = client.get("/settings")
-    text = resp.text
-    # The embedding select for the wizard is named embedding_model.
-    # OpenAI's default text-embedding-3-small should be visible.
-    assert "text-embedding-3-small" in text
+    assert resp.status_code == 200
+    # Embedding section is gone — no embedding_model select.
+    assert 'name="embedding_model"' not in resp.text
 
 
 def test_settings_form_renders_tts_card(tmp_path, monkeypatch):
