@@ -4,7 +4,7 @@ from app.repos import embeddings as embeddings_repo
 from app.repos import videos as videos_repo
 
 
-def _vec(x: float, dim: int = 768) -> list[float]:
+def _vec(x: float, dim: int = 384) -> list[float]:
     """Build a simple deterministic vector for tests."""
     return [x] * dim
 
@@ -73,13 +73,13 @@ async def test_search_orders_by_distance(db: aiosqlite.Connection):
     await _make_video(db, "far")
     # Two vectors that differ in just one entry — vec(1.0) is closer to
     # vec(0.95) than to vec(0.0).
-    near_vec = [0.95] * 768
-    far_vec = [0.0] * 768
+    near_vec = [0.95] * 384
+    far_vec = [0.0] * 384
     await embeddings_repo.upsert_summary_embedding(db, "near", near_vec)
     await embeddings_repo.upsert_summary_embedding(db, "far", far_vec)
 
     hits = await embeddings_repo.search_by_summary_vector(
-        db, [1.0] * 768, limit=10
+        db, [1.0] * 384, limit=10
     )
     ids = [h[0] for h in hits]
     assert ids[0] == "near"
@@ -90,10 +90,10 @@ async def test_search_limit_respected(db: aiosqlite.Connection):
     for i in range(5):
         await _make_video(db, f"v{i}")
         await embeddings_repo.upsert_summary_embedding(
-            db, f"v{i}", [float(i) / 10] * 768
+            db, f"v{i}", [float(i) / 10] * 384
         )
     hits = await embeddings_repo.search_by_summary_vector(
-        db, [0.1] * 768, limit=2
+        db, [0.1] * 384, limit=2
     )
     assert len(hits) == 2
 
