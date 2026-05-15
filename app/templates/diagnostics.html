@@ -129,22 +129,35 @@
           <tr><th>Video</th><th>Fehler</th><th>Aktion</th></tr>
         </thead>
         <tbody>
-          {% for job, title in failed_rows %}
+          {% for job, title, video_done in failed_rows %}
             <tr>
               <td>
                 <a href="{{ video_link_prefix }}{{ job.video_id }}">{{ title }}</a>
+                {% if video_done %}
+                  <span class="diagnostics-done-pill" title="Diese Arbeit ist mittlerweile in einem anderen Lauf erfolgreich erledigt — Retry nicht nötig.">✓ erledigt</span>
+                {% endif %}
               </td>
               <td>
                 {% set msg = job.error_message if job.error_message is defined else job.error %}
                 <code>{{ (msg or '')[:200] }}</code>
               </td>
-              <td>
+              <td class="diagnostics-actions">
                 <form method="post" action="{{ retry_url }}/{{ job.id }}" style="display:inline">
-                  <button type="submit" class="btn btn-secondary">Retry</button>
+                  <button type="submit"
+                          class="diagnostics-icon-btn"
+                          {% if video_done %}disabled
+                          title="Video hat bereits ein Ergebnis — Retry deaktiviert"
+                          {% else %}title="Diesen Job neu in die Queue stellen"{% endif %}>
+                    ↻
+                  </button>
                 </form>
                 <form method="post" action="{{ delete_url }}/{{ job.id }}" style="display:inline"
                       onsubmit="return confirm('Diesen Job-Eintrag löschen?')">
-                  <button type="submit" class="btn btn-secondary">Löschen</button>
+                  <button type="submit"
+                          class="diagnostics-icon-btn diagnostics-icon-btn-danger"
+                          title="Diesen Job-Eintrag aus der Liste entfernen">
+                    ×
+                  </button>
                 </form>
               </td>
             </tr>

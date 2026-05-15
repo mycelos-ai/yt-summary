@@ -155,11 +155,19 @@ async def list_queue(
 
 async def list_recent_failed(
     db: aiosqlite.Connection, limit: int = 10,
-) -> list[tuple[Job, str]]:
-    """Failed jobs, newest first, with video title joined in."""
+) -> list[tuple[Job, str, bool]]:
+    """Failed jobs, newest first, with video title and `video_done`.
+
+    `video_done` is True when the video already has a summary — a
+    common case where the failure is a stale leftover from an earlier
+    attempt and a retry would just re-do work that already succeeded.
+    The diagnostics page uses this to disable the Retry button.
+    """
     cursor = await db.execute(
         """
-        SELECT j.*, v.title AS video_title
+        SELECT j.*,
+               v.title AS video_title,
+               (v.summary IS NOT NULL) AS video_done
         FROM jobs j
         LEFT JOIN videos v ON v.id = j.video_id
         WHERE j.state = 'failed'
@@ -169,7 +177,14 @@ async def list_recent_failed(
         (limit,),
     )
     rows = await cursor.fetchall()
-    return [(_row_to_job(r), r["video_title"] or r["video_id"]) for r in rows]
+    return [
+        (
+            _row_to_job(r),
+            r["video_title"] or r["video_id"],
+            bool(r["video_done"]),
+        )
+        for r in rows
+    ]
 
 
 async def retry(db: aiosqlite.Connection, job_id: int) -> int:

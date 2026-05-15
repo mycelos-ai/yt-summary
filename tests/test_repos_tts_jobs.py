@@ -231,6 +231,24 @@ async def test_list_recent_failed_orders_newest_first(db: aiosqlite.Connection):
     assert [row[0].id for row in rows] == [j2.id, j1.id]
 
 
+async def test_list_recent_failed_flags_render_done(db: aiosqlite.Connection):
+    """A failed TTS job that nonetheless has audio_path set is rare
+    (manual fail/reset path), but the disable flag should respect it."""
+    await _video(db, "a")
+    j = await r.enqueue(db, "a", "summary", "de", "v", "low")
+    # Pretend a render finished, then someone (e.g. a future cleanup
+    # job) flipped the row back to failed without clearing audio_path.
+    await r.fail(db, j.id, "x")
+    await db.execute(
+        "UPDATE tts_jobs SET audio_path='abc/foo.mp3' WHERE id=?", (j.id,)
+    )
+    await db.commit()
+    rows = await r.list_recent_failed(db, limit=10)
+    assert len(rows) == 1
+    _, _, render_done = rows[0]
+    assert render_done is True
+
+
 async def test_retry_resets_failed_back_to_queued_and_clears_error(
     db: aiosqlite.Connection,
 ):

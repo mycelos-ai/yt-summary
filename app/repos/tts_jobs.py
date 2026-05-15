@@ -253,11 +253,26 @@ async def list_queue(
 
 async def list_recent_failed(
     db: aiosqlite.Connection, limit: int = 10,
-) -> list[tuple[TtsJob, str]]:
-    """Failed TTS jobs, newest first."""
+) -> list[tuple[TtsJob, str, bool]]:
+    """Failed TTS jobs, newest first, with title and `render_done`.
+
+    `render_done` is True when this very row already has an
+    ``audio_path`` set — meaning a previous successful render left
+    the MP3 on disk and a later attempt then failed (or the row was
+    flipped back to ``failed`` manually). The diagnostics page
+    disables the Retry button in that case so the user doesn't
+    re-trigger work for an audio file that already exists.
+
+    The (video_id, source, target_language, voice, quality) tuple is
+    UNIQUE in the schema, so there's no separate "later success" row
+    to look for — same row, different statuses over time.
+    """
     cursor = await db.execute(
         """
-        SELECT t.*, v.title AS video_title
+        SELECT
+          t.*,
+          v.title AS video_title,
+          (t.audio_path IS NOT NULL) AS render_done
         FROM tts_jobs t
         LEFT JOIN videos v ON v.id = t.video_id
         WHERE t.status='failed'
@@ -267,7 +282,14 @@ async def list_recent_failed(
         (limit,),
     )
     rows = await cursor.fetchall()
-    return [(_row_to_tts_job(r), r["video_title"] or r["video_id"]) for r in rows]
+    return [
+        (
+            _row_to_tts_job(r),
+            r["video_title"] or r["video_id"],
+            bool(r["render_done"]),
+        )
+        for r in rows
+    ]
 
 
 async def retry(db: aiosqlite.Connection, job_id: int) -> int:

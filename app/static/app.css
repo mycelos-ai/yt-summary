@@ -1987,3 +1987,56 @@ button.section-download {
   width: 100%;
   margin: 4px 0 12px;
 }
+
+/* ── Diagnostics page ───────────────────────────────────────── */
+
+/* Compact icon buttons in the failed-jobs Aktion column. Replaces
+   the wider btn-secondary pair so the table doesn't bloat and so
+   Retry/Löschen are visually distinct. */
+.diagnostics-actions {
+  white-space: nowrap;
+}
+.diagnostics-icon-btn {
+  background: transparent;
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-right: 4px;
+  border-radius: var(--rounded-full);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.diagnostics-icon-btn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--stone);
+}
+.diagnostics-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.diagnostics-icon-btn-danger:hover:not(:disabled) {
+  color: var(--brand-error);
+  border-color: var(--brand-error);
+}
+
+/* "✓ erledigt" pill next to the video title for failed jobs whose
+   work has nonetheless been completed elsewhere — signals to the
+   operator that retrying is unnecessary. */
+.diagnostics-done-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--brand-green-deep);
+  background: rgba(0, 212, 164, 0.10);
+  border-radius: var(--rounded-full);
+  vertical-align: middle;
+}

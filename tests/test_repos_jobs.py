@@ -188,6 +188,29 @@ async def test_list_recent_failed_orders_newest_first(db: aiosqlite.Connection):
     assert rows[1][0].id == ja
 
 
+async def test_list_recent_failed_marks_video_done(db: aiosqlite.Connection):
+    """A failed job whose video already has a summary is flagged so
+    the diagnostics page can disable the Retry button."""
+    await _video(db, "with_summary")
+    await _video(db, "no_summary")
+    j_done = await jobs_repo.enqueue(db, "with_summary")
+    j_pending = await jobs_repo.enqueue(db, "no_summary")
+    # The video gets a summary AFTER the job failed (e.g. a later
+    # successful re-attempt that didn't go through the diagnostics
+    # retry path).
+    await jobs_repo.fail(db, j_done, "stale")
+    await jobs_repo.fail(db, j_pending, "still broken")
+    await db.execute(
+        "UPDATE videos SET summary='hello world' WHERE id='with_summary'"
+    )
+    await db.commit()
+
+    rows = await jobs_repo.list_recent_failed(db, limit=10)
+    by_id = {job.id: video_done for job, _, video_done in rows}
+    assert by_id[j_done] is True
+    assert by_id[j_pending] is False
+
+
 async def test_retry_flips_failed_to_pending_and_clears_error(
     db: aiosqlite.Connection,
 ):
