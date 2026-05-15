@@ -1,53 +1,24 @@
-"""Embedding generation via LiteLLM.
+"""Compatibility shim — delegates to embeddings_local.
 
-LiteLLM exposes `aembedding` for any provider it supports. For Ollama
-we go through `ollama/<model>` (the OpenAI-compatible flavor accepts
-embeddings too via /v1/embeddings) and pass the configured base_url.
+The legacy ``model`` / ``api_key`` / ``base_url`` parameters are
+accepted but ignored. They will be removed in a follow-up cleanup
+once all callers (pipeline.py, home.py, routes/settings.py) stop
+passing them.
 """
-
-from typing import Any
-
-import litellm
-
-DEFAULT_EMBEDDING_MODEL = "ollama/nomic-embed-text"
+from __future__ import annotations
 
 
 async def embed_text(
     text: str,
     *,
-    model: str | None = None,
-    api_key: str = "",
-    base_url: str | None = None,
+    model: str | None = None,    # noqa: ARG001 — kept for back-compat
+    api_key: str = "",            # noqa: ARG001
+    base_url: str | None = None,  # noqa: ARG001
 ) -> list[float]:
     """Return the embedding vector for `text`.
 
-    `model` defaults to `nomic-embed-text` via Ollama. Empty text raises
-    ValueError. Network/provider errors propagate.
+    All positional/keyword args except `text` are ignored — the local
+    `paraphrase-multilingual-MiniLM-L12-v2` model is the only embedder.
     """
-    text = text.strip()
-    if not text:
-        raise ValueError("Cannot embed empty text")
-
-    chosen_model = (model or DEFAULT_EMBEDDING_MODEL).strip()
-    # If the user typed the bare ollama model tag, prepend the provider.
-    if "/" not in chosen_model:
-        chosen_model = f"ollama/{chosen_model}"
-
-    kwargs: dict[str, Any] = {
-        "model": chosen_model,
-        "input": text,
-        "api_key": api_key or "",
-    }
-    if base_url:
-        kwargs["api_base"] = base_url
-
-    response = await litellm.aembedding(**kwargs)
-    # LiteLLM normalises to OpenAI's response shape:
-    # {"data": [{"embedding": [...]}], ...}
-    data = response["data"]
-    if not data:
-        raise ValueError("Embedding provider returned no vectors")
-    vector = data[0]["embedding"]
-    if not vector:
-        raise ValueError("Embedding provider returned an empty vector")
-    return list(vector)
+    from app.services import embeddings_local
+    return await embeddings_local.embed_text(text)

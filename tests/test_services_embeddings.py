@@ -1,76 +1,43 @@
+"""Tests for the embeddings.py compatibility shim.
+
+The shim accepts the legacy `model` / `api_key` / `base_url` kwargs
+but ignores them — the real work happens in embeddings_local.
+"""
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
-def _embedding_response(vector: list[float]) -> dict:
-    return {"data": [{"embedding": vector}], "model": "x", "usage": {}}
-
-
-async def test_embed_text_returns_list_of_floats():
-    from app.services.embeddings import embed_text
+async def test_shim_delegates_to_local():
+    """The shim must call embeddings_local.embed_text with the text only."""
+    from app.services import embeddings as shim
     with patch(
-        "app.services.embeddings.litellm.aembedding",
-        AsyncMock(return_value=_embedding_response([0.1, 0.2, 0.3])),
-    ):
-        v = await embed_text("hello")
-    assert v == [0.1, 0.2, 0.3]
+        "app.services.embeddings_local.embed_text",
+        AsyncMock(return_value=[0.1] * 384),
+    ) as m:
+        v = await shim.embed_text("hello")
+    assert v == [0.1] * 384
+    m.assert_awaited_once_with("hello")
 
 
-async def test_embed_text_passes_base_url_when_set():
-    from app.services.embeddings import embed_text
-    captured = {}
-
-    async def fake(**kwargs):
-        captured.update(kwargs)
-        return _embedding_response([0.0])
-
-    with patch("app.services.embeddings.litellm.aembedding", side_effect=fake):
-        await embed_text(
+async def test_shim_ignores_legacy_kwargs():
+    """Old callers that pass model/api_key/base_url must not break."""
+    from app.services import embeddings as shim
+    with patch(
+        "app.services.embeddings_local.embed_text",
+        AsyncMock(return_value=[0.0] * 384),
+    ) as m:
+        await shim.embed_text(
             "hi",
             model="ollama/nomic-embed-text",
-            api_key="",
-            base_url="http://192.168.0.27:11434",
+            api_key="secret",
+            base_url="http://example",
         )
-    assert captured["api_base"] == "http://192.168.0.27:11434"
-    assert captured["model"] == "ollama/nomic-embed-text"
+    # The shim drops every kwarg before delegating.
+    m.assert_awaited_once_with("hi")
 
 
-async def test_embed_text_prepends_ollama_provider_for_bare_model():
-    from app.services.embeddings import embed_text
-    captured = {}
-
-    async def fake(**kwargs):
-        captured.update(kwargs)
-        return _embedding_response([0.0])
-
-    with patch("app.services.embeddings.litellm.aembedding", side_effect=fake):
-        await embed_text("hi", model="nomic-embed-text")
-    assert captured["model"] == "ollama/nomic-embed-text"
-
-
-async def test_embed_text_rejects_empty():
-    from app.services.embeddings import embed_text
+async def test_shim_propagates_value_error_for_empty():
+    from app.services import embeddings as shim
     with pytest.raises(ValueError):
-        await embed_text("   ")
-
-
-async def test_embed_text_propagates_provider_errors():
-    from app.services.embeddings import embed_text
-    with patch(
-        "app.services.embeddings.litellm.aembedding",
-        AsyncMock(side_effect=RuntimeError("offline")),
-    ), pytest.raises(RuntimeError):
-        await embed_text("hi")
-
-
-async def test_embed_text_raises_when_response_has_no_data():
-    from app.services.embeddings import embed_text
-    with (
-        patch(
-            "app.services.embeddings.litellm.aembedding",
-            AsyncMock(return_value={"data": [], "model": "x"}),
-        ),
-        pytest.raises(ValueError, match="no vectors"),
-    ):
-        await embed_text("hi")
+        await shim.embed_text("")
