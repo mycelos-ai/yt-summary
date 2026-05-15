@@ -206,6 +206,12 @@
       <p class="settings-card-sub"><em>Keine Playlists konfiguriert.</em></p>
     {% endif %}
 
+    {% if reembed_pending %}
+      <p class="settings-card-sub">
+        Re-embed pending: {{ reembed_pending }} videos
+      </p>
+    {% endif %}
+
     <form method="post" action="/settings/diagnostics/tick-scheduler"
           style="margin-top: 0.5rem">
       <button type="submit" class="btn btn-primary">Jetzt prüfen</button>

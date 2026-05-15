@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
+from app.repos import embeddings as embeddings_repo
 from app.repos import jobs as jobs_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
@@ -642,6 +643,7 @@ async def diagnostics_page(
         db, "scheduler_last_tick_at",
     )
     scheduled_playlists = await playlists_repo.list_for_user(db, 1)
+    reembed_pending = await embeddings_repo.count_pending_reembed(db)
 
     # Bound the requested line count to the buffer capacity.
     log_lines = log_buffer.snapshot(limit=max(1, min(lines, 500)))
@@ -664,6 +666,7 @@ async def diagnostics_page(
             "tts_failed": tts_failed,
             "scheduler_last_tick_at": scheduler_last_tick_at,
             "scheduled_playlists": scheduled_playlists,
+            "reembed_pending": reembed_pending,
             "log_lines": log_lines,
             "lines_requested": lines,
         },
