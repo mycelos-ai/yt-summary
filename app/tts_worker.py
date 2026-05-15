@@ -114,28 +114,49 @@ class TtsWorker:
         self._stopped.set()
 
     async def run(self) -> None:
+        """Top-level loop. Crash-resistant: any error from a single
+        iteration (including BaseException subclasses other than
+        CancelledError, and OperationalError from claim_next) is logged
+        and survived. The worker only ever exits when stop() is called
+        or the task is cancelled by the lifespan on shutdown."""
         while not self._stopped.is_set():
-            job = await tts_jobs_repo.claim_next(self._db)
-            if job is None:
-                self._touch()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self._stopped.wait(), self._poll_interval
-                    )
-                continue
             try:
-                self._touch(current_job_id=job.id, current_step=job.step or "starting")
-                audio_rel, duration, translated = await self._process(job)
-                await tts_jobs_repo.complete(
-                    self._db,
-                    job.id,
-                    audio_path=audio_rel,
-                    duration_seconds=duration,
-                    translated_text=translated,
+                await self._run_iteration()
+            except asyncio.CancelledError:
+                # Shutdown signal — propagate so the lifespan's
+                # `await tts_worker_task` returns cleanly.
+                raise
+            except BaseException:
+                log.exception(
+                    "tts_worker: unexpected crash, restarting in 5s"
                 )
-            except Exception as exc:  # noqa: BLE001 — surfaced via .fail()
-                log.exception("tts job %s failed", job.id)
-                await tts_jobs_repo.fail(self._db, job.id, str(exc))
+                self._touch(current_step="restarting after crash")
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stopped.wait(), 5.0)
+
+    async def _run_iteration(self) -> None:
+        """One pass of the loop: claim or sleep, then handle the job."""
+        job = await tts_jobs_repo.claim_next(self._db)
+        if job is None:
+            self._touch()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    self._stopped.wait(), self._poll_interval
+                )
+            return
+        try:
+            self._touch(current_job_id=job.id, current_step=job.step or "starting")
+            audio_rel, duration, translated = await self._process(job)
+            await tts_jobs_repo.complete(
+                self._db,
+                job.id,
+                audio_path=audio_rel,
+                duration_seconds=duration,
+                translated_text=translated,
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaced via .fail()
+            log.exception("tts job %s failed", job.id)
+            await tts_jobs_repo.fail(self._db, job.id, str(exc))
 
     async def _process(self, job: TtsJob) -> tuple[str, float | None, str | None]:
         """Translate (if needed) → fetch voice → render → ffprobe.
