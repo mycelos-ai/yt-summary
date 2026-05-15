@@ -33,6 +33,21 @@ RUN set -eux; \
 WORKDIR /app
 
 COPY pyproject.toml ./
+
+# Install CPU-only torch BEFORE the main install so the
+# sentence-transformers dependency picks up the existing wheel
+# instead of pulling the default CUDA-enabled torch + nvidia-*
+# wheels (which add ~2.5 GB of GPU runtime to a container that
+# never has a GPU). The CPU wheel is ~200 MB.
+#
+# We do not pin a specific torch version: sentence-transformers's
+# install_requires range will be honoured by the resolver in the
+# next step, and pinning here would force us to bump on every
+# transitive update.
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch
+
 RUN pip install --no-cache-dir .
 
 COPY app ./app
