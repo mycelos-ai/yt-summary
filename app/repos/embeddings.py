@@ -83,3 +83,40 @@ async def search_by_summary_vector(
         (blob, limit),
     )
     return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def videos_pending_reembed(
+    db: aiosqlite.Connection, limit: int,
+) -> list[str]:
+    """Video IDs that have a summary but no current embedding.
+
+    Used by the scheduler to drain the re-embed queue after the
+    768d → 384d migration. Order is by `id` (deterministic, and
+    matches insertion order on a typical install).
+    """
+    cursor = await db.execute(
+        """
+        SELECT id FROM videos
+        WHERE summary IS NOT NULL AND summary_embedded_at IS NULL
+        ORDER BY id
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = await cursor.fetchall()
+    return [r[0] for r in rows]
+
+
+async def count_pending_reembed(db: aiosqlite.Connection) -> int:
+    """COUNT(*) of the same predicate as videos_pending_reembed.
+
+    Cheap; the diagnostics page polls it on each render.
+    """
+    cursor = await db.execute(
+        """
+        SELECT COUNT(*) FROM videos
+        WHERE summary IS NOT NULL AND summary_embedded_at IS NULL
+        """
+    )
+    row = await cursor.fetchone()
+    return row[0] if row else 0

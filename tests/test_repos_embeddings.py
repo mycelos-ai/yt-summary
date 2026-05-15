@@ -96,3 +96,68 @@ async def test_search_limit_respected(db: aiosqlite.Connection):
         db, [0.1] * 768, limit=2
     )
     assert len(hits) == 2
+
+
+# ---------------------------------------------------------------------------
+# videos_pending_reembed / count_pending_reembed
+# ---------------------------------------------------------------------------
+
+async def _video_with_summary(
+    db: aiosqlite.Connection, vid: str, *, summary_embedded: bool,
+) -> None:
+    await videos_repo.upsert_metadata(
+        db, video_id=vid, url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    await db.execute(
+        "UPDATE videos SET summary='some summary' WHERE id=?", (vid,)
+    )
+    if summary_embedded:
+        await db.execute(
+            "UPDATE videos SET summary_embedded_at=datetime('now') WHERE id=?",
+            (vid,),
+        )
+    await db.commit()
+
+
+async def _video_without_summary(db: aiosqlite.Connection, vid: str) -> None:
+    await videos_repo.upsert_metadata(
+        db, video_id=vid, url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+
+
+async def test_videos_pending_reembed_returns_unembedded_with_summary(
+    db: aiosqlite.Connection,
+):
+    await _video_with_summary(db, "a", summary_embedded=False)
+    await _video_with_summary(db, "b", summary_embedded=False)
+    await _video_with_summary(db, "c", summary_embedded=True)
+    await _video_without_summary(db, "d")  # no summary → not pending
+
+    pending = await embeddings_repo.videos_pending_reembed(db, limit=10)
+    assert set(pending) == {"a", "b"}
+
+
+async def test_videos_pending_reembed_respects_limit(db: aiosqlite.Connection):
+    for vid in ("a", "b", "c", "d"):
+        await _video_with_summary(db, vid, summary_embedded=False)
+    pending = await embeddings_repo.videos_pending_reembed(db, limit=2)
+    assert len(pending) == 2
+
+
+async def test_count_pending_reembed_matches_list_length(
+    db: aiosqlite.Connection,
+):
+    await _video_with_summary(db, "a", summary_embedded=False)
+    await _video_with_summary(db, "b", summary_embedded=True)
+    await _video_with_summary(db, "c", summary_embedded=False)
+    n = await embeddings_repo.count_pending_reembed(db)
+    full = await embeddings_repo.videos_pending_reembed(db, limit=999)
+    assert n == len(full) == 2
+
+
+async def test_count_pending_reembed_returns_zero_on_empty_table(
+    db: aiosqlite.Connection,
+):
+    assert await embeddings_repo.count_pending_reembed(db) == 0
