@@ -7,10 +7,6 @@ from app.config import Config
 
 log = logging.getLogger(__name__)
 
-# Default vector dimension. Auto-detected on first successful embedding
-# (the table is recreated if a different model is configured later).
-DEFAULT_EMBEDDING_DIM = 768
-
 # Base schema for a fresh install. Existing databases are upgraded by
 # _run_migrations() below.
 SCHEMA = """

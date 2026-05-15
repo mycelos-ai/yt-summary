@@ -137,6 +137,13 @@ class PlaylistScheduler:
             log.exception("reembed: videos_pending_reembed failed")
             return 0
 
+        if ids:
+            # Reflect the embed work in the heartbeat as it starts —
+            # the per-video loop below can take 20–40 s on a Pi (CPU
+            # inference) and we don't want the diagnostics page to
+            # show a stale "syncing X" step the whole time.
+            self._touch(current_step=f"re-embedding {len(ids)} videos")
+
         n_done = 0
         for video_id in ids:
             try:
