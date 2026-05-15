@@ -38,8 +38,12 @@ class Worker:
 
     @property
     def poll_interval_seconds(self) -> float:
-        """Public read-only accessor — the diagnostics page uses this
-        to compute the alive/stale threshold (3 × poll_interval)."""
+        """Public read-only accessor for the idle-poll interval.
+
+        Originally fed the diagnostics page's stale-threshold formula
+        (3 × poll_interval), but that's now a fixed 5-min constant —
+        the property stays exposed for future callers / tests.
+        """
         return self._poll_interval
 
     def stop(self) -> None:
