@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 import aiosqlite
+import pytest
 
 from app.config import Config
 from app.models import TranscriptSource
@@ -474,3 +475,249 @@ def test_tts_worker_poll_interval_seconds_property():
         poll_interval=0.25, heartbeat=HeartbeatRegistry(),
     )
     assert worker.poll_interval_seconds == 0.25
+
+
+class _SneakyTtsError(BaseException):
+    """Test fixture: BaseException subclass that the inner `except
+    Exception` doesn't catch. Used to verify the outer crash-survival
+    wrapper in TtsWorker.run() catches it."""
+
+
+async def _seed_video_with_summary_short(
+    db: aiosqlite.Connection, vid: str = "v_tts",
+) -> None:
+    """Minimal seed for a tts_jobs queue test: video + transcript +
+    summary so the worker has text to render. Mirrors the helper at
+    the top of this file."""
+    await videos_repo.upsert_metadata(
+        db, video_id=vid, url=f"https://yt/{vid}", title="T",
+        description="", thumbnail_path=None, duration_seconds=10,
+    )
+    await videos_repo.set_transcript(
+        db, vid, "x.", TranscriptSource.AUTO_SUBS, language="en",
+    )
+    await videos_repo.set_summary(db, vid, "x.", "gpt-4o", language="en")
+
+
+async def test_tts_worker_survives_runtime_error_in_process(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """First _process raises RuntimeError, second succeeds (mocked)."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary_short(db, "vt1")
+    await _seed_video_with_summary_short(db, "vt2")
+    j1 = await r.enqueue(db, "vt1", "summary", "en", "amy", "low")
+    j2 = await r.enqueue(db, "vt2", "summary", "en", "amy", "low")
+
+    calls = {"n": 0}
+
+    async def fake_translate(text, **kw):
+        return text
+
+    async def fake_render(chunks, voice_file, out_path, **kw):
+        # Touch the output file so complete() doesn't trip on missing.
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"")
+
+    async def fake_voice(*a, **kw):
+        return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+    )
+
+    real_process = worker._process
+
+    async def flaky_process(job):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated transient")
+        return await real_process(job)
+
+    worker._process = flaky_process
+
+    task = asyncio.create_task(worker.run())
+    for _ in range(120):
+        await asyncio.sleep(0.05)
+        f1 = await r.get(db, j1.id)
+        f2 = await r.get(db, j2.id)
+        if f1 and f2 and f1.status in ("done", "failed") and f2.status in ("done", "failed"):
+            break
+    worker.stop()
+    await task
+
+    f1 = await r.get(db, j1.id)
+    f2 = await r.get(db, j2.id)
+    # j1 was failed by the inner except. j2 was processed successfully.
+    assert f1 is not None and f1.status == "failed"
+    assert f2 is not None and f2.status == "done"
+
+
+async def test_tts_worker_survives_base_exception(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """A BaseException subclass from _process must NOT kill the loop."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary_short(db, "vt1")
+    await r.enqueue(db, "vt1", "summary", "en", "amy", "low")
+
+    seen = {"crashed": False}
+
+    async def fake_translate(text, **kw): return text
+    async def fake_render(*a, **kw): return None
+    async def fake_voice(*a, **kw): return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+    )
+
+    async def boom(job):
+        seen["crashed"] = True
+        raise _SneakyTtsError("not an Exception subclass")
+
+    worker._process = boom
+
+    task = asyncio.create_task(worker.run())
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if seen["crashed"]:
+            break
+    assert seen["crashed"], "_process was never invoked"
+    assert not task.done(), (
+        "TtsWorker died on BaseException — outer except is missing"
+    )
+    worker.stop()
+    await task
+
+
+async def test_tts_worker_survives_claim_next_db_failure(
+    db: aiosqlite.Connection, tmp_path, monkeypatch,
+):
+    """A locked-DB error from tts_jobs_repo.claim_next must be caught
+    by the outer wrapper, not crash the loop."""
+    from app.repos import tts_jobs as tts_jobs_repo_mod
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary_short(db, "vt1")
+    j = await r.enqueue(db, "vt1", "summary", "en", "amy", "low")
+
+    real_claim = tts_jobs_repo_mod.claim_next
+    calls = {"n": 0}
+
+    async def flaky_claim(conn):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise aiosqlite.OperationalError("database is locked")
+        return await real_claim(conn)
+
+    monkeypatch.setattr(tts_jobs_repo_mod, "claim_next", flaky_claim)
+
+    async def fake_translate(text, **kw): return text
+    async def fake_render(chunks, voice_file, out_path, **kw):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"")
+    async def fake_voice(*a, **kw): return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+    )
+    task = asyncio.create_task(worker.run())
+    for _ in range(160):
+        await asyncio.sleep(0.05)
+        f = await r.get(db, j.id)
+        if f and f.status in ("done", "failed"):
+            break
+    worker.stop()
+    await task
+
+    f = await r.get(db, j.id)
+    assert f is not None
+    assert f.status == "done", (
+        f"TtsWorker didn't recover from locked-DB; status is {f.status}"
+    )
+
+
+async def test_tts_worker_propagates_cancelled_error(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """CancelledError must propagate out of run() so the lifespan can
+    await the task on shutdown."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+
+    async def fake_translate(text, **kw): return text
+    async def fake_render(*a, **kw): return None
+    async def fake_voice(*a, **kw): return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+    )
+    task = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_tts_worker_heartbeat_marks_restart_after_crash(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """The heartbeat must show 'restarting after crash' during the
+    5s sleep after a crash, so the diagnostics page reflects it."""
+    from app.services.heartbeat import HeartbeatRegistry
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed_video_with_summary_short(db, "vt1")
+    await r.enqueue(db, "vt1", "summary", "en", "amy", "low")
+
+    hb = HeartbeatRegistry()
+
+    async def fake_translate(text, **kw): return text
+    async def fake_render(*a, **kw): return None
+    async def fake_voice(*a, **kw): return tmp_path / "voice.onnx"
+
+    worker = TtsWorker(
+        db=db, config=cfg,
+        translate=fake_translate,
+        render_chunks_to_mp3=fake_render,
+        ensure_voice=fake_voice,
+        poll_interval=0.05,
+        heartbeat=hb,
+    )
+
+    async def boom(job):
+        raise _SneakyTtsError("crash to trigger restart heartbeat")
+
+    worker._process = boom
+
+    task = asyncio.create_task(worker.run())
+    saw_restart = False
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        snap = hb.snapshot().get("tts_worker")
+        if snap and snap.current_step == "restarting after crash":
+            saw_restart = True
+            break
+    worker.stop()
+    await task
+    assert saw_restart

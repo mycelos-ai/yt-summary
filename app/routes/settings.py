@@ -40,6 +40,12 @@ register_filters(templates)
 # is a test" so the round-trip stays cheap on a Pi5.
 WHISPER_TEST_SAMPLE = Path("app/static/samples/whisper_test.m4a")
 
+# Polling workers (Worker, TtsWorker) can spend several minutes in a
+# single Whisper or render step without calling touch(). A tight 3×
+# poll_interval budget (≈ 3 s) would mark them stale on every long
+# job. Five minutes is the generous-but-not-infinite window.
+_POLLER_STALE_SECONDS: float = 300.0
+
 # Languages exposed in the Audio (TTS) settings card. The (code, label)
 # pairs live in app/services/tts_voices.py so the audio modal and
 # settings card share the same flag-prefixed labels; here we just
@@ -540,16 +546,13 @@ async def diagnostics_page(
     """
     heartbeats = request.app.state.heartbeats.snapshot()
     log_buffer = request.app.state.log_buffer
-    worker = request.app.state.worker
-    tts_worker = request.app.state.tts_worker
     scheduler = request.app.state.scheduler
 
-    # Resolve the per-worker stale threshold = 3 × poll_interval.
-    # 3× gives the 1s pollers a ~3s budget and the 60-min scheduler
-    # a ~3h budget — matches what the spec calls for.
+    # The scheduler keeps its interval-derived threshold because its
+    # expected idle is hours; polling workers use the module constant.
     worker_thresholds_seconds = {
-        "summary_worker": worker.poll_interval_seconds * 3,
-        "tts_worker":     tts_worker.poll_interval_seconds * 3,
+        "summary_worker": _POLLER_STALE_SECONDS,
+        "tts_worker":     _POLLER_STALE_SECONDS,
         "scheduler":      (await scheduler.current_interval_seconds()) * 3,
     }
 

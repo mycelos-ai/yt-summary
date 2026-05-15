@@ -279,3 +279,103 @@ def test_diagnostics_hides_reembed_when_zero(tmp_path, monkeypatch):
         resp = client.get("/settings/diagnostics")
     assert resp.status_code == 200
     assert "Re-embed pending" not in resp.text
+
+
+def test_summary_worker_alive_within_300s_threshold(tmp_path, monkeypatch):
+    """A heartbeat 250 s old must render as alive — Whisper chunks on
+    a Pi can legitimately take that long without firing set_step."""
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Plant a heartbeat 250 s in the past.
+        from app.services.heartbeat import Heartbeat
+        old = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=250)
+        app.state.heartbeats._heartbeats["summary_worker"] = Heartbeat(
+            name="summary_worker",
+            last_tick_at=old,
+            current_job_id=None,
+            current_step="downloading audio",
+        )
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    text = resp.text
+    summary_row_idx = text.find("summary_worker")
+    assert summary_row_idx >= 0
+    near = text[summary_row_idx:summary_row_idx + 800]
+    assert "✅ alive" in near, (
+        f"Expected ✅ alive within 300s; got: {near[:300]!r}"
+    )
+
+
+def test_summary_worker_stale_past_300s_threshold(tmp_path, monkeypatch):
+    """A heartbeat 350 s old must render as stale."""
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        from app.services.heartbeat import Heartbeat, HeartbeatRegistry
+
+        # Freeze touch() so background workers cannot overwrite our
+        # planted stale heartbeat while the GET request is in flight.
+        monkeypatch.setattr(HeartbeatRegistry, "touch", lambda *a, **kw: None)
+        old = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=350)
+        app.state.heartbeats._heartbeats["summary_worker"] = Heartbeat(
+            name="summary_worker",
+            last_tick_at=old,
+            current_job_id=None,
+            current_step="downloading audio",
+        )
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    summary_row_idx = resp.text.find("summary_worker")
+    assert summary_row_idx >= 0
+    near = resp.text[summary_row_idx:summary_row_idx + 800]
+    assert "⚠ stale" in near, (
+        f"Expected ⚠ stale past 300s; got: {near[:300]!r}"
+    )
+
+
+def test_scheduler_threshold_still_uses_interval(tmp_path, monkeypatch):
+    """The scheduler keeps its interval-derived threshold (3× interval).
+    A heartbeat 2 hours old with a 60-min interval = alive (under the
+    180-min threshold). 4 hours old = stale."""
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from app.repos import settings as settings_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # Set the playlist refresh interval to 60 minutes so the
+        # threshold becomes 180 minutes.
+        async def setup():
+            await settings_repo.set(
+                app.state.db,
+                "playlist_refresh_interval_minutes", "60",
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        from app.services.heartbeat import Heartbeat
+        # 2 hours old → still alive (under the 3-hour threshold).
+        two_hours_ago = (
+            datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
+        )
+        app.state.heartbeats._heartbeats["scheduler"] = Heartbeat(
+            name="scheduler",
+            last_tick_at=two_hours_ago,
+            current_job_id=None,
+            current_step="sleeping",
+        )
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    sched_idx = resp.text.find("scheduler</code>")
+    assert sched_idx >= 0
+    near = resp.text[sched_idx:sched_idx + 800]
+    assert "✅ alive" in near, (
+        f"Scheduler 2h-old heartbeat should be alive (3h threshold); "
+        f"got: {near[:300]!r}"
+    )
