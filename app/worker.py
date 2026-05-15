@@ -56,27 +56,57 @@ class Worker:
             )
 
     async def run(self) -> None:
+        """Top-level loop. Crash-resistant: any error from a single
+        iteration (including BaseException subclasses other than
+        CancelledError, and OperationalError from claim_next) is logged
+        and survived. The worker only ever exits when stop() is called
+        or the task is cancelled by the lifespan on shutdown."""
         while not self._stopped.is_set():
-            job = await jobs_repo.claim_next(self._db)
-            if job is None:
-                # Heartbeat the idle loop so 'is the worker alive?' can
-                # be answered even when there's nothing to do.
-                self._touch()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(self._stopped.wait(), self._poll_interval)
-                continue
             try:
-                job_id_capture = job.id
-                self._touch(current_job_id=job.id, current_step=job.step or "starting")
+                await self._run_iteration()
+            except asyncio.CancelledError:
+                # Shutdown signal — propagate so the lifespan's
+                # `await worker_task` returns cleanly.
+                raise
+            except BaseException:
+                # Anything else: log with traceback, stamp the heartbeat
+                # so the diagnostics page surfaces the crash, then sleep
+                # 5s (interruptible by stop()) before resuming.
+                log.exception(
+                    "summary_worker: unexpected crash, restarting in 5s"
+                )
+                self._touch(current_step="restarting after crash")
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stopped.wait(), 5.0)
 
-                async def set_step(step: str, _job_id: int = job_id_capture) -> None:  # noqa: B023
-                    await jobs_repo.set_step(self._db, _job_id, step)
-                    # Mirror step changes into the heartbeat so the page
-                    # shows the most recent step without a DB read.
-                    self._touch(current_job_id=_job_id, current_step=step)
+    async def _run_iteration(self) -> None:
+        """One pass of the loop: claim or sleep, then handle the job.
 
-                await self._process_video(self._db, self._config, job.video_id, set_step)
-                await jobs_repo.complete(self._db, job.id)
-            except Exception as e:
-                log.exception("job %s failed", job.id)
-                await jobs_repo.fail(self._db, job.id, str(e))
+        All pre-existing inner exception handling is preserved — pipeline
+        failures still mark the job `failed` via the inner try/except.
+        The outer crash-survival wrapper in `run()` only catches things
+        that escape this method entirely.
+        """
+        job = await jobs_repo.claim_next(self._db)
+        if job is None:
+            # Heartbeat the idle loop so 'is the worker alive?' can
+            # be answered even when there's nothing to do.
+            self._touch()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopped.wait(), self._poll_interval)
+            return
+        try:
+            job_id_capture = job.id
+            self._touch(current_job_id=job.id, current_step=job.step or "starting")
+
+            async def set_step(step: str, _job_id: int = job_id_capture) -> None:  # noqa: B023
+                await jobs_repo.set_step(self._db, _job_id, step)
+                # Mirror step changes into the heartbeat so the page
+                # shows the most recent step without a DB read.
+                self._touch(current_job_id=_job_id, current_step=step)
+
+            await self._process_video(self._db, self._config, job.video_id, set_step)
+            await jobs_repo.complete(self._db, job.id)
+        except Exception as e:
+            log.exception("job %s failed", job.id)
+            await jobs_repo.fail(self._db, job.id, str(e))
