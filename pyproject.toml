@@ -26,7 +26,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
-    "ruff>=0.8",
+    "ruff>=0.15",
     "pyright>=1.1.390",
     "respx>=0.22",
 ]
@@ -48,6 +48,13 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "SIM"]
 ignore = ["B008"]  # FastAPI uses Depends() in default args by design
+
+[tool.ruff.lint.per-file-ignores]
+# Test fakes write a few bytes to tmp_path inside async render mocks.
+# pathlib.write_bytes IS technically blocking, but for fixture-sized
+# dummies (a few bytes to a tmpfs path) the cost is microseconds and
+# the alternative (asyncio.to_thread for every fake mp3) is noise.
+"tests/**" = ["ASYNC240"]
 
 [tool.pyright]
 include = ["app", "tests"]

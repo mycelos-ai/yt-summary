@@ -110,7 +110,12 @@ async def _wav_to_mp3(wav: Path, mp3: Path) -> None:
 
 async def _concat_wavs_to_mp3(wavs: list[Path], manifest: Path, mp3: Path) -> None:
     """Stitch a list of WAVs into a single MP3 via ffmpeg's concat demuxer."""
-    manifest.write_text("\n".join(f"file '{w}'" for w in wavs) + "\n")
+    # Sync write — small, but offloaded to a thread so we don't
+    # block the event loop on a slow disk (Pi SD cards under load).
+    await asyncio.to_thread(
+        manifest.write_text,
+        "\n".join(f"file '{w}'" for w in wavs) + "\n",
+    )
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", str(manifest),
