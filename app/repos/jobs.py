@@ -28,26 +28,32 @@ async def enqueue(db: aiosqlite.Connection, video_id: str) -> int:
 
 
 async def claim_next(db: aiosqlite.Connection) -> Job | None:
-    await db.execute("BEGIN IMMEDIATE")
+    """Atomically transition the oldest pending job to 'running' and
+    return it. Single statement (no manual BEGIN/COMMIT) so we can't
+    leave a transaction open if the call is interrupted mid-flight —
+    the previous BEGIN IMMEDIATE / SELECT / UPDATE / COMMIT version
+    could leave the connection in a half-open transaction if any step
+    raised, which then crashed every subsequent call with
+    'cannot start a transaction within a transaction'.
+
+    Mirrors the pattern in app.repos.tts_jobs.claim_next.
+    """
     cursor = await db.execute(
         """
-        SELECT * FROM jobs
-        WHERE state = 'pending'
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1
+        UPDATE jobs
+        SET state='running', updated_at=datetime('now')
+        WHERE id = (
+            SELECT id FROM jobs
+            WHERE state='pending'
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+        )
+        RETURNING *
         """
     )
     row = await cursor.fetchone()
-    if row is None:
-        await db.commit()
-        return None
-    job_id = row["id"]
-    await db.execute(
-        "UPDATE jobs SET state='running', updated_at=datetime('now') WHERE id=?",
-        (job_id,),
-    )
     await db.commit()
-    return await get(db, job_id)
+    return _row_to_job(row) if row else None
 
 
 async def get(db: aiosqlite.Connection, job_id: int) -> Job | None:

@@ -23,6 +23,36 @@ async def test_enqueue_creates_pending_job(db: aiosqlite.Connection):
     assert job.video_id == "v1"
 
 
+async def test_claim_next_does_not_leave_open_transaction(
+    db: aiosqlite.Connection,
+):
+    """Regression for the prod crash on the Pi: claim_next used to do
+    BEGIN IMMEDIATE / SELECT / UPDATE / COMMIT and left the connection
+    in a half-open transaction if any step raised between BEGIN and
+    COMMIT. The next call then crashed the worker loop with:
+
+        OperationalError: cannot start a transaction within a transaction
+
+    The fix is a single atomic UPDATE…RETURNING — no manual BEGIN.
+    Ensure two consecutive calls work even when the first found no
+    pending job AND no commit was needed.
+    """
+    # Empty queue → no rows. Today this returns None cleanly.
+    assert await jobs_repo.claim_next(db) is None
+    # Without the fix, this second call would crash if claim_next had
+    # left an open transaction. We don't manually trigger an error in
+    # between — the bug was that even the success path left state
+    # behind. Two clean calls in a row prove the contract.
+    assert await jobs_repo.claim_next(db) is None
+    # Add a pending job and confirm we can still claim it.
+    await _video(db, "v1")
+    await jobs_repo.enqueue(db, "v1")
+    claimed = await jobs_repo.claim_next(db)
+    assert claimed is not None
+    assert claimed.video_id == "v1"
+    assert claimed.state is JobState.RUNNING
+
+
 async def test_claim_next_returns_oldest_pending(db: aiosqlite.Connection):
     await _video(db, "a")
     await _video(db, "b")

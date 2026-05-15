@@ -80,6 +80,15 @@ class Worker:
                     "summary_worker: unexpected crash, restarting in 5s"
                 )
                 self._touch(current_step="restarting after crash")
+                # Safety net: a crash inside a manual BEGIN…COMMIT
+                # would leave the connection in a half-open
+                # transaction that breaks every subsequent
+                # `BEGIN IMMEDIATE` with 'cannot start a transaction
+                # within a transaction'. ROLLBACK is a no-op when
+                # there's nothing to roll back, so it's safe to
+                # always issue here.
+                with contextlib.suppress(Exception):
+                    await self._db.rollback()
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stopped.wait(), 5.0)
 

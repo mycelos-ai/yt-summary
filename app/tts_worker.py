@@ -135,6 +135,13 @@ class TtsWorker:
                     "tts_worker: unexpected crash, restarting in 5s"
                 )
                 self._touch(current_step="restarting after crash")
+                # Safety net: a crash inside a manual BEGIN…COMMIT
+                # would leave the shared connection in a half-open
+                # transaction that breaks every subsequent claim.
+                # ROLLBACK is a no-op when there's nothing to roll
+                # back, so it's safe to always issue here.
+                with contextlib.suppress(Exception):
+                    await self._db.rollback()
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stopped.wait(), 5.0)
 
