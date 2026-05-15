@@ -34,7 +34,6 @@ class ProviderPreset:
     requires_api_key: bool = True
     api_key_url: str = ""
     default_llm_base_url: str = ""
-    default_embedding: str | None = None  # litellm-prefixed; None if none
     whisper_base_url: str = ""
     whisper_model: str = ""
     notes: str = ""  # Free-form note shown in the wizard UI
@@ -50,7 +49,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         litellm_provider="openai",
         default_llm="openai/gpt-5.5",
         api_key_url="https://platform.openai.com/api-keys",
-        default_embedding="openai/text-embedding-3-small",
         whisper_base_url="https://api.openai.com/v1",
         whisper_model="whisper-1",
     ),
@@ -60,8 +58,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         litellm_provider="anthropic",
         default_llm="anthropic/claude-sonnet-4-6",
         api_key_url="https://console.anthropic.com/settings/keys",
-        # Anthropic has no embedding API.
-        default_embedding=None,
         notes=(
             "Anthropic has no embedding or speech-to-text API. "
             "Configure those in the Embedding and Whisper cards "
@@ -74,7 +70,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         litellm_provider="gemini",
         default_llm="gemini/gemini-3.1-flash-lite-preview",
         api_key_url="https://aistudio.google.com/apikey",
-        default_embedding="gemini/text-embedding-004",
     ),
     "groq": ProviderPreset(
         id="groq",
@@ -91,8 +86,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         # with this slot again.)
         default_llm="groq/llama-3.3-70b-versatile",
         api_key_url="https://console.groq.com/keys",
-        # Groq has no first-party embedding model.
-        default_embedding=None,
         # Groq's Whisper-as-a-service is the fastest commercial option.
         whisper_base_url="https://api.groq.com/openai/v1",
         whisper_model="whisper-large-v3",
@@ -109,7 +102,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         default_llm="ollama_chat/llama3.1",
         requires_api_key=False,
         default_llm_base_url="http://host.docker.internal:11434",
-        default_embedding="ollama/nomic-embed-text",
         notes=(
             "Local install — no API key required. The default base URL "
             "talks to an Ollama server on the Docker host. Change it "
@@ -123,8 +115,6 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         default_llm="openrouter/anthropic/claude-sonnet-4",
         default_llm_base_url="https://openrouter.ai/api/v1",
         api_key_url="https://openrouter.ai/keys",
-        # OpenRouter doesn't expose embeddings.
-        default_embedding=None,
         notes=(
             "Routes to many backends through one API. Pick any model "
             "from openrouter.ai/models — they all start with the "
@@ -198,7 +188,6 @@ def apply_preset(
     current_settings: dict[str, str],
     llm_model_override: str | None = None,
     llm_base_url_override: str | None = None,
-    embedding_model_override: str | None = None,
 ) -> dict[str, str]:
     """Compute the new settings dict after applying a preset.
 
@@ -224,19 +213,6 @@ def apply_preset(
         # base URL that would point at the wrong server. Cloud providers
         # default to "" which means "use litellm's known endpoint".
         out["llm_base_url"] = ""
-
-    # ── Embedding (only if this provider has one) ──
-    if preset.default_embedding:
-        out["embedding_model"] = (
-            embedding_model_override or preset.default_embedding
-        ).strip()
-        # Embedding endpoint reuses LLM base URL by default; clear any
-        # stale embedding_base_url so litellm uses the cloud endpoint.
-        if preset.id != "ollama":
-            out["embedding_base_url"] = ""
-        else:
-            # Ollama: point embedding at the same server.
-            out["embedding_base_url"] = chosen_base_url or ""
 
     # ── Whisper (only if provider hosts a Whisper-compatible endpoint) ──
     if preset.whisper_base_url:
@@ -305,28 +281,6 @@ def list_chat_models(
     used = set(head)
     tail = sorted([m for m in raw if m not in used], reverse=True)
     return [*head, *tail]
-
-
-def list_embedding_models(provider_id: str) -> list[str]:
-    """Return embedding-capable model ids for the given provider, with
-    the preset's default first."""
-    try:
-        preset = get_preset(provider_id)
-    except KeyError:
-        return []
-    if not preset.default_embedding:
-        return []
-
-    import litellm
-
-    target = preset.litellm_provider
-    raw = [
-        m for m, info in litellm.model_cost.items()
-        if info.get("litellm_provider") == target
-        and info.get("mode") == "embedding"
-        and not m.startswith("ft:")
-    ]
-    return _sort_with_default_first(raw, preset.default_embedding)
 
 
 def _sort_with_default_first(models: Iterable[str], default: str) -> list[str]:

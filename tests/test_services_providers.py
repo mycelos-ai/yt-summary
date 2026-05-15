@@ -21,7 +21,6 @@ def test_get_preset_known_provider():
     assert isinstance(p, ProviderPreset)
     assert p.name == "Anthropic"
     assert p.default_llm  # has a default
-    assert p.default_embedding is None  # but no embedding
 
 
 def test_get_preset_unknown_raises():
@@ -32,7 +31,6 @@ def test_get_preset_unknown_raises():
 def test_openai_supports_everything():
     p = get_preset("openai")
     assert p.default_llm
-    assert p.default_embedding
     assert p.whisper_base_url
     assert p.whisper_model
 
@@ -44,13 +42,11 @@ def test_groq_supports_llm_and_whisper_but_no_embedding():
     assert p.default_llm
     assert p.whisper_base_url
     assert p.whisper_model
-    assert p.default_embedding is None
 
 
 def test_anthropic_is_llm_only():
     p = get_preset("anthropic")
     assert p.default_llm
-    assert p.default_embedding is None
     assert not p.whisper_base_url
     assert not p.whisper_model
 
@@ -104,7 +100,7 @@ def test_apply_preset_openai_sets_everything():
     )
     assert out["llm_model"].startswith("openai/")
     assert out["llm_api_key"] == "sk-x"
-    assert "embedding_model" in out
+    assert "embedding_model" not in out
     assert out["whisper_base_url"] == "https://api.openai.com/v1"
     assert out["whisper_model"] == "whisper-1"
     assert out["whisper_api_key"] == "sk-x"
@@ -226,8 +222,6 @@ def test_apply_preset_ollama_with_custom_base_url():
     )
     assert out["llm_base_url"] == "http://192.168.0.27:11434"
     assert out["llm_model"] == "ollama_chat/qwen2.5:14b"
-    # Embedding base URL also points at the same Ollama server
-    assert out["embedding_base_url"] == "http://192.168.0.27:11434"
 
 
 async def test_fetch_ollama_models_returns_model_tags():
