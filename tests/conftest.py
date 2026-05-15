@@ -56,3 +56,31 @@ def amy_low_voice() -> Path:
             with urllib.request.urlopen(url) as r, path.open("wb") as f:
                 f.write(r.read())
     return onnx
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _warmup_local_embedder() -> None:
+    """Trigger the sentence-transformers model load once per pytest run.
+
+    Without this, the first test that calls embed_text pays the ~30 s
+    download/load cost. With it, every test sees a warm singleton.
+
+    autouse=True so tests don't have to opt in. The fixture body is
+    sync — it spins up an event loop just for the warmup call.
+    """
+    import asyncio
+    import contextlib
+
+    from app.services import embeddings_local
+
+    # If a previous test session already loaded the model in this
+    # process, the singleton is still set — bail out fast.
+    if embeddings_local._model is not None:
+        return
+    # If the model can't load (e.g. offline CI without HF cache),
+    # let individual tests fail with their own assertions; don't
+    # block the whole suite collection.
+    with contextlib.suppress(Exception):
+        asyncio.get_event_loop().run_until_complete(
+            embeddings_local.embed_text("warmup")
+        )
