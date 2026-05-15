@@ -21,7 +21,12 @@ async def test_set_overwrites(db: aiosqlite.Connection):
 async def test_get_all_returns_dict(db: aiosqlite.Connection):
     await settings_repo.set(db, "k1", "v1")
     await settings_repo.set(db, "k2", "v2")
-    assert await settings_repo.get_all(db) == {"k1": "v1", "k2": "v2"}
+    # init_schema seeds `embedding_dim_migrated=384` for the
+    # 768→384 migration; subset-check rather than equality so we
+    # don't couple this test to migration internals.
+    actual = await settings_repo.get_all(db)
+    assert actual["k1"] == "v1"
+    assert actual["k2"] == "v2"
 
 
 async def test_delete(db: aiosqlite.Connection):

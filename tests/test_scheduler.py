@@ -270,3 +270,117 @@ async def test_scheduler_touches_heartbeat_each_iteration(
     await task
 
     assert "scheduler" in hb.snapshot()
+
+
+async def test_scheduler_reembeds_pending_videos(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """After one tick, videos with summary but no embedded_at get
+    embedded and stamped."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.repos import videos as videos_repo
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    # Seed two videos with summaries, neither embedded yet.
+    for vid in ("a", "b"):
+        await videos_repo.upsert_metadata(
+            db, video_id=vid, url="u", title="t", description="",
+            thumbnail_path=None, duration_seconds=None,
+        )
+        await db.execute(
+            "UPDATE videos SET summary='hello there' WHERE id=?", (vid,)
+        )
+    await db.commit()
+    await settings_repo.set(db, "playlist_refresh_interval_minutes", "0")
+
+    fake_vec = [0.1] * 384
+
+    with patch(
+        "app.services.embeddings_local.embed_text",
+        AsyncMock(return_value=fake_vec),
+    ):
+        scheduler = PlaylistScheduler(
+            db=db, config=config, sync_fn=AsyncMock(),
+            min_sleep_seconds=0.05,
+        )
+        task = asyncio.create_task(scheduler.run())
+        # Wait for both videos to be marked embedded.
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM videos "
+                "WHERE summary IS NOT NULL AND summary_embedded_at IS NOT NULL"
+            )
+            row = await cursor.fetchone()
+            if row and row[0] == 2:
+                break
+        scheduler.stop()
+        await task
+
+    cursor = await db.execute(
+        "SELECT id FROM videos WHERE summary_embedded_at IS NOT NULL "
+        "ORDER BY id"
+    )
+    rows = await cursor.fetchall()
+    assert [r[0] for r in rows] == ["a", "b"]
+
+
+async def test_scheduler_reembed_continues_after_per_video_failure(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """If embed_text raises for one video, the scheduler logs and
+    moves on; the other video still gets embedded."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.repos import videos as videos_repo
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    for vid in ("good", "bad"):
+        await videos_repo.upsert_metadata(
+            db, video_id=vid, url="u", title="t", description="",
+            thumbnail_path=None, duration_seconds=None,
+        )
+        await db.execute(
+            "UPDATE videos SET summary='x' WHERE id=?", (vid,)
+        )
+    await db.commit()
+    await settings_repo.set(db, "playlist_refresh_interval_minutes", "0")
+
+    async def flaky(text: str):
+        # 'bad' video is queried first because list_queue orders by id;
+        # but we'd prefer to fail by content for clarity.
+        if text == "x" and not flaky.calls:
+            flaky.calls = True
+            raise RuntimeError("simulated embed failure")
+        return [0.0] * 384
+    flaky.calls = False
+
+    with patch(
+        "app.services.embeddings_local.embed_text", side_effect=flaky,
+    ):
+        scheduler = PlaylistScheduler(
+            db=db, config=config, sync_fn=AsyncMock(),
+            min_sleep_seconds=0.05,
+        )
+        task = asyncio.create_task(scheduler.run())
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM videos "
+                "WHERE summary_embedded_at IS NOT NULL"
+            )
+            row = await cursor.fetchone()
+            if row and row[0] >= 1:
+                break
+        scheduler.stop()
+        await task
+
+    # At least one video succeeded despite the other failing.
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM videos WHERE summary_embedded_at IS NOT NULL"
+    )
+    row = await cursor.fetchone()
+    assert row[0] >= 1

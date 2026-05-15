@@ -7,10 +7,6 @@ from app.config import Config
 
 log = logging.getLogger(__name__)
 
-# Default vector dimension. Auto-detected on first successful embedding
-# (the table is recreated if a different model is configured later).
-DEFAULT_EMBEDDING_DIM = 768
-
 # Base schema for a fresh install. Existing databases are upgraded by
 # _run_migrations() below.
 SCHEMA = """
@@ -130,7 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_youtube_user
 
 CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
     video_id TEXT PRIMARY KEY,
-    summary_vec FLOAT[768]
+    summary_vec FLOAT[384]
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
@@ -333,6 +329,13 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 ALTER TABLE settings_new RENAME TO settings;
                 """
             )
+
+    # V7: 768d → 384d embedding dimension. Must run here (before
+    # executescript(SCHEMA) creates the FTS triggers) so that the
+    # UPDATE videos SET summary_embedded_at = NULL does not collide
+    # with a freshly created-but-unpopulated videos_fts index.
+    await _migrate_v7_embedding_dim(conn)
+
     await conn.commit()
 
 
@@ -354,9 +357,87 @@ async def connect(config: Config) -> aiosqlite.Connection:
     return conn
 
 
+async def _migrate_v7_embedding_dim(conn: aiosqlite.Connection) -> None:
+    """One-shot 768d → 384d embedding-dimension migration.
+
+    Idempotent: gated by the ``embedding_dim_migrated=384`` settings
+    row. Called TWICE from init_schema:
+
+    1. From ``_run_migrations`` (before ``executescript(SCHEMA)``) — this
+       is the upgrade path. Both ``settings`` and ``videos`` already
+       exist, and there are no FTS triggers yet (or they are already
+       consistent), so the UPDATE is safe.
+
+    2. After ``executescript(SCHEMA)`` — this handles fresh installs
+       where the settings table was just created and the flag is absent.
+       On a fresh DB there are no rows in ``videos``, so the UPDATE is a
+       no-op and the DROP+CREATE of ``video_embeddings`` is a harmless
+       round-trip on the newly created 384d table.
+
+    The ``videos_au`` FTS trigger fires on any UPDATE to ``videos``.
+    On a real upgrade the FTS table is already populated and consistent,
+    so the trigger is safe. On a fresh install there are no rows, so it
+    never fires.  The ``legacy_db`` test fixture deliberately omits the
+    FTS table; that is safe here because this function is also called
+    from ``_run_migrations`` (pass 1), before the FTS triggers exist.
+
+    Uses raw SQL (not settings_repo.get/set) to avoid a circular
+    import: settings_repo lives at app.repos.settings, which has no
+    db.py dependency, but importing it here would pull repos into
+    the db module's startup path.
+    """
+    # If settings table does not exist yet (earliest possible fresh install
+    # state, before executescript(SCHEMA)), skip — the second call (after
+    # SCHEMA) will handle it.
+    if not await _table_exists(conn, "settings"):
+        return
+
+    cursor = await conn.execute(
+        "SELECT value FROM settings WHERE user_id=1 AND key=?",
+        ("embedding_dim_migrated",),
+    )
+    row = await cursor.fetchone()
+    if row is not None and row[0] == "384":
+        return  # already migrated
+
+    # DROP the (possibly old) table and recreate at the new dimension.
+    # On a fresh install the SCHEMA may have already created the 384d table;
+    # the DROP+CREATE is harmless (one round-trip of a table with no rows).
+    await conn.execute("DROP TABLE IF EXISTS video_embeddings")
+    await conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
+            video_id TEXT PRIMARY KEY,
+            summary_vec FLOAT[384]
+        )
+        """
+    )
+    # Clear summary_embedded_at so the scheduler re-embeds everything at the
+    # new dimension. Only rows with a summary are eligible for embedding.
+    # NOTE: this must happen before the FTS triggers are created (i.e., in
+    # the _run_migrations pass) to avoid trigger-on-empty-FTS-index errors
+    # that occur when executescript(SCHEMA) has just created videos_fts on
+    # a non-empty videos table. On a real production DB the FTS index is
+    # already consistent, so the UPDATE is always safe.
+    if await _table_exists(conn, "videos"):
+        await conn.execute(
+            "UPDATE videos SET summary_embedded_at = NULL "
+            "WHERE summary IS NOT NULL"
+        )
+    await conn.execute(
+        """
+        INSERT INTO settings (user_id, key, value) VALUES (1, ?, ?)
+        ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value
+        """,
+        ("embedding_dim_migrated", "384"),
+    )
+    await conn.commit()
+
+
 async def init_schema(conn: aiosqlite.Connection) -> None:
     await _run_migrations(conn)
     await conn.executescript(SCHEMA)
+    await _migrate_v7_embedding_dim(conn)
     # Seed the single default user (id=1) if the table is empty. Every
     # existing user_id=1 reference now points at a real row.
     cursor = await conn.execute("SELECT COUNT(*) FROM users")

@@ -12,8 +12,11 @@ if TYPE_CHECKING:
 import aiosqlite
 
 from app.config import Config
+from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import videos as videos_repo
+from app.services import embeddings as embeddings_service
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +122,43 @@ class PlaylistScheduler:
             # Don't let an observability write break the actual work loop.
             log.exception("scheduler: failed to record last-tick timestamp")
 
+    async def _reembed_pending_batch(self, limit: int = 10) -> int:
+        """Drain up to `limit` videos that need re-embedding.
+
+        Per-video failures are logged and skipped — one bad video must
+        not stop the batch. Returns the count of successful embeds for
+        the heartbeat step string.
+        """
+        try:
+            ids = await embeddings_repo.videos_pending_reembed(
+                self._db, limit
+            )
+        except Exception:
+            log.exception("reembed: videos_pending_reembed failed")
+            return 0
+
+        if ids:
+            # Reflect the embed work in the heartbeat as it starts —
+            # the per-video loop below can take 20–40 s on a Pi (CPU
+            # inference) and we don't want the diagnostics page to
+            # show a stale "syncing X" step the whole time.
+            self._touch(current_step=f"re-embedding {len(ids)} videos")
+
+        n_done = 0
+        for video_id in ids:
+            try:
+                video = await videos_repo.get(self._db, video_id)
+                if video is None or not video.summary:
+                    continue
+                vector = await embeddings_service.embed_text(video.summary)
+                await embeddings_repo.upsert_summary_embedding(
+                    self._db, video_id, vector,
+                )
+                n_done += 1
+            except Exception:
+                log.exception("reembed: video %s failed", video_id)
+        return n_done
+
     async def run(self) -> None:
         while not self._stopped.is_set():
             # Resolve the interval BEFORE the heartbeat so the
@@ -148,6 +188,11 @@ class PlaylistScheduler:
                     log.exception(
                         "scheduler: sync failed for playlist %s", playlist.id
                     )
+            n_reembedded = await self._reembed_pending_batch(limit=10)
+            if n_reembedded:
+                self._touch(
+                    current_step=f"re-embedded {n_reembedded} videos"
+                )
             await self._record_tick()
 
     def request_tick(self) -> None:

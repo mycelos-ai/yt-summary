@@ -242,3 +242,40 @@ def test_post_tick_scheduler_returns_303(tmp_path, monkeypatch):
             "/settings/diagnostics/tick-scheduler", follow_redirects=False,
         )
         assert resp.status_code == 303
+
+
+def test_diagnostics_shows_reembed_pending_count(tmp_path, monkeypatch):
+    """If videos with summary lack embedded_at, the count appears."""
+    import asyncio
+
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            for vid in ("a", "b", "c"):
+                await videos_repo.upsert_metadata(
+                    app.state.db, video_id=vid, url="u", title="t",
+                    description="", thumbnail_path=None,
+                    duration_seconds=None,
+                )
+                await app.state.db.execute(
+                    "UPDATE videos SET summary='x' WHERE id=?", (vid,)
+                )
+            await app.state.db.commit()
+        asyncio.get_event_loop().run_until_complete(seed())
+
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    # Three videos with summaries, none embedded → "Re-embed pending: 3"
+    assert "Re-embed pending: 3" in resp.text
+
+
+def test_diagnostics_hides_reembed_when_zero(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    assert "Re-embed pending" not in resp.text
