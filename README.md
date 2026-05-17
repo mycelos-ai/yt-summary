@@ -270,3 +270,4 @@ search, and the Quick Setup wizard.
 ## License
 
 [MIT](LICENSE) — do whatever you want, just don't sue me.
+
