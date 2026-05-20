@@ -73,6 +73,8 @@ class Job:
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+    llm_model_id: int | None = None
+    additional_prompt: str | None = None
 
 
 @dataclass

@@ -14,13 +14,24 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         error_message=row["error_message"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
+        llm_model_id=row["llm_model_id"],
+        additional_prompt=row["additional_prompt"],
     )
 
 
-async def enqueue(db: aiosqlite.Connection, video_id: str) -> int:
+async def enqueue(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    llm_model_id: int | None = None,
+    additional_prompt: str | None = None,
+) -> int:
     cursor = await db.execute(
-        "INSERT INTO jobs (video_id, state) VALUES (?, 'pending')",
-        (video_id,),
+        """
+        INSERT INTO jobs (video_id, state, llm_model_id, additional_prompt)
+        VALUES (?, 'pending', ?, ?)
+        """,
+        (video_id, llm_model_id, additional_prompt),
     )
     await db.commit()
     assert cursor.lastrowid is not None

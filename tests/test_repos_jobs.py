@@ -4,6 +4,7 @@ import aiosqlite
 
 from app.models import JobState
 from app.repos import jobs as jobs_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import videos as videos_repo
 
 
@@ -284,3 +285,29 @@ async def test_delete_refuses_running_row(db: aiosqlite.Connection):
     affected = await jobs_repo.delete(db, j)
     assert affected == 0
     assert await jobs_repo.get(db, j) is not None
+
+
+async def test_enqueue_without_overrides_defaults_to_null(db: aiosqlite.Connection):
+    await _video(db)
+    job_id = await jobs_repo.enqueue(db, "v1")
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.llm_model_id is None
+    assert job.additional_prompt is None
+
+
+async def test_enqueue_with_overrides_persists_them(db: aiosqlite.Connection):
+    await _video(db)
+    mid = await llm_models_repo.insert(
+        db, label="A", provider_id="openai", model="openai/gpt-5.5",
+        api_key="k", base_url="", make_default=True,
+    )
+    job_id = await jobs_repo.enqueue(
+        db, "v1",
+        llm_model_id=mid,
+        additional_prompt="be terse",
+    )
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.llm_model_id == mid
+    assert job.additional_prompt == "be terse"
