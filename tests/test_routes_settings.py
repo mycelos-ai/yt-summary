@@ -743,9 +743,10 @@ def test_post_llm_models_inserts_row(tmp_path, monkeypatch):
             data={
                 "label": "Claude",
                 "provider_id": "anthropic",
-                "model": "anthropic/claude-sonnet-4-6",
+                # Quick Setup's form names — see the alias= on the route.
+                "llm_model": "anthropic/claude-sonnet-4-6",
                 "api_key": "sk-test",
-                "base_url": "",
+                "llm_base_url": "",
             },
             follow_redirects=False,
         )
@@ -782,9 +783,9 @@ def test_post_llm_models_id_updates(tmp_path, monkeypatch):
             f"/settings/llm-models/{mid_holder['id']}",
             data={
                 "label": "A renamed",
-                "model": "openai/gpt-5.4",
+                "llm_model": "openai/gpt-5.4",
                 "api_key": "",  # blank = keep existing
-                "base_url": "",
+                "llm_base_url": "",
             },
             follow_redirects=False,
         )

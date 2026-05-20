@@ -339,9 +339,13 @@ async def _probe_ollama_reachable(base_url: str) -> str | None:
 async def llm_models_insert(
     label: str = Form(...),
     provider_id: str = Form(...),
-    model: str = Form(...),
+    # The Quick Setup form (and the Ollama-models HTMX fragment) name
+    # these fields `llm_model` / `llm_base_url` to keep one set of
+    # field names across the whole settings page. Accept both via
+    # alias so the route works without re-rendering five templates.
+    model: str = Form(..., alias="llm_model"),
     api_key: str = Form(""),
-    base_url: str = Form(""),
+    base_url: str = Form("", alias="llm_base_url"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """Add a new LLM model row. The first row added is automatically
@@ -367,9 +371,11 @@ async def llm_models_insert(
 async def llm_models_update(
     model_id: int,
     label: str = Form(...),
-    model: str = Form(...),
+    # Same alias pattern as llm_models_insert — the Quick Setup form
+    # field names are `llm_model` / `llm_base_url`.
+    model: str = Form(..., alias="llm_model"),
     api_key: str = Form(""),
-    base_url: str = Form(""),
+    base_url: str = Form("", alias="llm_base_url"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """Update a model row's user-facing fields. is_default is NOT
