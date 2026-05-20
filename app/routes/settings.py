@@ -23,7 +23,6 @@ from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 from app.services.providers import (
     PROVIDER_PRESETS,
-    apply_preset,
     fetch_ollama_models,
     list_chat_models,
     split_ollama_tags,
@@ -452,7 +451,10 @@ async def llm_models_test(
                 f'<p class="status status-failed">⚠ Cannot reach Ollama at '
                 f'{base_url}: {err}</p>'
             )
-    kwargs: dict[str, object] = {
+    # Matches the kwargs shape the old global test-llm endpoint used; no
+    # explicit annotation so Pyright infers a compatible Dict[str, X | Y]
+    # for litellm.acompletion's strict parameter typing.
+    kwargs = {
         "model": row.model,
         "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
         "api_key": row.api_key or "",
