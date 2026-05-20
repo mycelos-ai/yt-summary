@@ -118,3 +118,68 @@ async def test_delete_default_row_raises(db: aiosqlite.Connection):
     with pytest.raises(ValueError):
         await repo.delete(db, a)
     assert await repo.get(db, a) is not None
+
+
+async def test_set_default_raises_on_unknown_id(db: aiosqlite.Connection):
+    a = await repo.insert(
+        db, label="A", provider_id="openai", model="openai/gpt-5.5",
+        api_key="k", base_url="", make_default=True,
+    )
+    with pytest.raises(ValueError):
+        await repo.set_default(db, 9999)
+    # The original default must still be the default — the table can
+    # never end up with zero defaults from a failed set_default call.
+    default = await repo.get_default(db)
+    assert default is not None and default.id == a
+
+
+async def test_update_raises_on_unknown_id(db: aiosqlite.Connection):
+    with pytest.raises(ValueError):
+        await repo.update(
+            db, 9999,
+            label="X", model="x/y", api_key="", base_url="",
+        )
+
+
+async def test_list_all_returns_empty_on_fresh_install(db: aiosqlite.Connection):
+    assert await repo.list_all(db) == []
+
+
+async def test_insert_with_make_default_displaces_prior_default(
+    db: aiosqlite.Connection,
+):
+    a = await repo.insert(
+        db, label="A", provider_id="openai", model="openai/gpt-5.5",
+        api_key="k", base_url="", make_default=True,
+    )
+    b = await repo.insert(
+        db, label="B", provider_id="anthropic",
+        model="anthropic/claude-sonnet-4-6",
+        api_key="k", base_url="", make_default=True,
+    )
+    default = await repo.get_default(db)
+    assert default is not None and default.id == b
+    row_a = await repo.get(db, a)
+    assert row_a is not None and row_a.is_default is False
+
+
+async def test_update_advances_updated_at(db: aiosqlite.Connection):
+    import asyncio
+
+    rid = await repo.insert(
+        db, label="A", provider_id="openai", model="openai/gpt-5.5",
+        api_key="k", base_url="", make_default=True,
+    )
+    before = await repo.get(db, rid)
+    assert before is not None
+    # SQLite's datetime('now') resolution is one second. Sleep just
+    # over a second so the stamp definitely advances.
+    await asyncio.sleep(1.05)
+    await repo.update(
+        db, rid,
+        label="A renamed", model="openai/gpt-5.4",
+        api_key="k", base_url="",
+    )
+    after = await repo.get(db, rid)
+    assert after is not None
+    assert after.updated_at > before.updated_at

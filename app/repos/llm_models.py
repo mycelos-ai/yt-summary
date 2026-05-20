@@ -95,7 +95,13 @@ async def update(
     base_url: str,
 ) -> None:
     """Update the user-facing fields. is_default is NOT modified here —
-    use set_default() for that to keep the invariant transactional."""
+    use set_default() for that to keep the invariant transactional.
+    provider_id is also immutable: if a user wants to change the
+    underlying provider, they should delete the row and create a new
+    one (the api_key and label semantics change with the provider).
+    Raises ValueError if ``model_id`` doesn't exist."""
+    if await get(db, model_id) is None:
+        raise ValueError(f"Model {model_id} does not exist.")
     await db.execute(
         """
         UPDATE llm_models
@@ -110,7 +116,12 @@ async def update(
 
 async def set_default(db: aiosqlite.Connection, model_id: int) -> None:
     """Flip the default flag onto ``model_id``. Two UPDATEs in one
-    commit — single-writer SQLite makes this race-free."""
+    commit — single-writer SQLite makes this race-free. Raises
+    ValueError if ``model_id`` doesn't exist (otherwise the table
+    would end up with zero default rows, violating the invariant
+    every consumer relies on)."""
+    if await get(db, model_id) is None:
+        raise ValueError(f"Model {model_id} does not exist.")
     await db.execute("UPDATE llm_models SET is_default=0 WHERE is_default=1")
     await db.execute(
         "UPDATE llm_models SET is_default=1, updated_at=datetime('now') WHERE id=?",
