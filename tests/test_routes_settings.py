@@ -9,29 +9,8 @@ def test_get_settings_renders_form(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.get("/settings")
     assert resp.status_code == 200
-    assert "llm_model" in resp.text
+    assert "Configured models" in resp.text
     assert "whisper_model" in resp.text
-
-
-def test_post_settings_saves(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post("/settings", data={
-            "llm_model": "openai/gpt-4o",
-            "llm_api_key": "k",
-            "llm_base_url": "",
-            "whisper_model": "small",
-        }, follow_redirects=False)
-        assert resp.status_code in (200, 303)
-
-        import asyncio
-        async def check():
-            from app.repos import settings as settings_repo
-            s = await settings_repo.get_all(app.state.db)
-            assert s["llm_model"] == "openai/gpt-4o"
-            assert s["whisper_model"] == "small"
-        asyncio.get_event_loop().run_until_complete(check())
 
 
 def test_post_youtube_curl_writes_cookie_file(tmp_path, monkeypatch):
@@ -50,36 +29,6 @@ def test_post_youtube_curl_writes_cookie_file(tmp_path, monkeypatch):
     assert "A\t1" in cookies_file.read_text()
 
 
-def test_save_settings_with_blank_api_key_keeps_existing(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        import asyncio
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_api_key", "secret123")
-
-        asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.post(
-            "/settings",
-            data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",  # blank
-                "llm_base_url": "",
-                "whisper_model": "small",
-            },
-            follow_redirects=False,
-        )
-        assert resp.status_code in (200, 303)
-
-        async def check():
-            from app.repos import settings as settings_repo
-            assert await settings_repo.get(app.state.db, "llm_api_key") == "secret123"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
 def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
@@ -96,31 +45,6 @@ def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
     assert "supersecret" not in resp.text
 
 
-def test_save_settings_strips_trailing_slash_from_base_url(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        client.post(
-            "/settings",
-            data={
-                "llm_model": "ollama_chat/gemma4:latest",
-                "llm_api_key": "",
-                "llm_base_url": "http://192.168.0.27:11434/",
-                "whisper_model": "small",
-            },
-            follow_redirects=False,
-        )
-
-        import asyncio
-
-        async def check():
-            from app.repos import settings as settings_repo
-            value = await settings_repo.get(app.state.db, "llm_base_url")
-            assert value == "http://192.168.0.27:11434"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
 def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch):
     """The form now stores intervals in minutes; saving 45 minutes
     should land verbatim and the legacy hours setting should be
@@ -131,9 +55,6 @@ def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch
         client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "playlist_refresh_interval_minutes": "45",
                 "playlist_initial_import_limit": "30",
@@ -163,9 +84,6 @@ def test_save_settings_legacy_hours_form_migrates_to_minutes(tmp_path, monkeypat
         client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "playlist_refresh_interval_hours": "2",
                 "playlist_initial_import_limit": "30",
@@ -697,9 +615,6 @@ def test_save_settings_persists_tts_defaults(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_language": "de",
                 "default_tts_voice_de": "thorsten",
@@ -740,9 +655,6 @@ def test_save_settings_persists_tts_length_scale(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_length_scale": "1.20",
             },
@@ -782,9 +694,6 @@ def test_save_settings_rejects_out_of_range_length_scale(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_length_scale": "5.0",
             },

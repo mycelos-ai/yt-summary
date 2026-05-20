@@ -64,12 +64,14 @@ async def settings_page(
     request: Request,
     applied: str | None = None,
     onboarding: str | None = None,
+    edit: int | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user=Depends(get_current_user),
 ):
     settings = await settings_repo.get_all(db)
     llm_models = await llm_models_repo.list_all(db)
+    edit_model = await llm_models_repo.get(db, edit) if edit is not None else None
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
     # Surface a sensible default in the UI: if only the legacy
     # `_hours` setting is present, render it as the equivalent minutes
@@ -176,15 +178,13 @@ async def settings_page(
             "voices_by_language": voices_by_language,
             "voice_cache_summary": voice_cache_summary,
             "llm_models": llm_models,
+            "edit_model": edit_model,
         },
     )
 
 
 @router.post("/settings")
 async def save_settings(
-    llm_model: str = Form(""),
-    llm_api_key: str = Form(""),
-    llm_base_url: str = Form(""),
     whisper_model: str = Form("small"),
     whisper_base_url: str = Form(""),
     whisper_api_key: str = Form(""),
@@ -205,11 +205,8 @@ async def save_settings(
     # LiteLLM and httpx clients append paths to base; a trailing "/"
     # would produce "//audio/transcriptions" or "//api/chat" which some
     # providers reject with 405.
-    llm_base_url = llm_base_url.strip().rstrip("/")
     whisper_base_url = whisper_base_url.strip().rstrip("/")
     for key, value in (
-        ("llm_model", llm_model.strip()),
-        ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model.strip() or "small"),
         ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
@@ -249,8 +246,6 @@ async def save_settings(
                 await settings_repo.delete(db, "default_tts_length_scale")
     else:
         await settings_repo.delete(db, "default_tts_length_scale")
-    if llm_api_key:
-        await settings_repo.set(db, "llm_api_key", llm_api_key)
     if whisper_api_key:
         await settings_repo.set(db, "whisper_api_key", whisper_api_key)
     # Keep the playlist-interval setting unambiguous: as soon as the
