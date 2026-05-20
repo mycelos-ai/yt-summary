@@ -14,6 +14,7 @@ from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.repos import embeddings as embeddings_repo
 from app.repos import jobs as jobs_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tts_jobs as tts_jobs_repo
@@ -22,7 +23,6 @@ from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 from app.services.providers import (
     PROVIDER_PRESETS,
-    apply_preset,
     fetch_ollama_models,
     list_chat_models,
     split_ollama_tags,
@@ -64,11 +64,14 @@ async def settings_page(
     request: Request,
     applied: str | None = None,
     onboarding: str | None = None,
+    edit: int | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user=Depends(get_current_user),
 ):
     settings = await settings_repo.get_all(db)
+    llm_models = await llm_models_repo.list_all(db)
+    edit_model = await llm_models_repo.get(db, edit) if edit is not None else None
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
     # Surface a sensible default in the UI: if only the legacy
     # `_hours` setting is present, render it as the equivalent minutes
@@ -83,11 +86,10 @@ async def settings_page(
         except ValueError:
             pass
     scheduled_playlists = await playlists_repo.list_for_user(db, 1)
-    has_api_key = bool(settings.get("llm_api_key"))
     has_whisper_key = bool(settings.get("whisper_api_key"))
     safe_settings = {
         k: v for k, v in settings.items()
-        if k not in ("llm_api_key", "whisper_api_key")
+        if k not in ("whisper_api_key",)
     }
     # API keys live on user_id=1 (the seeded admin) regardless of which
     # profile is active — they're a household credential, not a per-
@@ -100,20 +102,13 @@ async def settings_page(
     if applied and applied in PROVIDER_PRESETS:
         applied_preset = PROVIDER_PRESETS[applied]
 
-    # Detect which provider is currently active so the wizard can
-    # pre-select that tile and show the matching detail panel
-    # without the user having to remember what they configured.
-    # Falls back to '' for fresh installs (no llm_model yet) and
-    # for custom/manual setups whose llm_model prefix doesn't match
-    # any preset.
-    current_provider_id = ""
-    current_model = settings.get("llm_model", "")
-    if current_model:
-        head = current_model.split("/", 1)[0]
-        for p in presets:
-            if head == p.litellm_provider or head.startswith(p.litellm_provider):
-                current_provider_id = p.id
-                break
+    # Detect which provider is currently active so the Add-model
+    # wizard pre-selects that tile when the user opens it on a
+    # configured install. The source of truth is the default
+    # llm_models row (was settings.llm_model before the multi-model
+    # migration). Falls back to '' for fresh installs.
+    current_default = await llm_models_repo.get_default(db)
+    current_provider_id = current_default.provider_id if current_default else ""
 
     # Per-provider chat model lists for cloud providers.
     # Ollama gets its list dynamically from /api/tags via HTMX, so we
@@ -159,7 +154,6 @@ async def settings_page(
             "applied_preset": applied_preset,
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
-            "has_api_key": has_api_key,
             "has_whisper_key": has_whisper_key,
             "has_cookies": has_cookies,
             "api_key_prefix": user.api_key_prefix if user else None,
@@ -174,15 +168,14 @@ async def settings_page(
             "tts_voice_langs": _TTS_VOICE_LANGS,
             "voices_by_language": voices_by_language,
             "voice_cache_summary": voice_cache_summary,
+            "llm_models": llm_models,
+            "edit_model": edit_model,
         },
     )
 
 
 @router.post("/settings")
 async def save_settings(
-    llm_model: str = Form(""),
-    llm_api_key: str = Form(""),
-    llm_base_url: str = Form(""),
     whisper_model: str = Form("small"),
     whisper_base_url: str = Form(""),
     whisper_api_key: str = Form(""),
@@ -203,11 +196,8 @@ async def save_settings(
     # LiteLLM and httpx clients append paths to base; a trailing "/"
     # would produce "//audio/transcriptions" or "//api/chat" which some
     # providers reject with 405.
-    llm_base_url = llm_base_url.strip().rstrip("/")
     whisper_base_url = whisper_base_url.strip().rstrip("/")
     for key, value in (
-        ("llm_model", llm_model.strip()),
-        ("llm_base_url", llm_base_url),
         ("whisper_model", whisper_model.strip() or "small"),
         ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
@@ -247,8 +237,6 @@ async def save_settings(
                 await settings_repo.delete(db, "default_tts_length_scale")
     else:
         await settings_repo.delete(db, "default_tts_length_scale")
-    if llm_api_key:
-        await settings_repo.set(db, "llm_api_key", llm_api_key)
     if whisper_api_key:
         await settings_repo.set(db, "whisper_api_key", whisper_api_key)
     # Keep the playlist-interval setting unambiguous: as soon as the
@@ -271,44 +259,6 @@ async def save_settings(
         except ValueError:
             pass
     return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/quick-setup")
-async def quick_setup(
-    provider: str = Form(...),
-    api_key: str = Form(""),
-    llm_model: str = Form(""),
-    llm_base_url: str = Form(""),
-    db: aiosqlite.Connection = Depends(get_db),
-):
-    """Apply a curated provider preset.
-
-    Writes only the settings keys the preset's provider supports. A
-    blank api_key keeps whatever's already in the DB.
-    """
-    if provider not in PROVIDER_PRESETS:
-        raise HTTPException(400, detail=f"Unknown provider: {provider!r}")
-
-    current = await settings_repo.get_all(db)
-    updates = apply_preset(
-        provider_id=provider,
-        api_key=api_key.strip(),
-        current_settings=current,
-        llm_model_override=llm_model.strip() or None,
-        llm_base_url_override=llm_base_url.strip() or None,
-    )
-
-    for key, value in updates.items():
-        if value:
-            await settings_repo.set(db, key, value)
-        else:
-            # Empty string means "clear this setting" (e.g. when
-            # switching away from Ollama, clear stale llm_base_url).
-            await settings_repo.delete(db, key)
-
-    return RedirectResponse(
-        f"/settings?applied={provider}", status_code=303
-    )
 
 
 @router.get(
@@ -385,31 +335,121 @@ async def _probe_ollama_reachable(base_url: str) -> str | None:
         return f"{type(e).__name__}: {e}"
 
 
-@router.post("/settings/test-llm", response_class=HTMLResponse)
-async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
-    settings = await settings_repo.get_all(db)
-    model = settings.get("llm_model")
-    if not model:
-        return HTMLResponse(
-            '<p class="status status-failed">⚠ Configure a model first.</p>'
-        )
-    api_key = settings.get("llm_api_key")
-    base_url = settings.get("llm_base_url")
+@router.post("/settings/llm-models")
+async def llm_models_insert(
+    label: str = Form(...),
+    provider_id: str = Form(...),
+    # The Quick Setup form (and the Ollama-models HTMX fragment) name
+    # these fields `llm_model` / `llm_base_url` to keep one set of
+    # field names across the whole settings page. Accept both via
+    # alias so the route works without re-rendering five templates.
+    model: str = Form(..., alias="llm_model"),
+    api_key: str = Form(""),
+    base_url: str = Form("", alias="llm_base_url"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Add a new LLM model row. The first row added is automatically
+    the default — otherwise the existing default is preserved (user
+    can flip it explicitly via /default)."""
+    existing = await llm_models_repo.list_all(db)
+    make_default = not existing
+    new_id = await llm_models_repo.insert(
+        db,
+        label=label.strip() or "Untitled",
+        provider_id=provider_id.strip(),
+        model=model.strip(),
+        api_key=api_key.strip(),
+        base_url=base_url.strip().rstrip("/"),
+        make_default=make_default,
+    )
+    return RedirectResponse(
+        f"/settings?added={new_id}", status_code=303,
+    )
 
-    # For Ollama, do a direct reachability probe first so we surface a clear
-    # error instead of a confusing LiteLLM/aiohttp wrapper message.
-    if base_url and model.startswith(("ollama/", "ollama_chat/")):
+
+@router.post("/settings/llm-models/{model_id}")
+async def llm_models_update(
+    model_id: int,
+    label: str = Form(...),
+    # Same alias pattern as llm_models_insert — the Quick Setup form
+    # field names are `llm_model` / `llm_base_url`.
+    model: str = Form(..., alias="llm_model"),
+    api_key: str = Form(""),
+    base_url: str = Form("", alias="llm_base_url"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Update a model row's user-facing fields. is_default is NOT
+    modified here; the /default endpoint owns that. Empty api_key in
+    the form means 'keep the existing key' — matches the legacy Quick
+    Setup pattern users are used to."""
+    row = await llm_models_repo.get(db, model_id)
+    if row is None:
+        raise HTTPException(404)
+    effective_key = api_key.strip() or row.api_key
+    await llm_models_repo.update(
+        db, model_id,
+        label=label.strip() or row.label,
+        model=model.strip(),
+        api_key=effective_key,
+        base_url=base_url.strip().rstrip("/"),
+    )
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/llm-models/{model_id}/default")
+async def llm_models_set_default(
+    model_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    try:
+        await llm_models_repo.set_default(db, model_id)
+    except ValueError:
+        raise HTTPException(404) from None
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/llm-models/{model_id}/delete")
+async def llm_models_delete(
+    model_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    try:
+        await llm_models_repo.delete(db, model_id)
+    except ValueError as e:
+        # ValueError → trying to delete the default row.
+        raise HTTPException(409, str(e)) from None
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/llm-models/{model_id}/test", response_class=HTMLResponse)
+async def llm_models_test(
+    model_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Round-trip a tiny completion through the row's model/key/base_url.
+    Used by the per-row [Test] button on the Configured Models card.
+    Replaces the global /settings/test-llm endpoint."""
+    row = await llm_models_repo.get(db, model_id)
+    if row is None:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Model not found.</p>'
+        )
+    base_url = row.base_url or None
+    # Ollama: probe reachability first so failures are clear.
+    if base_url and row.model.startswith(("ollama/", "ollama_chat/")):
         err = await _probe_ollama_reachable(base_url)
         if err is not None:
             return HTMLResponse(
                 f'<p class="status status-failed">⚠ Cannot reach Ollama at '
                 f'{base_url}: {err}</p>'
             )
-
+    # Matches the kwargs shape the old global test-llm endpoint used; no
+    # explicit annotation so Pyright infers a compatible Dict[str, X | Y]
+    # for litellm.acompletion's strict parameter typing.
     kwargs = {
-        "model": model,
+        "model": row.model,
         "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
-        "api_key": api_key or "",
+        "api_key": row.api_key or "",
         "max_tokens": 10,
     }
     if base_url:
@@ -418,7 +458,7 @@ async def test_llm(db: aiosqlite.Connection = Depends(get_db)):
         response = await litellm.acompletion(**kwargs)
         text = (response.choices[0].message.content or "").strip()
         return HTMLResponse(
-            f'<p class="status status-done">✓ {model} responded: '
+            f'<p class="status status-done">✓ {row.model} responded: '
             f'{text[:50] or "(empty)"}</p>'
         )
     except Exception as e:

@@ -14,13 +14,24 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         error_message=row["error_message"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
+        llm_model_id=row["llm_model_id"],
+        additional_prompt=row["additional_prompt"],
     )
 
 
-async def enqueue(db: aiosqlite.Connection, video_id: str) -> int:
+async def enqueue(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    llm_model_id: int | None = None,
+    additional_prompt: str | None = None,
+) -> int:
     cursor = await db.execute(
-        "INSERT INTO jobs (video_id, state) VALUES (?, 'pending')",
-        (video_id,),
+        """
+        INSERT INTO jobs (video_id, state, llm_model_id, additional_prompt)
+        VALUES (?, 'pending', ?, ?)
+        """,
+        (video_id, llm_model_id, additional_prompt),
     )
     await db.commit()
     assert cursor.lastrowid is not None
@@ -196,6 +207,11 @@ async def list_recent_failed(
 async def retry(db: aiosqlite.Connection, job_id: int) -> int:
     """Reset a failed job back to ``pending`` so the worker picks it
     up. Returns the number of rows changed (0 => caller should 404).
+
+    ``llm_model_id`` and ``additional_prompt`` are intentionally
+    preserved — a retry should re-use the same per-run override the
+    caller originally supplied (e.g. a Re-summarize with Claude +
+    "be terse" should still hit Claude with "be terse" after retry).
     """
     cursor = await db.execute(
         """

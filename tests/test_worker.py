@@ -46,7 +46,7 @@ async def test_worker_marks_failed_on_exception(db: aiosqlite.Connection, tmp_pa
     )
     job_id = await jobs_repo.enqueue(db, "v1")
 
-    async def boom(db, config, video_id, set_step):
+    async def boom(db, config, video_id, set_step, **kwargs):
         raise RuntimeError("kaboom")
 
     worker = Worker(db=db, config=config, process_video=boom, poll_interval=0.05)
@@ -108,7 +108,7 @@ async def test_worker_heartbeat_records_current_job(
     seen_job_ids: list[int | None] = []
     hb = HeartbeatRegistry()
 
-    async def slow_process(db_, config_, video_id, set_step):
+    async def slow_process(db_, config_, video_id, set_step, **kwargs):
         # Capture the heartbeat as it would be observed by the page.
         await asyncio.sleep(0.05)
         snap = hb.snapshot()
@@ -171,7 +171,7 @@ async def test_worker_survives_runtime_error_and_processes_next_job(
 
     calls = {"n": 0}
 
-    async def flaky(_db, _cfg, _vid, _set_step):
+    async def flaky(_db, _cfg, _vid, _set_step, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("simulated transient")
@@ -210,7 +210,7 @@ async def test_worker_survives_base_exception_in_process_video(
 
     seen = {"crashed": False}
 
-    async def bombs_then_idle(_db, _cfg, _vid, _set_step):
+    async def bombs_then_idle(_db, _cfg, _vid, _set_step, **kwargs):
         seen["crashed"] = True
         raise _SneakyError("not an Exception subclass")
 
@@ -319,7 +319,7 @@ async def test_worker_heartbeat_marks_restart_after_crash(
 
     hb = HeartbeatRegistry()
 
-    async def boom(_db, _cfg, _vid, _set_step):
+    async def boom(_db, _cfg, _vid, _set_step, **kwargs):
         raise _SneakyError("crash to trigger restart heartbeat")
 
     worker = Worker(

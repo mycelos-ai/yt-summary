@@ -102,3 +102,50 @@ async def test_list_playlists_resource_shape(db, tmp_path):
     assert rows[0]["id"] == "PLapi1"
     assert rows[0]["title"] == "Show"
     assert rows[0]["video_count"] == 0
+
+
+async def test_reindex_video_accepts_overrides(db, config):
+    from app.models import VideoKind
+    from app.repos import jobs as jobs_repo
+    from app.repos import llm_models as llm_models_repo
+    from app.repos import videos as videos_repo
+    from app.services import api as api_svc
+
+    mid = await llm_models_repo.insert(
+        db, label="X", provider_id="openai", model="openai/gpt-5.5",
+        api_key="k", base_url="", make_default=True,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="rv1", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.YOUTUBE, user_id=1,
+    )
+    await api_svc.reindex_video(
+        db, "rv1",
+        llm_model_id=mid,
+        additional_prompt="be terse",
+    )
+    job = await jobs_repo.latest_for_video(db, "rv1")
+    assert job is not None
+    assert job.llm_model_id == mid
+    assert job.additional_prompt == "be terse"
+
+
+async def test_reindex_video_default_kwargs_persist_null(db, config):
+    """reindex_video() with no kwargs leaves both override columns NULL,
+    matching the background-pipeline contract."""
+    from app.models import VideoKind
+    from app.repos import jobs as jobs_repo
+    from app.repos import videos as videos_repo
+    from app.services import api as api_svc
+
+    await videos_repo.upsert_metadata(
+        db, video_id="rv2", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.YOUTUBE, user_id=1,
+    )
+    await api_svc.reindex_video(db, "rv2")
+    job = await jobs_repo.latest_for_video(db, "rv2")
+    assert job is not None
+    assert job.llm_model_id is None
+    assert job.additional_prompt is None

@@ -137,6 +137,8 @@ async def submit_video(
     user_id: int,
     wait: bool = False,
     wait_timeout: int = 60,
+    llm_model_id: int | None = None,
+    additional_prompt: str | None = None,
 ) -> VideoResource:
     """Submit a URL. Async by default; sync waits up to `wait_timeout` seconds
     for the summary to finish."""
@@ -169,7 +171,11 @@ async def submit_video(
         )
         if meta.tags:
             await _tags_repo.set_tags_for_video(db, item_id, list(meta.tags))
-        await jobs_repo.enqueue(db, item_id)
+        await jobs_repo.enqueue(
+            db, item_id,
+            llm_model_id=llm_model_id,
+            additional_prompt=additional_prompt,
+        )
     else:
         article = await fetch_article(url)
         base_id = web_id_from_url(article.url)
@@ -195,7 +201,11 @@ async def submit_video(
             kind=VideoKind.WEB,
         )
         await videos_repo.set_transcript(db, item_id, article.body, TranscriptSrc.WEB)
-        await jobs_repo.enqueue(db, item_id)
+        await jobs_repo.enqueue(
+            db, item_id,
+            llm_model_id=llm_model_id,
+            additional_prompt=additional_prompt,
+        )
 
     if wait and wait_timeout > 0:
         await _wait_for_summary(db, item_id, wait_timeout)
@@ -256,22 +266,27 @@ async def chat_about_video(
     content: str,
     *,
     user_id: int,
+    llm_model_id: int | None = None,
 ) -> dict[str, Any]:
     """Append a user turn, run the LLM, persist the assistant turn,
     return both as a dict."""
     from app.repos import chat as chat_repo
-    from app.repos import settings as settings_repo
+    from app.repos import llm_models as llm_models_repo
     from app.services.chat import stream_reply
 
     video = await videos_repo.get(db, video_id)
     if video is None or video.transcript is None:
         raise ValueError("Video or transcript not found")
-    settings = await settings_repo.get_all(db)
-    model = settings.get("llm_model")
-    if not model:
+    model_row = (
+        await llm_models_repo.get(db, llm_model_id)
+        if llm_model_id is not None
+        else await llm_models_repo.get_default(db)
+    )
+    if model_row is None:
         raise ValueError("LLM not configured")
-    api_key = settings.get("llm_api_key") or ""
-    base_url = settings.get("llm_base_url")
+    model = model_row.model
+    api_key = model_row.api_key or ""
+    base_url = model_row.base_url or None
 
     history = await chat_repo.history(db, video_id)
     await chat_repo.append(db, video_id, "user", content, user_id=user_id)
@@ -330,7 +345,17 @@ async def list_tags(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     return [{"name": row[0], "count": row[1]} for row in rows]
 
 
-async def reindex_video(db: aiosqlite.Connection, video_id: str) -> None:
+async def reindex_video(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    llm_model_id: int | None = None,
+    additional_prompt: str | None = None,
+) -> None:
     if await videos_repo.get(db, video_id) is None:
         raise ValueError(f"Unknown video: {video_id}")
-    await jobs_repo.enqueue(db, video_id)
+    await jobs_repo.enqueue(
+        db, video_id,
+        llm_model_id=llm_model_id,
+        additional_prompt=additional_prompt,
+    )

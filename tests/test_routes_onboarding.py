@@ -49,16 +49,18 @@ def test_onboarding_status_not_pending_when_completed_marker_set(
 def test_onboarding_status_not_pending_when_llm_model_already_set(
     tmp_path, monkeypatch
 ):
-    """User configured a model manually before onboarding shipped —
-    don't ambush them with a wizard on next launch."""
+    """User configured a model before re-entering — don't ambush them
+    with a wizard on next launch."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app):
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
-            await settings_repo.set(
-                app.state.db, "llm_api_key", "preexisting"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="OpenAI", provider_id="openai",
+                model="openai/gpt-4o", api_key="preexisting",
+                base_url="", make_default=True,
             )
 
         _run(setup())
@@ -72,20 +74,19 @@ def test_onboarding_status_not_pending_for_ollama_no_api_key(
     """Ollama setups have a model and a base URL but no API key.
     That's a perfectly valid configuration — don't push them into
     the wizard. Regression test for the bug where the heuristic
-    keyed off llm_api_key alone."""
+    keyed off an api_key field alone."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app):
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Ollama (local)", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="",
+                base_url="http://host.docker.internal:11434",
+                make_default=True,
             )
-            await settings_repo.set(
-                app.state.db, "llm_base_url",
-                "http://host.docker.internal:11434",
-            )
-            # llm_api_key intentionally left unset
 
         _run(setup())
         result = _run(_onboarding_status(app.state.db))
@@ -122,10 +123,12 @@ def test_home_does_not_redirect_when_llm_model_set(tmp_path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
-            await settings_repo.set(
-                app.state.db, "llm_api_key", "preexisting"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="OpenAI", provider_id="openai",
+                model="openai/gpt-4o", api_key="preexisting",
+                base_url="", make_default=True,
             )
 
         _run(setup())
@@ -134,15 +137,19 @@ def test_home_does_not_redirect_when_llm_model_set(tmp_path, monkeypatch):
 
 
 def test_home_does_not_redirect_for_ollama_no_api_key(tmp_path, monkeypatch):
-    """Regression: Ollama users have llm_model set but no llm_api_key.
+    """Regression: Ollama users have a configured model but no api_key.
     They should NOT see the onboarding wizard on next launch."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Ollama (local)", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="",
+                base_url="http://host.docker.internal:11434",
+                make_default=True,
             )
 
         _run(setup())
@@ -398,11 +405,13 @@ def test_post_provider_writes_settings_and_continues(tmp_path, monkeypatch):
     assert resp.headers["location"] == "/onboarding/profile"
 
     async def check():
-        from app.repos import settings as settings_repo
-        s = await settings_repo.get_all(app.state.db)
-        # apply_preset wrote the openai preset's defaults
-        assert s["llm_api_key"] == "sk-test-onboarding"
-        assert s["llm_model"].startswith("openai/")
+        from app.repos import llm_models as llm_models_repo
+        row = await llm_models_repo.get_default(app.state.db)
+        assert row is not None
+        assert row.api_key == "sk-test-onboarding"
+        assert row.model.startswith("openai/")
+        assert row.provider_id == "openai"
+        assert row.is_default is True
 
     with TestClient(app):
         _run(check())
@@ -427,9 +436,11 @@ def test_post_provider_ollama_no_api_key_writes_base_url(tmp_path, monkeypatch):
     assert resp.headers["location"] == "/onboarding/profile"
 
     async def check():
-        from app.repos import settings as settings_repo
-        s = await settings_repo.get_all(app.state.db)
-        assert s["llm_base_url"] == "http://192.168.1.42:11434"
+        from app.repos import llm_models as llm_models_repo
+        row = await llm_models_repo.get_default(app.state.db)
+        assert row is not None
+        assert row.base_url == "http://192.168.1.42:11434"
+        assert row.provider_id == "ollama"
 
     with TestClient(app):
         _run(check())
@@ -437,7 +448,7 @@ def test_post_provider_ollama_no_api_key_writes_base_url(tmp_path, monkeypatch):
 
 def test_post_provider_uses_form_llm_model_when_given(tmp_path, monkeypatch):
     """Regression: the Ollama 'Load my models' fragment posts a
-    <select name='llm_model'>. Without piping that into apply_preset,
+    <select name='llm_model'>. Without piping that into the insert,
     the wizard would always write the hardcoded default
     ('ollama_chat/llama3.1') even when the user picked
     'ollama_chat/qwen3:32b' from their actually-installed list, which
@@ -458,9 +469,10 @@ def test_post_provider_uses_form_llm_model_when_given(tmp_path, monkeypatch):
     assert resp.status_code == 303
 
     async def check():
-        from app.repos import settings as settings_repo
-        s = await settings_repo.get_all(app.state.db)
-        assert s["llm_model"] == "ollama_chat/qwen3:32b"
+        from app.repos import llm_models as llm_models_repo
+        row = await llm_models_repo.get_default(app.state.db)
+        assert row is not None
+        assert row.model == "ollama_chat/qwen3:32b"
 
     with TestClient(app):
         _run(check())
@@ -597,3 +609,76 @@ async def test_onboarding_status_returns_expected_keys(db):
     result = await _onboarding_status(db)
     assert "pending" in result
     assert "next_step" in result
+
+
+def test_post_provider_creates_default_row_in_llm_models(tmp_path, monkeypatch):
+    """Onboarding's provider step writes a row into llm_models with
+    make_default=True. The legacy settings.llm_model path is gone."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/onboarding/provider",
+            data={
+                "provider": "anthropic",
+                "api_key": "sk-anth-test",
+                "llm_model": "anthropic/claude-sonnet-4-6",
+                "llm_base_url": "",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            row = await llm_models_repo.get_default(app.state.db)
+            assert row is not None
+            assert row.label == "Anthropic"
+            assert row.provider_id == "anthropic"
+            assert row.model == "anthropic/claude-sonnet-4-6"
+            assert row.api_key == "sk-anth-test"
+        _run(check())
+
+
+def test_post_provider_updates_existing_default_on_re_entry(tmp_path, monkeypatch):
+    """If a default already exists (user comes back to the wizard),
+    the row is updated in place — no second default created."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Old Choice", provider_id="openai",
+                model="openai/gpt-5.5",
+                api_key="old-key", base_url="",
+                make_default=True,
+            )
+        _run(setup())
+
+        # User changes their mind on the wizard step.
+        resp = client.post(
+            "/onboarding/provider",
+            data={
+                "provider": "anthropic",
+                "api_key": "new-anth-key",
+                "llm_model": "anthropic/claude-sonnet-4-6",
+                "llm_base_url": "",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            rows = await llm_models_repo.list_all(app.state.db)
+            # Exactly one row — no duplicate from the re-entry.
+            assert len(rows) == 1
+            row = rows[0]
+            assert row.is_default is True
+            assert row.provider_id == "anthropic"
+            assert row.model == "anthropic/claude-sonnet-4-6"
+            assert row.api_key == "new-anth-key"
+            assert row.label == "Anthropic"
+        _run(check())

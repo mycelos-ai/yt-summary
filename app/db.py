@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     step TEXT NOT NULL DEFAULT '',
     error_message TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    llm_model_id      INTEGER REFERENCES llm_models(id) ON DELETE SET NULL,
+    additional_prompt TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
 
@@ -120,6 +122,20 @@ CREATE TABLE IF NOT EXISTS users (
     custom_summary_prompt TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS llm_models (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    label       TEXT    NOT NULL,
+    provider_id TEXT    NOT NULL,
+    model       TEXT    NOT NULL,
+    api_key     TEXT    NOT NULL DEFAULT '',
+    base_url    TEXT    NOT NULL DEFAULT '',
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_models_default
+    ON llm_models(is_default) WHERE is_default = 1;
 
 CREATE INDEX IF NOT EXISTS idx_videos_youtube_user
     ON videos(youtube_id, user_id);
@@ -335,6 +351,99 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     # UPDATE videos SET summary_embedded_at = NULL does not collide
     # with a freshly created-but-unpopulated videos_fts index.
     await _migrate_v7_embedding_dim(conn)
+
+    # ── Multi-model migration ──────────────────────────────────
+    #
+    # Move the legacy single LLM config (settings.llm_model /
+    # llm_api_key / llm_base_url) into a managed llm_models table
+    # with a default row. Adds two override columns to `jobs` so
+    # the Re-summarize endpoint can carry a per-run model + prompt
+    # tweak through to the worker. Idempotent — each step is gated
+    # on the relevant feature check.
+    if not await _table_exists(conn, "llm_models"):
+        await conn.execute(
+            """
+            CREATE TABLE llm_models (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                label       TEXT    NOT NULL,
+                provider_id TEXT    NOT NULL,
+                model       TEXT    NOT NULL,
+                api_key     TEXT    NOT NULL DEFAULT '',
+                base_url    TEXT    NOT NULL DEFAULT '',
+                is_default  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX idx_llm_models_default "
+            "ON llm_models(is_default) WHERE is_default = 1"
+        )
+        await conn.commit()
+
+    if await _table_exists(conn, "jobs"):
+        await _ensure_column(conn, "jobs", "llm_model_id", "INTEGER")
+        await _ensure_column(conn, "jobs", "additional_prompt", "TEXT")
+
+    # Backfill from legacy settings keys, but only once: if any row
+    # already exists in llm_models, the migration has already run
+    # (or the user has added a model manually) — leave it alone.
+    # Also skip on a blank DB where settings hasn't been created yet.
+    # SELECT COUNT(*) always returns exactly one row — no None case to
+    # guard against. The settings-table check is needed because on a
+    # blank DB this block runs before SCHEMA has created `settings`
+    # (the earlier _migrate_v7_embedding_dim path returns early when
+    # tables don't exist yet).
+    cursor = await conn.execute("SELECT COUNT(*) FROM llm_models")
+    row = await cursor.fetchone()
+    assert row is not None
+    if row[0] == 0 and await _table_exists(conn, "settings"):
+        cursor = await conn.execute(
+            "SELECT key, value FROM settings WHERE user_id=1 AND key IN "
+            "('llm_model','llm_api_key','llm_base_url')"
+        )
+        legacy = {r[0]: r[1] for r in await cursor.fetchall()}
+        legacy_model = (legacy.get("llm_model") or "").strip()
+        if legacy_model:
+            from app.services.providers import PROVIDER_PRESETS
+
+            # Match the legacy model's prefix against PROVIDER_PRESETS.
+            # Exact match wins; otherwise require an underscore separator
+            # so `ollama_chat/...` maps to the `ollama` preset without
+            # accidentally matching a hypothetical `openai-compatible/`
+            # against `openai`. The same `head.startswith(...)` shape
+            # exists in routes/settings.py for the active-provider
+            # detection; the underscore tightening is specific to the
+            # migration where the input is user-supplied.
+            head = legacy_model.split("/", 1)[0]
+            provider_id = "custom"
+            label = "Custom"
+            for preset_id, preset in PROVIDER_PRESETS.items():
+                lp = preset.litellm_provider
+                if head == lp or head.startswith(lp + "_"):
+                    provider_id = preset_id
+                    label = preset.name
+                    break
+            await conn.execute(
+                """
+                INSERT INTO llm_models
+                    (label, provider_id, model, api_key, base_url, is_default)
+                VALUES (?, ?, ?, ?, ?, 1)
+                """,
+                (
+                    label,
+                    provider_id,
+                    legacy_model,
+                    legacy.get("llm_api_key", ""),
+                    legacy.get("llm_base_url", ""),
+                ),
+            )
+            await conn.execute(
+                "DELETE FROM settings WHERE user_id=1 AND key IN "
+                "('llm_model','llm_api_key','llm_base_url')"
+            )
+            await conn.commit()
 
     await conn.commit()
 

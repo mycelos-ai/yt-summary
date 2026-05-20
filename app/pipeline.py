@@ -9,6 +9,7 @@ import aiosqlite
 from app.config import Config
 from app.models import TranscriptSource, Video, VideoKind
 from app.repos import embeddings as embeddings_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
@@ -39,16 +40,28 @@ async def process_video(
     config: Config,
     video_id: str,
     set_step: Callable[[str], Awaitable[None]],
+    *,
+    llm_model_id: int | None = None,
+    additional_prompt: str | None = None,
 ) -> None:
     video = await videos_repo.get(db, video_id)
     if video is None:
         raise RuntimeError(f"Video {video_id} not found")
 
     settings = await settings_repo.get_all(db)
-    model = settings.get("llm_model")
-    api_key = settings.get("llm_api_key")
-    base_url = settings.get("llm_base_url")
     whisper_model = settings.get("whisper_model", "small")
+
+    # Resolve which LLM to use. Background work (auto-import, initial
+    # submit) passes llm_model_id=None and we use the default row.
+    # The Re-summarize panel may override either or both fields.
+    model_row = (
+        await llm_models_repo.get(db, llm_model_id)
+        if llm_model_id is not None
+        else await llm_models_repo.get_default(db)
+    )
+    model = model_row.model if model_row else None
+    api_key = model_row.api_key if model_row else ""
+    base_url = (model_row.base_url or None) if model_row else None
 
     cookies = await asyncio.to_thread(_resolve_cookies, config)
 
@@ -218,6 +231,7 @@ async def process_video(
         custom_system_prompt=custom_prompt,
         playlist_context=playlist_context or None,
         transcript_segments=segments,
+        additional_prompt=additional_prompt,
         progress=set_step,
         on_partial=_persist_partial,
     )
@@ -324,19 +338,19 @@ async def _try_embed_summary(
     A failure here is logged but does NOT fail the job — the user
     still has their summary, only semantic search is degraded.
     """
+    # Embeddings run locally now (see app/services/embeddings_local.py);
+    # the model/api_key/base_url params on embed_text are kept for
+    # signature compatibility but ignored. The legacy llm_api_key /
+    # llm_base_url reads were removed with the multi-model migration —
+    # they would now resolve to empty strings anyway.
     embedding_model = settings.get("embedding_model", "").strip() or None
-    embedding_base_url = (
-        settings.get("embedding_base_url", "").strip()
-        or settings.get("llm_base_url", "").strip()
-        or None
-    )
-    api_key = settings.get("llm_api_key", "")
+    embedding_base_url = settings.get("embedding_base_url", "").strip() or None
     try:
         await set_step("embedding summary")
         vector = await embed_text(
             summary,
             model=embedding_model,
-            api_key=api_key,
+            api_key="",
             base_url=embedding_base_url,
         )
         await embeddings_repo.upsert_summary_embedding(db, video_id, vector)

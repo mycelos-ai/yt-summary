@@ -182,24 +182,25 @@ async def _onboarding_status(db: aiosqlite.Connection) -> dict[str, object]:
     """Decide whether to push a fresh visitor into the onboarding wizard.
 
     Returns ``{'pending': True, 'next_step': '/onboarding/welcome'}``
-    when there's no ``onboarding_completed`` marker AND no LLM model
-    is configured. The marker means the user has been through (or
-    skipped) the wizard at least once; the configuration check is a
-    fallback for users who set the box up manually before this code
-    shipped — we don't want to ambush them.
+    when there's no ``onboarding_completed`` marker AND no default
+    LLM model is configured. The marker means the user has been
+    through (or skipped) the wizard at least once; the configuration
+    check is a fallback for users who set the box up manually before
+    this code shipped — we don't want to ambush them.
 
-    We key off ``llm_model`` rather than ``llm_api_key`` because Ollama
-    setups have a model + base URL but no API key, and they're a
-    perfectly valid first-run state. (The old API-key heuristic broke
-    onboarding for Ollama users, who got pushed back into the wizard
-    even after a clean configuration.)
+    We key off the default ``llm_models`` row rather than an api_key
+    presence because Ollama setups have a model + base URL but no API
+    key, and they're a perfectly valid first-run state. (Pre-multi-model
+    code keyed off ``settings.llm_model``; the multi-model migration
+    moved that into the ``llm_models`` table.)
     """
+    from app.repos import llm_models as llm_models_repo
     s = await settings_repo.get_all(db)
     if s.get("onboarding_completed"):
         return {"pending": False, "next_step": None}
-    if not s.get("llm_model"):
+    if await llm_models_repo.get_default(db) is None:
         return {"pending": True, "next_step": "/onboarding/welcome"}
-    # An LLM model is set — the user has a working configuration.
+    # A default LLM model is set — the user has a working configuration.
     # No need to push them through the wizard.
     return {"pending": False, "next_step": None}
 

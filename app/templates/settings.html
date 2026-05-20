@@ -24,28 +24,104 @@
     </p>
   {% endif %}
 
-  <!-- ── Quick setup wizard ──────────────────────────────────── -->
+  <!-- ── Configured models ──────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🧠</span>
+      <div class="settings-card-head-text">
+        <h2>Configured models</h2>
+        <p class="settings-card-sub">
+          Pick which model handles the default summary, chat, and any
+          background job. Add more so you can switch on a per-resummary
+          basis from the video page.
+        </p>
+      </div>
+    </header>
+
+    {% if llm_models %}
+      <ul class="llm-model-list">
+        {% for m in llm_models %}
+          <li class="llm-model-row {% if m.is_default %}is-default{% endif %}">
+            <div class="llm-model-row-label">
+              <strong>{{ m.label }}</strong>
+              {% if m.is_default %}
+                <span class="llm-model-badge">Default ✓</span>
+              {% endif %}
+              <div class="llm-model-row-meta">
+                <code>{{ m.model }}</code>
+                {% if m.base_url %} · <code>{{ m.base_url }}</code>{% endif %}
+              </div>
+            </div>
+            <div class="llm-model-row-actions">
+              <button type="button" class="btn btn-secondary"
+                      hx-post="/settings/llm-models/{{ m.id }}/test"
+                      hx-target="#llm-test-{{ m.id }}"
+                      hx-swap="innerHTML"
+                      hx-disabled-elt="this">Test</button>
+              <a class="btn btn-secondary"
+                 href="/settings?edit={{ m.id }}#quick-setup">Edit</a>
+              {% if m.is_default %}
+                <button type="button" class="btn btn-secondary" disabled
+                        title="Make another model default first">Delete</button>
+              {% else %}
+                <form method="post"
+                      action="/settings/llm-models/{{ m.id }}/delete"
+                      onsubmit="return confirm('Delete {{ m.label|e }}?');"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-secondary">Delete</button>
+                </form>
+                <form method="post"
+                      action="/settings/llm-models/{{ m.id }}/default"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-secondary">Make default</button>
+                </form>
+              {% endif %}
+            </div>
+            <div id="llm-test-{{ m.id }}" class="settings-test-result"></div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="settings-card-sub">
+        No models configured yet. Pick a provider in
+        <a href="#quick-setup">Quick setup</a> below.
+      </p>
+    {% endif %}
+  </section>
+
+  <!-- ── Quick setup wizard (add / edit a configured model) ──── -->
   <section class="settings-card settings-quicksetup"
-           x-data="{ provider: '{{ current_provider_id }}', showAll: {} }">
+           id="quick-setup"
+           x-data="{ provider: '{{ edit_model.provider_id if edit_model else current_provider_id }}', showAll: {} }">
     <header class="settings-card-head">
       <span class="settings-card-icon" aria-hidden="true">⚡</span>
       <div class="settings-card-head-text">
-        <h2>Quick setup</h2>
+        <h2>{{ 'Edit ' + edit_model.label if edit_model else 'Add model' }}</h2>
         <p class="settings-card-sub">
-          {% if current_provider_id %}
-            Currently configured: <strong>{{ presets | selectattr('id', 'equalto', current_provider_id) | map(attribute='name') | first }}</strong>
-            ({{ settings.get('llm_model', '') }}).
-            Click another tile to switch, or fine-tune each card afterwards.
+          {% if edit_model %}
+            Update the model below and click Save changes. Provider switching
+            is allowed but rare — usually you edit the api_key, model id, or
+            base URL within the same provider.
           {% else %}
-            Pick a provider to fill in sensible defaults for LLM and
-            Whisper in one go. You can fine-tune each card afterwards.
-            Embeddings run locally — no provider configuration needed.
+            Pick a provider to fill in sensible defaults for LLM in one go.
+            Whisper has its own card further down. The new model lands in
+            the Configured models card above.
           {% endif %}
         </p>
       </div>
     </header>
 
-    <form method="post" action="/settings/quick-setup" class="quicksetup-form">
+    <form method="post"
+          action="{{ '/settings/llm-models/' ~ edit_model.id if edit_model else '/settings/llm-models' }}"
+          class="quicksetup-form">
+
+      <label class="settings-field">
+        <span class="settings-label">Label</span>
+        <input name="label" required
+               value="{{ edit_model.label if edit_model else '' }}"
+               placeholder="e.g. Claude Sonnet 4.6">
+      </label>
+      <input type="hidden" name="provider_id" x-bind:value="provider">
       <div class="quicksetup-grid">
         {% for p in presets %}
           <label class="quicksetup-option"
@@ -95,7 +171,7 @@
               <input type="text"
                      name="llm_base_url"
                      x-bind:disabled="provider !== '{{ p.id }}'"
-                     value="{{ settings.get('llm_base_url', p.default_llm_base_url) }}"
+                     value="{{ edit_model.base_url if edit_model else settings.get('llm_base_url', p.default_llm_base_url) }}"
                      placeholder="http://192.168.0.27:11434"
                      id="ollama-base-url">
               <small>Use the LAN IP, not <code>*.local</code> — Python's
@@ -144,7 +220,11 @@
                        provider's curated default so switching providers
                        in the wizard lands on something sensible. #}
                     {% set is_active = current_provider_id == p.id %}
-                    {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                    {% if edit_model %}
+                      {% set selected_value = edit_model.model %}
+                    {% else %}
+                      {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                    {% endif %}
                     <option value="{{ option_value }}"
                             {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
                       {{ m }}
@@ -158,7 +238,11 @@
                     {% for m in chat_models_full %}
                       {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
                       {% set is_active = current_provider_id == p.id %}
-                      {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                      {% if edit_model %}
+                        {% set selected_value = edit_model.model %}
+                      {% else %}
+                        {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
+                      {% endif %}
                       <option value="{{ option_value }}"
                               {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
                         {{ m }}
@@ -184,11 +268,8 @@
 
       <div class="settings-test-row">
         <button type="submit" class="btn btn-primary"
-                x-bind:disabled="!provider"
-                x-text="provider
-                  ? 'Apply ' + ({% for p in presets %}provider === '{{ p.id }}' ? '{{ p.name }}'{% if not loop.last %} : {% endif %}{% endfor %} : '') + ' preset'
-                  : 'Pick a provider above'">
-          Apply preset
+                x-bind:disabled="!provider">
+          {{ 'Save changes' if edit_model else 'Add model' }}
         </button>
       </div>
     </form>
@@ -236,65 +317,23 @@
       </p>
     </section>
 
-    <!-- ── Advanced manual config (LLM + Whisper) ──
+    <!-- ── Advanced manual config (Whisper) ──
          Quick Setup above already configures both in one go for the
-         supported providers. The cards in this collapsible block are
-         for power users with custom setups (self-hosted LiteLLM
-         proxy, exotic Whisper backend, mixed providers). Closed by
-         default — most users will never touch it. -->
+         supported providers. The card in this collapsible block is
+         for power users with custom Whisper setups (self-hosted,
+         exotic backend, mixed providers). Closed by default — most
+         users will never touch it. -->
     <details class="settings-advanced">
       <summary class="settings-advanced-summary">
         <span class="settings-advanced-icon" aria-hidden="true">⚙</span>
         <span>
-          <strong>Advanced — configure manually</strong>
+          <strong>Advanced — Whisper manual config</strong>
           <span class="settings-advanced-hint">
-            Override LLM or Whisper settings individually. Most users don't
-            need this — the Quick Setup wizard above covers the supported
-            providers.
+            Override Whisper settings individually. LLM models are managed
+            in the Configured models card above.
           </span>
         </span>
       </summary>
-
-    <!-- ── LLM ─────────────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/llm.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Language model</h2>
-          <p class="settings-card-sub">Used to summarize transcripts and answer chat questions.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">LLM Model</span>
-        <input name="llm_model" value="{{ settings.get('llm_model', '') }}"
-               placeholder="e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6, ollama_chat/llama3.1">
-        <small>Provider prefix is required: <code>openai/</code>, <code>anthropic/</code>, <code>gemini/</code>, <code>groq/</code>, <code>ollama_chat/</code>. For Ollama, prefer <code>ollama_chat/&lt;tag&gt;</code> over <code>ollama/&lt;tag&gt;</code>.</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">LLM API Key</span>
-        <input name="llm_api_key" type="password"
-               placeholder="{% if has_api_key %}(set, leave blank to keep){% else %}your API key{% endif %}">
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">LLM Base URL <span class="settings-hint-inline">— optional, for self-hosted servers</span></span>
-        <input name="llm_base_url" value="{{ settings.get('llm_base_url', '') }}">
-        <small>If pointing at another machine, use its IP (e.g. <code>http://192.168.1.10:11434/</code>) — Python's resolver doesn't always handle <code>*.local</code> mDNS hostnames.</small>
-      </label>
-
-      <div class="settings-test-row">
-        <button type="button" class="btn btn-secondary"
-                hx-post="/settings/test-llm" hx-target="#llm-test-result" hx-swap="innerHTML"
-                hx-disabled-elt="this">
-          Test LLM
-        </button>
-        <div id="llm-test-result" class="settings-test-result"></div>
-      </div>
-    </section>
 
     <!-- ── Whisper ─────────────────────────────────────────────── -->
     <section class="settings-card">

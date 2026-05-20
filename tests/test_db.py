@@ -93,14 +93,21 @@ def test_init_schema_migrates_legacy_database(tmp_path):
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == 1
-        # settings now has user_id column and the row carried over
+        # settings.llm_model was consumed by the multi-model migration:
+        # it should no longer exist in settings, but the model must now
+        # appear as the default row in llm_models.
         cursor = await conn.execute(
-            "SELECT user_id, value FROM settings WHERE key='llm_model'"
+            "SELECT value FROM settings WHERE user_id=1 AND key='llm_model'"
+        )
+        row = await cursor.fetchone()
+        assert row is None, "legacy llm_model key should have been migrated out of settings"
+        cursor = await conn.execute(
+            "SELECT model, is_default FROM llm_models WHERE is_default=1"
         )
         row = await cursor.fetchone()
         assert row is not None
-        assert row[0] == 1
-        assert row[1] == "openai/gpt-4o"
+        assert row[0] == "openai/gpt-4o"
+        assert row[1] == 1
         # New tables exist
         cursor = await conn.execute(
             "SELECT name FROM sqlite_master"
@@ -308,6 +315,17 @@ def test_tts_jobs_check_constraint_rejects_invalid_source(tmp_path, monkeypatch)
         loop.run_until_complete(check())
     finally:
         loop.close()
+
+
+async def test_schema_contains_llm_models(db):
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_models'"
+    )
+    assert await cursor.fetchone() is not None
+    cursor = await db.execute("PRAGMA table_info(jobs)")
+    cols = {row[1] for row in await cursor.fetchall()}
+    assert "llm_model_id" in cols
+    assert "additional_prompt" in cols
 
 
 def test_tts_jobs_cascade_deletes_with_video(tmp_path, monkeypatch):

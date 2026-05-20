@@ -9,29 +9,8 @@ def test_get_settings_renders_form(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.get("/settings")
     assert resp.status_code == 200
-    assert "llm_model" in resp.text
+    assert "Configured models" in resp.text
     assert "whisper_model" in resp.text
-
-
-def test_post_settings_saves(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post("/settings", data={
-            "llm_model": "openai/gpt-4o",
-            "llm_api_key": "k",
-            "llm_base_url": "",
-            "whisper_model": "small",
-        }, follow_redirects=False)
-        assert resp.status_code in (200, 303)
-
-        import asyncio
-        async def check():
-            from app.repos import settings as settings_repo
-            s = await settings_repo.get_all(app.state.db)
-            assert s["llm_model"] == "openai/gpt-4o"
-            assert s["whisper_model"] == "small"
-        asyncio.get_event_loop().run_until_complete(check())
 
 
 def test_post_youtube_curl_writes_cookie_file(tmp_path, monkeypatch):
@@ -50,104 +29,6 @@ def test_post_youtube_curl_writes_cookie_file(tmp_path, monkeypatch):
     assert "A\t1" in cookies_file.read_text()
 
 
-def test_test_llm_without_model_returns_warning(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post("/settings/test-llm")
-    assert resp.status_code == 200
-    assert "Configure a model first" in resp.text
-
-
-def test_test_llm_with_model_calls_litellm(tmp_path, monkeypatch):
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        import asyncio
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "ollama_chat/llama3.1")
-            await settings_repo.set(app.state.db, "llm_base_url", "http://localhost:11434")
-
-        asyncio.get_event_loop().run_until_complete(setup())
-
-        fake_response = MagicMock()
-        fake_response.choices = [MagicMock()]
-        fake_response.choices[0].message.content = "ok"
-        with (
-            patch(
-                "app.routes.settings._probe_ollama_reachable",
-                AsyncMock(return_value=None),
-            ),
-            patch(
-                "app.routes.settings.litellm.acompletion",
-                AsyncMock(return_value=fake_response),
-            ),
-        ):
-            resp = client.post("/settings/test-llm")
-    assert resp.status_code == 200
-    assert "ollama_chat/llama3.1" in resp.text
-    assert "responded" in resp.text
-
-
-def test_test_llm_ollama_reachability_error_is_clear(tmp_path, monkeypatch):
-    from unittest.mock import AsyncMock, patch
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        import asyncio
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "ollama_chat/x")
-            await settings_repo.set(app.state.db, "llm_base_url", "http://1.2.3.4:11434")
-
-        asyncio.get_event_loop().run_until_complete(setup())
-
-        with patch(
-            "app.routes.settings._probe_ollama_reachable",
-            AsyncMock(return_value="ConnectError: timeout"),
-        ):
-            resp = client.post("/settings/test-llm")
-    assert resp.status_code == 200
-    assert "Cannot reach Ollama" in resp.text
-    assert "ConnectError" in resp.text
-
-
-def test_save_settings_with_blank_api_key_keeps_existing(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        import asyncio
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_api_key", "secret123")
-
-        asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.post(
-            "/settings",
-            data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",  # blank
-                "llm_base_url": "",
-                "whisper_model": "small",
-            },
-            follow_redirects=False,
-        )
-        assert resp.status_code in (200, 303)
-
-        async def check():
-            from app.repos import settings as settings_repo
-            assert await settings_repo.get(app.state.db, "llm_api_key") == "secret123"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
 def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
@@ -164,31 +45,6 @@ def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
     assert "supersecret" not in resp.text
 
 
-def test_save_settings_strips_trailing_slash_from_base_url(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        client.post(
-            "/settings",
-            data={
-                "llm_model": "ollama_chat/gemma4:latest",
-                "llm_api_key": "",
-                "llm_base_url": "http://192.168.0.27:11434/",
-                "whisper_model": "small",
-            },
-            follow_redirects=False,
-        )
-
-        import asyncio
-
-        async def check():
-            from app.repos import settings as settings_repo
-            value = await settings_repo.get(app.state.db, "llm_base_url")
-            assert value == "http://192.168.0.27:11434"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
 def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch):
     """The form now stores intervals in minutes; saving 45 minutes
     should land verbatim and the legacy hours setting should be
@@ -199,9 +55,6 @@ def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch
         client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "playlist_refresh_interval_minutes": "45",
                 "playlist_initial_import_limit": "30",
@@ -231,9 +84,6 @@ def test_save_settings_legacy_hours_form_migrates_to_minutes(tmp_path, monkeypat
         client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "playlist_refresh_interval_hours": "2",
                 "playlist_initial_import_limit": "30",
@@ -558,102 +408,6 @@ def test_test_whisper_reports_error(tmp_path, monkeypatch):
     assert "boom" in resp.text
 
 
-def test_quick_setup_anthropic_writes_llm_only(tmp_path, monkeypatch):
-    """POSTing to /settings/quick-setup with provider=anthropic should
-    set llm_model + llm_api_key."""
-    import asyncio
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/settings/quick-setup",
-            data={"provider": "anthropic", "api_key": "sk-ant-test"},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-        assert "applied=anthropic" in resp.headers.get("location", "")
-
-        async def check():
-            from app.repos import settings as settings_repo
-            s = await settings_repo.get_all(app.state.db)
-            assert s["llm_model"] == "anthropic/claude-sonnet-4-6"
-            assert s["llm_api_key"] == "sk-ant-test"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
-def test_quick_setup_groq_sets_whisper(tmp_path, monkeypatch):
-    import asyncio
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/settings/quick-setup",
-            data={"provider": "groq", "api_key": "gsk-test"},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-
-        async def check():
-            from app.repos import settings as settings_repo
-            s = await settings_repo.get_all(app.state.db)
-            assert s["whisper_base_url"] == "https://api.groq.com/openai/v1"
-            assert s["whisper_model"] == "whisper-large-v3"
-            assert s["whisper_api_key"] == "gsk-test"
-            assert s["llm_api_key"] == "gsk-test"
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
-def test_quick_setup_blank_key_keeps_existing(tmp_path, monkeypatch):
-    import asyncio
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-
-        async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "llm_api_key", "old-existing-key"
-            )
-
-        asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.post(
-            "/settings/quick-setup",
-            data={"provider": "openai", "api_key": ""},  # blank
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-
-        async def check():
-            from app.repos import settings as settings_repo
-            s = await settings_repo.get_all(app.state.db)
-            # llm_api_key kept
-            assert s["llm_api_key"] == "old-existing-key"
-            # llm_model still got swapped to the OpenAI preset's
-            # current default (without hard-coding which one — bumping
-            # the default shouldn't churn tests).
-            from app.services.providers import get_preset
-            assert s["llm_model"] == get_preset("openai").default_llm
-
-        asyncio.get_event_loop().run_until_complete(check())
-
-
-def test_quick_setup_unknown_provider_400(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/settings/quick-setup",
-            data={"provider": "bogus", "api_key": "x"},
-            follow_redirects=False,
-        )
-    assert resp.status_code == 400
-
-
 def test_settings_page_renders_quick_setup_card(tmp_path, monkeypatch):
     """The settings page must include the Quick Setup card with all
     six provider options."""
@@ -861,9 +615,6 @@ def test_save_settings_persists_tts_defaults(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_language": "de",
                 "default_tts_voice_de": "thorsten",
@@ -904,9 +655,6 @@ def test_save_settings_persists_tts_length_scale(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_length_scale": "1.20",
             },
@@ -946,9 +694,6 @@ def test_save_settings_rejects_out_of_range_length_scale(tmp_path, monkeypatch):
         resp = client.post(
             "/settings",
             data={
-                "llm_model": "openai/gpt-4o",
-                "llm_api_key": "",
-                "llm_base_url": "",
                 "whisper_model": "small",
                 "default_tts_length_scale": "5.0",
             },
@@ -987,3 +732,292 @@ def test_settings_page_links_to_diagnostics(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     assert "/settings/diagnostics" in resp.text
+
+
+def test_post_llm_models_inserts_row(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/llm-models",
+            data={
+                "label": "Claude",
+                "provider_id": "anthropic",
+                # Quick Setup's form names — see the alias= on the route.
+                "llm_model": "anthropic/claude-sonnet-4-6",
+                "api_key": "sk-test",
+                "llm_base_url": "",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        import asyncio
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            rows = await llm_models_repo.list_all(app.state.db)
+            assert len(rows) == 1
+            assert rows[0].label == "Claude"
+            assert rows[0].is_default is True  # first insert auto-defaults
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_post_llm_models_id_updates(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        mid_holder: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            mid = await llm_models_repo.insert(
+                app.state.db, label="A", provider_id="openai",
+                model="openai/gpt-5.5", api_key="k", base_url="",
+                make_default=True,
+            )
+            mid_holder["id"] = mid
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            f"/settings/llm-models/{mid_holder['id']}",
+            data={
+                "label": "A renamed",
+                "llm_model": "openai/gpt-5.4",
+                "api_key": "",  # blank = keep existing
+                "llm_base_url": "",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            row = await llm_models_repo.get(app.state.db, mid_holder["id"])
+            assert row is not None
+            assert row.label == "A renamed"
+            assert row.model == "openai/gpt-5.4"
+            # Blank api_key in form → keep existing key.
+            assert row.api_key == "k"
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_post_llm_models_default_flips(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        ids: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            a = await llm_models_repo.insert(
+                app.state.db, label="A", provider_id="openai",
+                model="openai/gpt-5.5", api_key="k", base_url="",
+                make_default=True,
+            )
+            b = await llm_models_repo.insert(
+                app.state.db, label="B", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="", base_url="x",
+                make_default=False,
+            )
+            ids["a"] = a
+            ids["b"] = b
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            f"/settings/llm-models/{ids['b']}/default",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            new_default = await llm_models_repo.get_default(app.state.db)
+            assert new_default is not None
+            assert new_default.id == ids["b"]
+            row_a = await llm_models_repo.get(app.state.db, ids["a"])
+            assert row_a is not None
+            assert row_a.is_default is False
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_post_llm_models_delete_non_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        ids: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            a = await llm_models_repo.insert(
+                app.state.db, label="A", provider_id="openai",
+                model="openai/gpt-5.5", api_key="k", base_url="",
+                make_default=True,
+            )
+            b = await llm_models_repo.insert(
+                app.state.db, label="B", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="", base_url="x",
+                make_default=False,
+            )
+            ids["a"] = a
+            ids["b"] = b
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            f"/settings/llm-models/{ids['b']}/delete",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import llm_models as llm_models_repo
+            assert await llm_models_repo.get(app.state.db, ids["b"]) is None
+            assert await llm_models_repo.get(app.state.db, ids["a"]) is not None
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_post_llm_models_delete_default_returns_409(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        ids: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            a = await llm_models_repo.insert(
+                app.state.db, label="A", provider_id="openai",
+                model="openai/gpt-5.5", api_key="k", base_url="",
+                make_default=True,
+            )
+            ids["a"] = a
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            f"/settings/llm-models/{ids['a']}/delete",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 409
+
+
+def test_post_llm_models_test_missing_row_returns_warning_fragment(
+    tmp_path, monkeypatch,
+):
+    """The /test endpoint is HTMX-driven, so a missing row returns
+    an HTML fragment (not an HTTP 404). The fragment carries the
+    'status-failed' class the surrounding card styles consume."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/llm-models/9999/test", follow_redirects=False,
+        )
+        assert resp.status_code == 200
+        assert "Model not found" in resp.text
+        assert "status-failed" in resp.text
+
+
+def test_post_llm_models_test_existing_row_calls_litellm(
+    tmp_path, monkeypatch,
+):
+    """Happy path: the /test endpoint feeds the row's
+    model / api_key / base_url to litellm.acompletion and renders
+    the response in a status-done fragment."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        ids: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            mid = await llm_models_repo.insert(
+                app.state.db, label="X", provider_id="anthropic",
+                model="anthropic/claude-sonnet-4-6",
+                api_key="sk-test", base_url="", make_default=True,
+            )
+            ids["id"] = mid
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        # Build a minimal response object shaped like
+        # litellm.ModelResponse so the route can read
+        # response.choices[0].message.content.
+        fake_response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="ok"))
+            ]
+        )
+
+        async def fake_acompletion(**_kw):
+            return fake_response
+
+        with patch(
+            "app.routes.settings.litellm.acompletion",
+            side_effect=fake_acompletion,
+        ):
+            resp = client.post(
+                f"/settings/llm-models/{ids['id']}/test",
+                follow_redirects=False,
+            )
+        assert resp.status_code == 200
+        assert "status-done" in resp.text
+        assert "responded: ok" in resp.text
+
+
+def test_settings_renders_configured_models_card_with_rows(
+    tmp_path, monkeypatch,
+):
+    """The Configured models card lists every llm_models row and
+    badges the default."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="My Claude", provider_id="anthropic",
+                model="anthropic/claude-sonnet-4-6",
+                api_key="k", base_url="", make_default=True,
+            )
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Local Llama", provider_id="ollama",
+                model="ollama_chat/llama3.1",
+                api_key="", base_url="http://192.168.0.5:11434",
+                make_default=False,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        body = resp.text
+        # Both rows render with label + model identifier.
+        assert "My Claude" in body
+        assert "Local Llama" in body
+        assert "anthropic/claude-sonnet-4-6" in body
+        assert "ollama_chat/llama3.1" in body
+        # The non-default row's base_url surfaces in the meta line.
+        assert "192.168.0.5" in body
+        # Default badge is present for the default row.
+        assert "Default ✓" in body
+
+
+def test_settings_renders_empty_state_when_no_models(tmp_path, monkeypatch):
+    """A fresh install (no rows) renders the empty-state copy + the
+    quick-setup link, not an empty <ul>."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        body = resp.text
+        assert "No models configured yet" in body
+        assert "#quick-setup" in body

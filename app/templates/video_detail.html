@@ -13,12 +13,42 @@
       </p>
     {% endif %}
     <div class="action-row">
-      <div class="action-group">
-        <form method="post" action="/v/{{ video.id }}/reindex">
-          <button type="submit" class="btn btn-accent">
-            {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %}
-          </button>
+      <div class="action-group" x-data="{ open: false }">
+        <button type="button" class="btn btn-accent"
+                @click="open = !open">
+          {% if video.summary %}Re-summarize{% elif video.transcript %}Generate summary{% else %}Retry{% endif %} ▾
+        </button>
+
+        <form method="post" action="/v/{{ video.id }}/reindex"
+              class="resummary-panel"
+              x-show="open" x-cloak>
+          {% if llm_models %}
+            <label class="settings-field">
+              <span class="settings-label">Model</span>
+              <select name="llm_model_id">
+                {% for m in llm_models %}
+                  <option value="{{ m.id }}"
+                          {% if m.is_default %}selected{% endif %}>
+                    {{ m.label }}{% if m.is_default %} (Default){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
+          <label class="settings-field">
+            <span class="settings-label">Additional instruction (optional)</span>
+            <textarea name="additional_prompt" rows="3"
+                      placeholder="e.g. focus on the named frameworks, keep it shorter"></textarea>
+          </label>
+          <div class="resummary-actions">
+            <button type="button" class="btn btn-secondary"
+                    @click="open=false">Cancel</button>
+            <button type="submit" class="btn btn-accent">
+              Re-summarize now
+            </button>
+          </div>
         </form>
+
         {% if video.transcript and video.kind.value != 'web' %}
           <form method="post" action="/v/{{ video.id }}/retranscribe"
                 onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
@@ -129,9 +159,19 @@
         hx-target="#chat-history"
         hx-swap="beforeend"
         hx-disabled-elt="find input, find button"
-        hx-on::after-request="this.reset(); document.querySelector('input[name=content]').focus()"
+        hx-on::after-request="document.querySelector('input[name=content]').value=''; document.querySelector('input[name=content]').focus()"
       >
         <input name="content" placeholder="{% if video.kind.value == 'web' %}Ask about this article…{% else %}Ask about this video…{% endif %}" autocomplete="off" required>
+        {% if llm_models %}
+          <select name="llm_model_id" class="chat-model-select"
+                  title="Model for this chat reply">
+            {% for m in llm_models %}
+              <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>
+                {{ m.label }}{% if m.is_default %} (Default){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        {% endif %}
         <button type="submit">
           <span class="btn-label">Send</span>
           <span class="btn-spinner" aria-hidden="true"></span>

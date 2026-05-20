@@ -337,15 +337,19 @@ class TtsWorker:
         in :mod:`app.services.summarizer`. When a third caller appears
         this should move to a shared ``app.services.llm`` module.
         """
-        settings = await settings_repo.get_all(self._db)
-        model = settings.get("llm_model")
-        api_key = settings.get("llm_api_key") or ""
-        base_url = settings.get("llm_base_url")
+        # Resolve via the multi-model registry. Background TTS always
+        # uses the default row — there's no per-render override yet.
+        from app.repos import llm_models as llm_models_repo
+        model_row = await llm_models_repo.get_default(self._db)
+        model = model_row.model if model_row else None
+        api_key = model_row.api_key if model_row else ""
+        base_url = (model_row.base_url or None) if model_row else None
 
         async def _complete(prompt: str) -> str:
             if not model:
                 raise RuntimeError(
-                    "TTS translation requires `llm_model` in settings"
+                    "TTS translation requires a default LLM model "
+                    "to be configured in Settings"
                 )
             kwargs: dict[str, Any] = {
                 "model": model,
