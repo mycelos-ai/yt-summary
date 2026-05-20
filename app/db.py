@@ -390,9 +390,15 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     # already exists in llm_models, the migration has already run
     # (or the user has added a model manually) — leave it alone.
     # Also skip on a blank DB where settings hasn't been created yet.
+    # SELECT COUNT(*) always returns exactly one row — no None case to
+    # guard against. The settings-table check is needed because on a
+    # blank DB this block runs before SCHEMA has created `settings`
+    # (the earlier _migrate_v7_embedding_dim path returns early when
+    # tables don't exist yet).
     cursor = await conn.execute("SELECT COUNT(*) FROM llm_models")
     row = await cursor.fetchone()
-    if row is not None and row[0] == 0 and await _table_exists(conn, "settings"):
+    assert row is not None
+    if row[0] == 0 and await _table_exists(conn, "settings"):
         cursor = await conn.execute(
             "SELECT key, value FROM settings WHERE user_id=1 AND key IN "
             "('llm_model','llm_api_key','llm_base_url')"
@@ -402,13 +408,20 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         if legacy_model:
             from app.services.providers import PROVIDER_PRESETS
 
+            # Match the legacy model's prefix against PROVIDER_PRESETS.
+            # Exact match wins; otherwise require an underscore separator
+            # so `ollama_chat/...` maps to the `ollama` preset without
+            # accidentally matching a hypothetical `openai-compatible/`
+            # against `openai`. The same `head.startswith(...)` shape
+            # exists in routes/settings.py for the active-provider
+            # detection; the underscore tightening is specific to the
+            # migration where the input is user-supplied.
             head = legacy_model.split("/", 1)[0]
             provider_id = "custom"
             label = "Custom"
             for preset_id, preset in PROVIDER_PRESETS.items():
-                if head == preset.litellm_provider or head.startswith(
-                    preset.litellm_provider
-                ):
+                lp = preset.litellm_provider
+                if head == lp or head.startswith(lp + "_"):
                     provider_id = preset_id
                     label = preset.name
                     break

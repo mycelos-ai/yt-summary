@@ -46,7 +46,8 @@ async def _make_legacy_db(path: str) -> aiosqlite.Connection:
 async def test_migration_creates_default_row_from_settings(tmp_path):
     conn = await _make_legacy_db(str(tmp_path / "legacy.db"))
     await conn.execute(
-        "INSERT INTO settings (user_id, key, value) VALUES (1, 'llm_model', 'anthropic/claude-sonnet-4-6')"
+        "INSERT INTO settings (user_id, key, value) "
+        "VALUES (1, 'llm_model', 'anthropic/claude-sonnet-4-6')"
     )
     await conn.execute(
         "INSERT INTO settings (user_id, key, value) VALUES (1, 'llm_api_key', 'sk-test')"
@@ -103,6 +104,12 @@ async def test_migration_is_idempotent(tmp_path):
     await _run_migrations(conn)  # second run must be a no-op
     rows = await llm_models_repo.list_all(conn)
     assert len(rows) == 1
+    # Stronger check: the surviving row reflects the original input
+    # exactly — the second run didn't overwrite, downgrade, or
+    # re-derive any field.
+    assert rows[0].model == "openai/gpt-5.5"
+    assert rows[0].api_key == "k"
+    assert rows[0].is_default is True
     await conn.close()
 
 
