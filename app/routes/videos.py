@@ -352,7 +352,7 @@ async def reindex_video(
         try:
             model_id_int = int(llm_model_id)
         except ValueError as e:
-            raise HTTPException(400, f"invalid llm_model_id: {e}")
+            raise HTTPException(400, f"invalid llm_model_id: {e}") from None
     prompt = additional_prompt.strip() or None
     await jobs_repo.enqueue(
         db, video_id,

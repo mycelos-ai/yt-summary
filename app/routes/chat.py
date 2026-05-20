@@ -57,7 +57,7 @@ async def post_chat(
         try:
             chosen_id = int(llm_model_id)
         except ValueError as e:
-            raise HTTPException(400, f"invalid llm_model_id: {e}")
+            raise HTTPException(400, f"invalid llm_model_id: {e}") from None
     model_row = (
         await llm_models_repo.get(db, chosen_id)
         if chosen_id is not None

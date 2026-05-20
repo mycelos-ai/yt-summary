@@ -125,8 +125,9 @@ async def test_tool_resummarize_default_path_leaves_columns_null(db, config):
 
 
 async def test_tool_resummarize_unknown_video_raises(db, config):
-    from app.routes.mcp import _tool_resummarize
     import pytest
+
+    from app.routes.mcp import _tool_resummarize
     with pytest.raises(ValueError):
         await _tool_resummarize(db, "no-such-video")
 
@@ -134,10 +135,11 @@ async def test_tool_resummarize_unknown_video_raises(db, config):
 async def test_tool_submit_url_forwards_overrides_to_jobs(db, config):
     """When submit_url is called with override params, the enqueued
     job carries them through (same plumbing as the HTTP route)."""
+    from unittest.mock import patch
+
     from app.repos import jobs as jobs_repo
     from app.repos import llm_models as llm_models_repo
     from app.routes.mcp import _tool_submit_url
-    from unittest.mock import patch
 
     mid = await llm_models_repo.insert(
         db, label="X", provider_id="openai", model="openai/gpt-5.5",
