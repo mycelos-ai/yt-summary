@@ -8,6 +8,7 @@ from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.models import VideoKind
 from app.repos import chat as chat_repo
 from app.repos import jobs as jobs_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import tags as tags_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
@@ -335,13 +336,29 @@ async def video_transcript_markdown(
 @router.post("/v/{video_id}/reindex")
 async def reindex_video(
     video_id: str,
+    llm_model_id: str = Form(""),
+    additional_prompt: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
     video = await videos_repo.get(db, video_id)
     if video is None or video.user_id != current_user_id:
         raise HTTPException(404)
-    await jobs_repo.enqueue(db, video_id)
+    # Empty/whitespace fields → no override (background pipeline picks
+    # the default model). Anything else is forwarded to the worker via
+    # the new jobs columns.
+    model_id_int: int | None = None
+    if llm_model_id.strip():
+        try:
+            model_id_int = int(llm_model_id)
+        except ValueError as e:
+            raise HTTPException(400, f"invalid llm_model_id: {e}")
+    prompt = additional_prompt.strip() or None
+    await jobs_repo.enqueue(
+        db, video_id,
+        llm_model_id=model_id_int,
+        additional_prompt=prompt,
+    )
     return RedirectResponse(f"/v/{video_id}", status_code=303)
 
 
@@ -381,6 +398,7 @@ async def video_detail(
     # The template falls back to the plain transcript if blocks is empty.
     transcript_blocks = _parse_transcript_blocks(video)
     audio_renderings = await tts_jobs_repo.list_for_video(db, video_id)
+    llm_models = await llm_models_repo.list_all(db)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -394,6 +412,7 @@ async def video_detail(
             "transcript_blocks": transcript_blocks,
             "current_user": current_user,
             "renderings": audio_renderings,
+            "llm_models": llm_models,
         },
     )
 

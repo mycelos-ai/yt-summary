@@ -840,3 +840,85 @@ def test_transcript_block_anchors_carry_timestamp_data_attribute(tmp_path, monke
     assert 'data-yt-timestamp="42"' in resp.text
     # And the original visible href still works as a no-JS fallback.
     assert "https://youtu.be/txblk1234567?t=42" in resp.text
+
+
+def test_reindex_with_overrides_persists_them_on_job(tmp_path, monkeypatch):
+    """POST /v/{id}/reindex with llm_model_id + additional_prompt form
+    fields → job row carries both values through to the worker."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        captured_mid: dict = {}
+
+        async def setup():
+            from app.models import VideoKind
+            from app.repos import llm_models as llm_models_repo
+            from app.repos import videos as videos_repo
+
+            mid = await llm_models_repo.insert(
+                app.state.db,
+                label="X", provider_id="openai", model="openai/gpt-5.5",
+                api_key="k", base_url="", make_default=True,
+            )
+            captured_mid["id"] = mid
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="ov1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.YOUTUBE, user_id=1,
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            "/v/ov1/reindex",
+            data={
+                "llm_model_id": str(captured_mid["id"]),
+                "additional_prompt": "be terse",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import jobs as jobs_repo
+            job = await jobs_repo.latest_for_video(app.state.db, "ov1")
+            assert job is not None
+            assert job.llm_model_id == captured_mid["id"]
+            assert job.additional_prompt == "be terse"
+
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_reindex_without_overrides_leaves_them_null(tmp_path, monkeypatch):
+    """POST /v/{id}/reindex with no override form fields → job row
+    has NULLs for both columns (background-style enqueue)."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import VideoKind
+            from app.repos import videos as videos_repo
+
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="ov2", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.YOUTUBE, user_id=1,
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post("/v/ov2/reindex", data={}, follow_redirects=False)
+        assert resp.status_code == 303
+
+        async def check():
+            from app.repos import jobs as jobs_repo
+            job = await jobs_repo.latest_for_video(app.state.db, "ov2")
+            assert job is not None
+            assert job.llm_model_id is None
+            assert job.additional_prompt is None
+
+        asyncio.get_event_loop().run_until_complete(check())
