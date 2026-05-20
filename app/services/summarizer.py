@@ -57,11 +57,28 @@ _TIMESTAMP_INSTRUCTION = (
 )
 
 
+def _additional_prompt_block(additional_prompt: str | None) -> str:
+    """Render the optional one-shot 'USER OVERRIDE FOR THIS RUN' block.
+
+    Returns the empty string when ``additional_prompt`` is None or
+    whitespace-only — so callers can unconditionally concatenate the
+    return value without having to special-case the omitted case.
+    """
+    text = (additional_prompt or "").strip()
+    if not text:
+        return ""
+    return (
+        "USER OVERRIDE FOR THIS RUN:\n"
+        f"{text}"
+    )
+
+
 def build_system_prompt(
     *,
     language: str | None,
     custom_system_prompt: str | None = None,
     with_timestamps: bool = False,
+    additional_prompt: str | None = None,
 ) -> str:
     """Build the system prompt for single-shot summarization.
 
@@ -73,9 +90,17 @@ def build_system_prompt(
     inline seek-to-moment links). Everything else — the SPECIFICITY,
     THINK LIKE THE VIEWER, ANSWER THE TITLE, STRUCTURE blocks — is
     the user's responsibility once they've taken control.
+
+    additional_prompt: optional one-shot override appended at the very
+        end of the system prompt, marked with a ``USER OVERRIDE FOR
+        THIS RUN:`` header. Used by the Re-summarize panel to bias the
+        next single run without persisting anything. None/blank → no
+        block rendered.
     """
     custom = (custom_system_prompt or "").strip()
     timestamp_block = _TIMESTAMP_INSTRUCTION if with_timestamps else ""
+    override_block = _additional_prompt_block(additional_prompt)
+    override_suffix = f"\n\n{override_block}" if override_block else ""
 
     if custom:
         return (
@@ -85,7 +110,7 @@ def build_system_prompt(
             "proper HTML tables.\n\n"
             f"{custom}\n\n"
             f"{timestamp_block}"
-        ).rstrip() + "\n"
+        ).rstrip() + "\n" + override_suffix
     return (
         "You analyze YouTube videos and extract their substance for someone "
         "who doesn't have time to watch.\n\n"
@@ -173,19 +198,27 @@ def build_system_prompt(
         "- Self-promotion (\"subscribe\", \"like the video\", merch, "
         "Patreon plugs).\n"
         "- Filler words and repeated transitions.\n"
-    )
+    ) + override_suffix
 
 
 def build_reduce_prompt(
     *,
     language: str | None,
     with_timestamps: bool = False,
+    additional_prompt: str | None = None,
 ) -> str:
     """Reduce prompt is intentionally NOT user-customizable — it's an
     internal map-reduce mechanic, not a user-facing summary style. The
     final output respects whatever schema/tone the per-profile system
     prompt established because the LLM applies it to the merged
-    result."""
+    result.
+
+    additional_prompt: optional one-shot override appended at the very
+        end of the system prompt, marked with a ``USER OVERRIDE FOR
+        THIS RUN:`` header. Used by the Re-summarize panel to bias the
+        next single run without persisting anything. None/blank → no
+        block rendered.
+    """
     timestamp_block = (
         "PRESERVE INLINE TIMESTAMP LINKS:\n"
         "Partial summaries may contain [MM:SS](#t=SECONDS) markdown "
@@ -194,6 +227,8 @@ def build_reduce_prompt(
         if with_timestamps
         else ""
     )
+    override_block = _additional_prompt_block(additional_prompt)
+    override_suffix = f"\n\n{override_block}" if override_block else ""
     return (
         "You merge several partial summaries of a single YouTube video into "
         "one cohesive Markdown summary.\n\n"
@@ -243,7 +278,7 @@ def build_reduce_prompt(
         "summary mentions sponsors, do not surface them in the final "
         "result.\n\n"
         f"{timestamp_block}"
-    ).rstrip()
+    ).rstrip() + override_suffix
 
 
 def _build_user_message(
@@ -390,6 +425,7 @@ async def summarize(
     custom_system_prompt: str | None = None,
     playlist_context: list[str] | None = None,
     transcript_segments: list[dict] | None = None,
+    additional_prompt: str | None = None,
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
@@ -430,10 +466,12 @@ async def summarize(
         language=language,
         custom_system_prompt=custom_system_prompt,
         with_timestamps=has_segments,
+        additional_prompt=additional_prompt,
     )
     reduce_prompt = build_reduce_prompt(
         language=language,
         with_timestamps=has_segments,
+        additional_prompt=additional_prompt,
     )
 
     max_tokens = await get_context_window(model, base_url)

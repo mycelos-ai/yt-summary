@@ -1,8 +1,13 @@
+"""Unit tests for the prompt builders. The summarize() function itself
+hits litellm and is exercised by the integration tests; here we just
+exercise pure-string assembly."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.services import model_info
+from app.services.summarizer import build_reduce_prompt, build_system_prompt
 
 
 @pytest.fixture(autouse=True)
@@ -607,3 +612,51 @@ def test_verify_summary_timestamps_no_segments_treats_all_as_anomaly():
     )
     assert verified == 0
     assert anomalies == 2
+
+
+def test_build_system_prompt_appends_additional_prompt_block():
+    out = build_system_prompt(
+        language="en",
+        custom_system_prompt=None,
+        with_timestamps=False,
+        additional_prompt="be terse and quote dollar amounts",
+    )
+    assert "USER OVERRIDE FOR THIS RUN:" in out
+    assert "be terse and quote dollar amounts" in out
+    # Override block lives at the END so it overrides earlier
+    # instructions in the model's attention budget.
+    assert out.rstrip().endswith("be terse and quote dollar amounts")
+
+
+def test_build_system_prompt_omits_block_when_no_override():
+    out = build_system_prompt(
+        language="en",
+        custom_system_prompt=None,
+        with_timestamps=False,
+        additional_prompt=None,
+    )
+    assert "USER OVERRIDE FOR THIS RUN" not in out
+
+
+def test_build_reduce_prompt_appends_additional_prompt_block():
+    out = build_reduce_prompt(
+        language="en",
+        with_timestamps=False,
+        additional_prompt="answer in bullet points only",
+    )
+    assert "USER OVERRIDE FOR THIS RUN:" in out
+    assert "answer in bullet points only" in out
+
+
+def test_build_system_prompt_with_custom_appends_override_block():
+    """Custom-prompt branch must also pick up the override suffix.
+    Two different code paths in build_system_prompt — both need it."""
+    out = build_system_prompt(
+        language="en",
+        custom_system_prompt="My custom summary template.",
+        with_timestamps=False,
+        additional_prompt="be specific",
+    )
+    assert "USER OVERRIDE FOR THIS RUN:" in out
+    assert "be specific" in out
+    assert out.rstrip().endswith("be specific")
