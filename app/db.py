@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     step TEXT NOT NULL DEFAULT '',
     error_message TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    llm_model_id      INTEGER REFERENCES llm_models(id) ON DELETE SET NULL,
+    additional_prompt TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
 
@@ -120,6 +122,20 @@ CREATE TABLE IF NOT EXISTS users (
     custom_summary_prompt TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS llm_models (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    label       TEXT    NOT NULL,
+    provider_id TEXT    NOT NULL,
+    model       TEXT    NOT NULL,
+    api_key     TEXT    NOT NULL DEFAULT '',
+    base_url    TEXT    NOT NULL DEFAULT '',
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_models_default
+    ON llm_models(is_default) WHERE is_default = 1;
 
 CREATE INDEX IF NOT EXISTS idx_videos_youtube_user
     ON videos(youtube_id, user_id);

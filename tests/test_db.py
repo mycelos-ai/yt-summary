@@ -310,6 +310,17 @@ def test_tts_jobs_check_constraint_rejects_invalid_source(tmp_path, monkeypatch)
         loop.close()
 
 
+async def test_schema_contains_llm_models(db):
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_models'"
+    )
+    assert await cursor.fetchone() is not None
+    cursor = await db.execute("PRAGMA table_info(jobs)")
+    cols = {row[1] for row in await cursor.fetchall()}
+    assert "llm_model_id" in cols
+    assert "additional_prompt" in cols
+
+
 def test_tts_jobs_cascade_deletes_with_video(tmp_path, monkeypatch):
     """Deleting a video must remove its tts_jobs rows via FK cascade."""
     import asyncio

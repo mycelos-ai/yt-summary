@@ -133,3 +133,16 @@ class User:
     # curated library; the emoji input is a fallback / quick option.
     avatar_image: str = ""
     custom_summary_prompt: str | None = None
+
+
+@dataclass
+class LlmModel:
+    id: int
+    label: str
+    provider_id: str
+    model: str
+    api_key: str
+    base_url: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
