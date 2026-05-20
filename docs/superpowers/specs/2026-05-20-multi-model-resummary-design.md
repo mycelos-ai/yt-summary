@@ -281,6 +281,14 @@ logic changes — heartbeat, error handling, rollback all unchanged.
   additional_prompt="") -> dict` mirroring the HTTP reindex.
 - `ask_video` is unchanged — no model override exposed (kept simple).
 
+#### `app/routes/onboarding.py`
+
+If the first-run flow currently writes `settings.llm_model` (or POSTs
+to the deprecated `/settings/quick-setup`), redirect it to the new
+`llm_models_repo.insert(..., make_default=True)` path. The wizard
+already collects provider, model, api_key, base_url — feed those
+straight into the repo.
+
 ### Services (`app/services/api.py`)
 
 - `submit_video` gains `llm_model_id` + `additional_prompt` kwargs,
