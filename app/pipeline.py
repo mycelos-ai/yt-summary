@@ -338,19 +338,19 @@ async def _try_embed_summary(
     A failure here is logged but does NOT fail the job — the user
     still has their summary, only semantic search is degraded.
     """
+    # Embeddings run locally now (see app/services/embeddings_local.py);
+    # the model/api_key/base_url params on embed_text are kept for
+    # signature compatibility but ignored. The legacy llm_api_key /
+    # llm_base_url reads were removed with the multi-model migration —
+    # they would now resolve to empty strings anyway.
     embedding_model = settings.get("embedding_model", "").strip() or None
-    embedding_base_url = (
-        settings.get("embedding_base_url", "").strip()
-        or settings.get("llm_base_url", "").strip()
-        or None
-    )
-    api_key = settings.get("llm_api_key", "")
+    embedding_base_url = settings.get("embedding_base_url", "").strip() or None
     try:
         await set_step("embedding summary")
         vector = await embed_text(
             summary,
             model=embedding_model,
-            api_key=api_key,
+            api_key="",
             base_url=embedding_base_url,
         )
         await embeddings_repo.upsert_summary_embedding(db, video_id, vector)
