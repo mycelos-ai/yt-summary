@@ -2081,3 +2081,29 @@ button.section-download {
   flex-wrap: wrap;
 }
 .llm-model-row > div:last-child { grid-column: 1 / -1; }
+
+/* ── Resummary inline panel ─────────────────────────────────── */
+.resummary-panel {
+  display: block;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 0.5rem;
+  background: var(--bg-soft, #fafafa);
+}
+.resummary-panel textarea {
+  width: 100%;
+  min-height: 4rem;
+  box-sizing: border-box;
+}
+.resummary-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.chat-model-select {
+  font-size: 0.85em;
+  max-width: 14rem;
+}
