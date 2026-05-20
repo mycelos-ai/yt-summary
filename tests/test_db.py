@@ -93,14 +93,21 @@ def test_init_schema_migrates_legacy_database(tmp_path):
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == 1
-        # settings now has user_id column and the row carried over
+        # settings.llm_model was consumed by the multi-model migration:
+        # it should no longer exist in settings, but the model must now
+        # appear as the default row in llm_models.
         cursor = await conn.execute(
-            "SELECT user_id, value FROM settings WHERE key='llm_model'"
+            "SELECT value FROM settings WHERE user_id=1 AND key='llm_model'"
+        )
+        row = await cursor.fetchone()
+        assert row is None, "legacy llm_model key should have been migrated out of settings"
+        cursor = await conn.execute(
+            "SELECT model, is_default FROM llm_models WHERE is_default=1"
         )
         row = await cursor.fetchone()
         assert row is not None
-        assert row[0] == 1
-        assert row[1] == "openai/gpt-4o"
+        assert row[0] == "openai/gpt-4o"
+        assert row[1] == 1
         # New tables exist
         cursor = await conn.execute(
             "SELECT name FROM sqlite_master"

@@ -352,6 +352,86 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     # with a freshly created-but-unpopulated videos_fts index.
     await _migrate_v7_embedding_dim(conn)
 
+    # ── Multi-model migration ──────────────────────────────────
+    #
+    # Move the legacy single LLM config (settings.llm_model /
+    # llm_api_key / llm_base_url) into a managed llm_models table
+    # with a default row. Adds two override columns to `jobs` so
+    # the Re-summarize endpoint can carry a per-run model + prompt
+    # tweak through to the worker. Idempotent — each step is gated
+    # on the relevant feature check.
+    if not await _table_exists(conn, "llm_models"):
+        await conn.execute(
+            """
+            CREATE TABLE llm_models (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                label       TEXT    NOT NULL,
+                provider_id TEXT    NOT NULL,
+                model       TEXT    NOT NULL,
+                api_key     TEXT    NOT NULL DEFAULT '',
+                base_url    TEXT    NOT NULL DEFAULT '',
+                is_default  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX idx_llm_models_default "
+            "ON llm_models(is_default) WHERE is_default = 1"
+        )
+        await conn.commit()
+
+    if await _table_exists(conn, "jobs"):
+        await _ensure_column(conn, "jobs", "llm_model_id", "INTEGER")
+        await _ensure_column(conn, "jobs", "additional_prompt", "TEXT")
+
+    # Backfill from legacy settings keys, but only once: if any row
+    # already exists in llm_models, the migration has already run
+    # (or the user has added a model manually) — leave it alone.
+    # Also skip on a blank DB where settings hasn't been created yet.
+    cursor = await conn.execute("SELECT COUNT(*) FROM llm_models")
+    row = await cursor.fetchone()
+    if row is not None and row[0] == 0 and await _table_exists(conn, "settings"):
+        cursor = await conn.execute(
+            "SELECT key, value FROM settings WHERE user_id=1 AND key IN "
+            "('llm_model','llm_api_key','llm_base_url')"
+        )
+        legacy = {r[0]: r[1] for r in await cursor.fetchall()}
+        legacy_model = (legacy.get("llm_model") or "").strip()
+        if legacy_model:
+            from app.services.providers import PROVIDER_PRESETS
+
+            head = legacy_model.split("/", 1)[0]
+            provider_id = "custom"
+            label = "Custom"
+            for preset_id, preset in PROVIDER_PRESETS.items():
+                if head == preset.litellm_provider or head.startswith(
+                    preset.litellm_provider
+                ):
+                    provider_id = preset_id
+                    label = preset.name
+                    break
+            await conn.execute(
+                """
+                INSERT INTO llm_models
+                    (label, provider_id, model, api_key, base_url, is_default)
+                VALUES (?, ?, ?, ?, ?, 1)
+                """,
+                (
+                    label,
+                    provider_id,
+                    legacy_model,
+                    legacy.get("llm_api_key", ""),
+                    legacy.get("llm_base_url", ""),
+                ),
+            )
+            await conn.execute(
+                "DELETE FROM settings WHERE user_id=1 AND key IN "
+                "('llm_model','llm_api_key','llm_base_url')"
+            )
+            await conn.commit()
+
     await conn.commit()
 
 
