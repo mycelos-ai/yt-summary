@@ -6,10 +6,13 @@ and write the bare minimum: an LLM provider preset on step 2, the
 profile name + avatar on step 3, and the ``onboarding_completed`` flag
 on Skip / Finish.
 
-The wizard reuses :func:`app.services.providers.apply_preset` so it
-can never drift from the Quick-Setup wizard's setting-key contract.
-For provider settings we delegate; for profile updates we hit the
-existing :func:`app.repos.users.update`.
+Step 2 (provider) writes directly into ``llm_models`` via
+:func:`app.repos.llm_models.insert` with ``make_default=True``. The
+legacy ``settings.llm_model`` / ``settings.llm_api_key`` path was
+removed in the multi-model migration. Whisper config still lives in the
+settings table and is written directly when the preset carries a Whisper
+endpoint. For profile updates we hit the existing
+:func:`app.repos.users.update`.
 
 Skip semantics: users can bail out at any step. Both ``/onboarding/skip``
 and ``/onboarding/finish`` set the same flag — the difference is purely
@@ -24,10 +27,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.main import get_current_user, get_current_user_id, get_db
+from app.repos import llm_models as llm_models_repo
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 from app.services import avatars as avatars_service
-from app.services.providers import PROVIDER_PRESETS, apply_preset
+from app.services.providers import PROVIDER_PRESETS
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -37,27 +41,6 @@ register_filters(templates)
 # YouTube id of the embedded promo video on the welcome step. Edit
 # in one place if we ever cut a new intro reel.
 PROMO_VIDEO_ID = "wUkqSNn63Hk"
-
-
-def _detect_active_provider(llm_model: str) -> str:
-    """Best-effort: pick the preset whose default model id has the same
-    provider prefix as the user's saved ``llm_model``.
-
-    Used by the provider step to pre-select the right tile when a user
-    re-enters the wizard with settings already saved. Falls back to
-    "" so the form starts unselected for genuine first-run users.
-    """
-    if not llm_model:
-        return ""
-    # Compare on the litellm prefix (the part before the first slash).
-    head = llm_model.split("/", 1)[0]
-    for preset in PROVIDER_PRESETS.values():
-        # ollama_chat/* and ollama/* both belong to the ollama tile.
-        if head == preset.litellm_provider or head.startswith(
-            preset.litellm_provider
-        ):
-            return preset.id
-    return ""
 
 
 # ── Step 1: welcome ────────────────────────────────────────────────
@@ -90,7 +73,12 @@ async def provider_form(
     current_user=Depends(get_current_user),
 ):
     settings = await settings_repo.get_all(db)
-    selected = _detect_active_provider(settings.get("llm_model", ""))
+    # When the user re-enters the wizard with a default model already
+    # configured, pre-select that provider's tile. The current_default
+    # row's provider_id is the source of truth; the legacy
+    # settings.llm_model key was removed in the multi-model migration.
+    current_default = await llm_models_repo.get_default(db)
+    selected = current_default.provider_id if current_default else ""
     return templates.TemplateResponse(
         request,
         "onboarding/provider.html",
@@ -101,6 +89,7 @@ async def provider_form(
             "presets": list(PROVIDER_PRESETS.values()),
             "settings": settings,
             "selected_provider": selected,
+            "current_default": current_default,
         },
     )
 
@@ -113,34 +102,75 @@ async def provider_submit(
     llm_base_url: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """Apply the selected provider preset. Same write-set as the
-    Quick-Setup wizard via :func:`apply_preset` — keep them aligned by
-    delegation, not duplication.
+    """Apply the selected provider preset by writing a single row
+    into llm_models with make_default=True.
 
-    `llm_model` is mostly empty (cloud providers use the preset's
-    default), but for Ollama it carries the tag the user picked from
-    the "Load my models" dropdown — without that pass-through the
-    wizard would write the hardcoded `ollama_chat/llama3.1` even when
-    the server has a different model installed.
+    On re-enters (user comes back to the wizard step with a default
+    already configured), update that row in place instead of creating
+    a second default — keeps the wizard's "one configured model"
+    mental model intact.
+
+    Whisper config is preserved separately: if the preset hosts a
+    Whisper-compatible endpoint, those keys still go through
+    settings_repo. apply_preset() returns ONLY the whisper keys now;
+    the LLM keys go straight into llm_models.
     """
     if provider not in PROVIDER_PRESETS:
         # Unknown provider id — treat like a skip rather than 400-ing.
         # The user can always come back to /settings to pick again.
         return RedirectResponse("/onboarding/profile", status_code=303)
 
-    current = await settings_repo.get_all(db)
-    updates = apply_preset(
-        provider_id=provider,
-        api_key=api_key.strip(),
-        current_settings=current,
-        llm_model_override=llm_model.strip() or None,
-        llm_base_url_override=llm_base_url.strip() or None,
+    preset = PROVIDER_PRESETS[provider]
+    chosen_model = (llm_model.strip() or preset.default_llm).strip()
+    chosen_base_url = (
+        llm_base_url.strip().rstrip("/")
+        or preset.default_llm_base_url
+        or ""
     )
-    for key, value in updates.items():
-        if value:
-            await settings_repo.set(db, key, value)
-        else:
-            await settings_repo.delete(db, key)
+
+    existing_default = await llm_models_repo.get_default(db)
+    # If the user is re-entering the wizard with the same provider
+    # already configured (Back+Continue scenario), update the row in
+    # place. provider_id is immutable in the repo, so a provider switch
+    # requires inserting a fresh row and discarding the old one.
+    # The api_key behaviour mirrors the Settings edit flow: a blank
+    # form value keeps whatever's already stored.
+    if existing_default is not None and existing_default.provider_id == provider:
+        effective_key = api_key.strip() or existing_default.api_key
+        await llm_models_repo.update(
+            db, existing_default.id,
+            label=preset.name,
+            model=chosen_model,
+            api_key=effective_key,
+            base_url=chosen_base_url,
+        )
+    else:
+        # Fresh install, or the user switched to a different provider.
+        # insert(make_default=True) clears the default flag on any
+        # existing row first, so after the insert the old row is safe
+        # to delete (it is no longer the default).
+        old_id = existing_default.id if existing_default is not None else None
+        await llm_models_repo.insert(
+            db,
+            label=preset.name,
+            provider_id=provider,
+            model=chosen_model,
+            api_key=api_key.strip(),
+            base_url=chosen_base_url,
+            make_default=True,
+        )
+        if old_id is not None:
+            await llm_models_repo.delete(db, old_id)
+
+    # Whisper settings still live in the settings table (Whisper is
+    # not part of the multi-model migration). Write them directly when
+    # the preset carries a Whisper endpoint.
+    if preset.whisper_base_url:
+        await settings_repo.set(db, "whisper_base_url", preset.whisper_base_url)
+        await settings_repo.set(db, "whisper_model", preset.whisper_model)
+        if api_key.strip():
+            await settings_repo.set(db, "whisper_api_key", api_key.strip())
+
     return RedirectResponse("/onboarding/profile", status_code=303)
 
 
