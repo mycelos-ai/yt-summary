@@ -49,16 +49,18 @@ def test_onboarding_status_not_pending_when_completed_marker_set(
 def test_onboarding_status_not_pending_when_llm_model_already_set(
     tmp_path, monkeypatch
 ):
-    """User configured a model manually before onboarding shipped —
-    don't ambush them with a wizard on next launch."""
+    """User configured a model before re-entering — don't ambush them
+    with a wizard on next launch."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app):
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
-            await settings_repo.set(
-                app.state.db, "llm_api_key", "preexisting"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="OpenAI", provider_id="openai",
+                model="openai/gpt-4o", api_key="preexisting",
+                base_url="", make_default=True,
             )
 
         _run(setup())
@@ -72,20 +74,19 @@ def test_onboarding_status_not_pending_for_ollama_no_api_key(
     """Ollama setups have a model and a base URL but no API key.
     That's a perfectly valid configuration — don't push them into
     the wizard. Regression test for the bug where the heuristic
-    keyed off llm_api_key alone."""
+    keyed off an api_key field alone."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app):
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Ollama (local)", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="",
+                base_url="http://host.docker.internal:11434",
+                make_default=True,
             )
-            await settings_repo.set(
-                app.state.db, "llm_base_url",
-                "http://host.docker.internal:11434",
-            )
-            # llm_api_key intentionally left unset
 
         _run(setup())
         result = _run(_onboarding_status(app.state.db))
@@ -122,10 +123,12 @@ def test_home_does_not_redirect_when_llm_model_set(tmp_path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
-            await settings_repo.set(
-                app.state.db, "llm_api_key", "preexisting"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="OpenAI", provider_id="openai",
+                model="openai/gpt-4o", api_key="preexisting",
+                base_url="", make_default=True,
             )
 
         _run(setup())
@@ -134,15 +137,19 @@ def test_home_does_not_redirect_when_llm_model_set(tmp_path, monkeypatch):
 
 
 def test_home_does_not_redirect_for_ollama_no_api_key(tmp_path, monkeypatch):
-    """Regression: Ollama users have llm_model set but no llm_api_key.
+    """Regression: Ollama users have a configured model but no api_key.
     They should NOT see the onboarding wizard on next launch."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         async def setup():
-            from app.repos import settings as settings_repo
-            await settings_repo.set(
-                app.state.db, "llm_model", "ollama_chat/llama3.1"
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Ollama (local)", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="",
+                base_url="http://host.docker.internal:11434",
+                make_default=True,
             )
 
         _run(setup())

@@ -34,18 +34,20 @@ async def _vector_ids_for_query(
     Returns [] on any failure so the route degrades to FTS-only.
     """
     try:
+        # Embedding runs locally now (see services/embeddings_local.py);
+        # api_key + base_url are kept for signature compatibility but
+        # ignored at runtime. The legacy llm_api_key / llm_base_url reads
+        # were removed with the multi-model migration — they'd now return
+        # empty strings anyway.
         settings = await settings_repo.get_all(db)
         embedding_model = settings.get("embedding_model", "").strip() or None
         embedding_base_url = (
-            settings.get("embedding_base_url", "").strip()
-            or settings.get("llm_base_url", "").strip()
-            or None
+            settings.get("embedding_base_url", "").strip() or None
         )
-        api_key = settings.get("llm_api_key", "")
         vector = await embed_text(
             query,
             model=embedding_model,
-            api_key=api_key,
+            api_key="",
             base_url=embedding_base_url,
         )
         hits = await embeddings_repo.search_by_summary_vector(db, vector, limit=limit)

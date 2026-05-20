@@ -86,11 +86,10 @@ async def settings_page(
         except ValueError:
             pass
     scheduled_playlists = await playlists_repo.list_for_user(db, 1)
-    has_api_key = bool(settings.get("llm_api_key"))
     has_whisper_key = bool(settings.get("whisper_api_key"))
     safe_settings = {
         k: v for k, v in settings.items()
-        if k not in ("llm_api_key", "whisper_api_key")
+        if k not in ("whisper_api_key",)
     }
     # API keys live on user_id=1 (the seeded admin) regardless of which
     # profile is active — they're a household credential, not a per-
@@ -103,20 +102,13 @@ async def settings_page(
     if applied and applied in PROVIDER_PRESETS:
         applied_preset = PROVIDER_PRESETS[applied]
 
-    # Detect which provider is currently active so the wizard can
-    # pre-select that tile and show the matching detail panel
-    # without the user having to remember what they configured.
-    # Falls back to '' for fresh installs (no llm_model yet) and
-    # for custom/manual setups whose llm_model prefix doesn't match
-    # any preset.
-    current_provider_id = ""
-    current_model = settings.get("llm_model", "")
-    if current_model:
-        head = current_model.split("/", 1)[0]
-        for p in presets:
-            if head == p.litellm_provider or head.startswith(p.litellm_provider):
-                current_provider_id = p.id
-                break
+    # Detect which provider is currently active so the Add-model
+    # wizard pre-selects that tile when the user opens it on a
+    # configured install. The source of truth is the default
+    # llm_models row (was settings.llm_model before the multi-model
+    # migration). Falls back to '' for fresh installs.
+    current_default = await llm_models_repo.get_default(db)
+    current_provider_id = current_default.provider_id if current_default else ""
 
     # Per-provider chat model lists for cloud providers.
     # Ollama gets its list dynamically from /api/tags via HTMX, so we
@@ -162,7 +154,6 @@ async def settings_page(
             "applied_preset": applied_preset,
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
-            "has_api_key": has_api_key,
             "has_whisper_key": has_whisper_key,
             "has_cookies": has_cookies,
             "api_key_prefix": user.api_key_prefix if user else None,
