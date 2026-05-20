@@ -2040,3 +2040,44 @@ button.section-download {
   border-radius: var(--rounded-full);
   vertical-align: middle;
 }
+
+/* ── Configured models card ─────────────────────────────────── */
+.llm-model-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.llm-model-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.llm-model-row.is-default {
+  border-left: 4px solid var(--accent-success, #1f7a3e);
+}
+.llm-model-row-label strong { font-weight: 600; }
+.llm-model-row-meta {
+  font-size: 0.85em;
+  color: var(--muted, #666);
+  margin-top: 0.15rem;
+}
+.llm-model-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75em;
+  background: var(--accent-success-bg, #d3f0dc);
+  color: var(--accent-success, #1f7a3e);
+  border-radius: 0.25rem;
+}
+.llm-model-row-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.llm-model-row > div:last-child { grid-column: 1 / -1; }

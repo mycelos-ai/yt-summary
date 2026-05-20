@@ -24,6 +24,71 @@
     </p>
   {% endif %}
 
+  <!-- ── Configured models ──────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🧠</span>
+      <div class="settings-card-head-text">
+        <h2>Configured models</h2>
+        <p class="settings-card-sub">
+          Pick which model handles the default summary, chat, and any
+          background job. Add more so you can switch on a per-resummary
+          basis from the video page.
+        </p>
+      </div>
+    </header>
+
+    {% if llm_models %}
+      <ul class="llm-model-list">
+        {% for m in llm_models %}
+          <li class="llm-model-row {% if m.is_default %}is-default{% endif %}">
+            <div class="llm-model-row-label">
+              <strong>{{ m.label }}</strong>
+              {% if m.is_default %}
+                <span class="llm-model-badge">Default ✓</span>
+              {% endif %}
+              <div class="llm-model-row-meta">
+                <code>{{ m.model }}</code>
+                {% if m.base_url %} · <code>{{ m.base_url }}</code>{% endif %}
+              </div>
+            </div>
+            <div class="llm-model-row-actions">
+              <button type="button" class="btn btn-secondary"
+                      hx-post="/settings/llm-models/{{ m.id }}/test"
+                      hx-target="#llm-test-{{ m.id }}"
+                      hx-swap="innerHTML"
+                      hx-disabled-elt="this">Test</button>
+              <a class="btn btn-secondary"
+                 href="/settings?edit={{ m.id }}#quick-setup">Edit</a>
+              {% if m.is_default %}
+                <button type="button" class="btn btn-secondary" disabled
+                        title="Make another model default first">Delete</button>
+              {% else %}
+                <form method="post"
+                      action="/settings/llm-models/{{ m.id }}/delete"
+                      onsubmit="return confirm('Delete {{ m.label|e }}?');"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-secondary">Delete</button>
+                </form>
+                <form method="post"
+                      action="/settings/llm-models/{{ m.id }}/default"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-secondary">Make default</button>
+                </form>
+              {% endif %}
+            </div>
+            <div id="llm-test-{{ m.id }}" class="settings-test-result"></div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="settings-card-sub">
+        No models configured yet. Pick a provider in
+        <a href="#quick-setup">Quick setup</a> below.
+      </p>
+    {% endif %}
+  </section>
+
   <!-- ── Quick setup wizard ──────────────────────────────────── -->
   <section class="settings-card settings-quicksetup"
            x-data="{ provider: '{{ current_provider_id }}', showAll: {} }">

@@ -1057,3 +1057,57 @@ def test_post_llm_models_test_existing_row_calls_litellm(
         assert resp.status_code == 200
         assert "status-done" in resp.text
         assert "responded: ok" in resp.text
+
+
+def test_settings_renders_configured_models_card_with_rows(
+    tmp_path, monkeypatch,
+):
+    """The Configured models card lists every llm_models row and
+    badges the default."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db,
+                label="My Claude", provider_id="anthropic",
+                model="anthropic/claude-sonnet-4-6",
+                api_key="k", base_url="", make_default=True,
+            )
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Local Llama", provider_id="ollama",
+                model="ollama_chat/llama3.1",
+                api_key="", base_url="http://192.168.0.5:11434",
+                make_default=False,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        body = resp.text
+        # Both rows render with label + model identifier.
+        assert "My Claude" in body
+        assert "Local Llama" in body
+        assert "anthropic/claude-sonnet-4-6" in body
+        assert "ollama_chat/llama3.1" in body
+        # The non-default row's base_url surfaces in the meta line.
+        assert "192.168.0.5" in body
+        # Default badge is present for the default row.
+        assert "Default ✓" in body
+
+
+def test_settings_renders_empty_state_when_no_models(tmp_path, monkeypatch):
+    """A fresh install (no rows) renders the empty-state copy + the
+    quick-setup link, not an empty <ul>."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        body = resp.text
+        assert "No models configured yet" in body
+        assert "#quick-setup" in body
