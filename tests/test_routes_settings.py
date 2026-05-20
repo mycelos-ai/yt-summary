@@ -990,3 +990,70 @@ def test_post_llm_models_delete_default_returns_409(tmp_path, monkeypatch):
             follow_redirects=False,
         )
         assert resp.status_code == 409
+
+
+def test_post_llm_models_test_missing_row_returns_warning_fragment(
+    tmp_path, monkeypatch,
+):
+    """The /test endpoint is HTMX-driven, so a missing row returns
+    an HTML fragment (not an HTTP 404). The fragment carries the
+    'status-failed' class the surrounding card styles consume."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/llm-models/9999/test", follow_redirects=False,
+        )
+        assert resp.status_code == 200
+        assert "Model not found" in resp.text
+        assert "status-failed" in resp.text
+
+
+def test_post_llm_models_test_existing_row_calls_litellm(
+    tmp_path, monkeypatch,
+):
+    """Happy path: the /test endpoint feeds the row's
+    model / api_key / base_url to litellm.acompletion and renders
+    the response in a status-done fragment."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        ids: dict = {}
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            mid = await llm_models_repo.insert(
+                app.state.db, label="X", provider_id="anthropic",
+                model="anthropic/claude-sonnet-4-6",
+                api_key="sk-test", base_url="", make_default=True,
+            )
+            ids["id"] = mid
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        # Build a minimal response object shaped like
+        # litellm.ModelResponse so the route can read
+        # response.choices[0].message.content.
+        fake_response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="ok"))
+            ]
+        )
+
+        async def fake_acompletion(**_kw):
+            return fake_response
+
+        with patch(
+            "app.routes.settings.litellm.acompletion",
+            side_effect=fake_acompletion,
+        ):
+            resp = client.post(
+                f"/settings/llm-models/{ids['id']}/test",
+                follow_redirects=False,
+            )
+        assert resp.status_code == 200
+        assert "status-done" in resp.text
+        assert "responded: ok" in resp.text
