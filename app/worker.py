@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 ProcessVideo = Callable[
-    [aiosqlite.Connection, Config, str, Callable[[str], Awaitable[None]]],
+    ...,  # too many kwargs to spell out — Callable[...] accepts any args
     Awaitable[None],
 ]
 
@@ -118,7 +118,11 @@ class Worker:
                 # shows the most recent step without a DB read.
                 self._touch(current_job_id=_job_id, current_step=step)
 
-            await self._process_video(self._db, self._config, job.video_id, set_step)
+            await self._process_video(
+                self._db, self._config, job.video_id, set_step,
+                llm_model_id=job.llm_model_id,
+                additional_prompt=job.additional_prompt,
+            )
             await jobs_repo.complete(self._db, job.id)
         except Exception as e:
             log.exception("job %s failed", job.id)
