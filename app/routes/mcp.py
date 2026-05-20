@@ -30,11 +30,15 @@ async def _tool_submit_url(
     user_id: int = 1,
     wait_for_summary: bool = False,
     wait_timeout: int = 120,
+    llm_model_id: int | None = None,
+    additional_prompt: str = "",
 ) -> dict[str, Any]:
     resource = await api_svc.submit_video(
         db, config,
         url=url, user_id=user_id,
         wait=wait_for_summary, wait_timeout=wait_timeout,
+        llm_model_id=llm_model_id,
+        additional_prompt=additional_prompt.strip() or None,
     )
     out = {
         "video_id": resource["id"],
@@ -131,6 +135,58 @@ async def _tool_list_recent(
     ]
 
 
+async def _tool_list_models(
+    db: aiosqlite.Connection,
+) -> list[dict[str, Any]]:
+    """Return all configured LLM models with id, label, model id,
+    provider, and which one is the default. Useful when the user has
+    just edited the Configured models card in Settings.
+
+    Background work (auto-import from playlists, initial submit) always
+    uses the default model. Pass an explicit ``llm_model_id`` to
+    ``submit_url`` or ``resummarize`` to override per call.
+    """
+    from app.repos import llm_models as llm_models_repo
+    rows = await llm_models_repo.list_all(db)
+    return [
+        {
+            "id": r.id,
+            "label": r.label,
+            "model": r.model,
+            "provider_id": r.provider_id,
+            "is_default": r.is_default,
+        }
+        for r in rows
+    ]
+
+
+async def _tool_resummarize(
+    db: aiosqlite.Connection,
+    video_id: str,
+    *,
+    llm_model_id: int | None = None,
+    additional_prompt: str = "",
+) -> dict[str, Any]:
+    """Re-run the summary for an existing video.
+
+    llm_model_id=None falls back to the default model. additional_prompt
+    is appended as a one-shot system instruction for this run only —
+    it is not persisted. Returns ``{video_id, job_id, queued: True}``
+    on success; raises ValueError if the video is unknown.
+    """
+    from app.repos import jobs as jobs_repo
+    from app.repos import videos as videos_repo
+    if await videos_repo.get(db, video_id) is None:
+        raise ValueError(f"Unknown video: {video_id}")
+    prompt = additional_prompt.strip() or None
+    job_id = await jobs_repo.enqueue(
+        db, video_id,
+        llm_model_id=llm_model_id,
+        additional_prompt=prompt,
+    )
+    return {"video_id": video_id, "job_id": job_id, "queued": True}
+
+
 def build_mcp_server(app_state) -> FastMCP:
     """Wire the tool functions into FastMCP, threading the FastAPI
     app.state.db / app.state.config through."""
@@ -157,15 +213,26 @@ def build_mcp_server(app_state) -> FastMCP:
         url: str,
         wait_for_summary: bool = False,
         wait_timeout: int = 120,
+        llm_model_id: int | None = None,
+        additional_prompt: str = "",
     ) -> dict[str, Any]:
         """Submit a YouTube or article URL and start processing.
 
         With wait_for_summary=True, the call blocks up to `wait_timeout`
         seconds and returns the summary inline if ready.
+
+        llm_model_id (optional): override the default LLM for the
+        generated summary. Use the `list_models` tool to discover
+        configured models and their numeric ids. None = use the
+        default. additional_prompt (optional): one-shot instruction
+        appended to the system prompt for this run only; not
+        persisted.
         """
         return await _tool_submit_url(
             app_state.db, app_state.config, url,
             wait_for_summary=wait_for_summary, wait_timeout=wait_timeout,
+            llm_model_id=llm_model_id,
+            additional_prompt=additional_prompt,
         )
 
     @mcp.tool()
@@ -196,5 +263,35 @@ def build_mcp_server(app_state) -> FastMCP:
     ) -> list[dict[str, Any]]:
         """List recent videos in the library."""
         return await _tool_list_recent(app_state.db, limit=limit, tag=tag)
+
+    @mcp.tool()
+    async def list_models() -> list[dict[str, Any]]:
+        """Return all configured LLM models — id, label, model id,
+        provider, and which one is the default. Use the returned
+        ``id`` values for the ``llm_model_id`` parameter on
+        ``submit_url`` or ``resummarize``.
+        """
+        return await _tool_list_models(app_state.db)
+
+    @mcp.tool()
+    async def resummarize(
+        video_id: str,
+        llm_model_id: int | None = None,
+        additional_prompt: str = "",
+    ) -> dict[str, Any]:
+        """Re-run the summary for an existing video. The new summary
+        replaces the previous one when the worker picks up the queued
+        job.
+
+        Use ``list_models`` to discover configured llm_model_id values.
+        Pass llm_model_id=None to use the default. additional_prompt is
+        a one-shot instruction appended to the system prompt for this
+        run only; not persisted.
+        """
+        return await _tool_resummarize(
+            app_state.db, video_id,
+            llm_model_id=llm_model_id,
+            additional_prompt=additional_prompt,
+        )
 
     return mcp
