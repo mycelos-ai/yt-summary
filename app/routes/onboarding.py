@@ -112,8 +112,8 @@ async def provider_submit(
 
     Whisper config is preserved separately: if the preset hosts a
     Whisper-compatible endpoint, those keys still go through
-    settings_repo. apply_preset() returns ONLY the whisper keys now;
-    the LLM keys go straight into llm_models.
+    settings_repo (Whisper isn't part of the multi-model migration).
+    The LLM keys go straight into llm_models.
     """
     if provider not in PROVIDER_PRESETS:
         # Unknown provider id — treat like a skip rather than 400-ing.
