@@ -18,7 +18,7 @@ def test_post_chat_persists_and_streams(tmp_path, monkeypatch):
     with TestClient(app) as client:
         async def setup():
             from app.models import TranscriptSource
-            from app.repos import settings as settings_repo
+            from app.repos import llm_models as llm_models_repo
             from app.repos import videos as videos_repo
             await videos_repo.upsert_metadata(
                 app.state.db, video_id="vc1", url="u", title="t",
@@ -27,8 +27,11 @@ def test_post_chat_persists_and_streams(tmp_path, monkeypatch):
             await videos_repo.set_transcript(
                 app.state.db, "vc1", "transcript text", TranscriptSource.MANUAL_SUBS,
             )
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
-            await settings_repo.set(app.state.db, "llm_api_key", "k")
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Test", provider_id="openai", model="openai/gpt-4o",
+                api_key="k", base_url="", make_default=True,
+            )
         asyncio.get_event_loop().run_until_complete(setup())
 
         with patch("app.routes.chat.stream_reply", return_value=_fake_stream()):
@@ -63,7 +66,7 @@ def test_chat_escapes_user_html_and_tokens(tmp_path, monkeypatch):
 
         async def setup():
             from app.models import TranscriptSource
-            from app.repos import settings as settings_repo
+            from app.repos import llm_models as llm_models_repo
             from app.repos import videos as videos_repo
             await videos_repo.upsert_metadata(
                 app.state.db, video_id="vx1", url="u", title="t",
@@ -72,7 +75,11 @@ def test_chat_escapes_user_html_and_tokens(tmp_path, monkeypatch):
             await videos_repo.set_transcript(
                 app.state.db, "vx1", "transcript", TranscriptSource.MANUAL_SUBS,
             )
-            await settings_repo.set(app.state.db, "llm_model", "openai/gpt-4o")
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Test", provider_id="openai", model="openai/gpt-4o",
+                api_key="k", base_url="", make_default=True,
+            )
 
         asyncio.get_event_loop().run_until_complete(setup())
 
@@ -105,7 +112,7 @@ def test_chat_works_without_api_key_for_local_models(tmp_path, monkeypatch):
 
         async def setup():
             from app.models import TranscriptSource
-            from app.repos import settings as settings_repo
+            from app.repos import llm_models as llm_models_repo
             from app.repos import videos as videos_repo
             await videos_repo.upsert_metadata(
                 app.state.db, video_id="vl1", url="u", title="t",
@@ -114,9 +121,11 @@ def test_chat_works_without_api_key_for_local_models(tmp_path, monkeypatch):
             await videos_repo.set_transcript(
                 app.state.db, "vl1", "transcript", TranscriptSource.MANUAL_SUBS,
             )
-            # Only model set, no api_key (local model case)
-            await settings_repo.set(app.state.db, "llm_model", "ollama/llama3.1")
-            await settings_repo.set(app.state.db, "llm_base_url", "http://localhost:11434")
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Local", provider_id="ollama", model="ollama/llama3.1",
+                api_key="", base_url="http://localhost:11434", make_default=True,
+            )
 
         asyncio.get_event_loop().run_until_complete(setup())
 
@@ -125,3 +134,66 @@ def test_chat_works_without_api_key_for_local_models(tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     assert "ok" in resp.text
+
+
+def test_chat_uses_override_model_when_id_supplied(tmp_path, monkeypatch):
+    """POST /v/{id}/chat with llm_model_id form field → routes
+    use that model's credentials, not the default's."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        captured: dict = {}
+        captured_ids: dict = {}
+
+        async def setup():
+            from app.models import TranscriptSource, VideoKind
+            from app.repos import llm_models as llm_models_repo
+            from app.repos import videos as videos_repo
+
+            await llm_models_repo.insert(
+                app.state.db,
+                label="Default", provider_id="ollama",
+                model="ollama_chat/llama3.1", api_key="",
+                base_url="http://lan:11434", make_default=True,
+            )
+            override_id = await llm_models_repo.insert(
+                app.state.db,
+                label="Claude", provider_id="anthropic",
+                model="anthropic/claude-sonnet-4-6",
+                api_key="sk-claude", base_url="",
+                make_default=False,
+            )
+            captured_ids["override"] = override_id
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="cv1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.YOUTUBE, user_id=1,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "cv1", "body",
+                TranscriptSource.AUTO_SUBS,
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        async def fake_stream(**kw):
+            captured.update(kw)
+            if False:
+                yield ""  # make this an async generator
+
+        with patch(
+            "app.routes.chat.stream_reply",
+            side_effect=fake_stream,
+        ):
+            resp = client.post(
+                "/v/cv1/chat",
+                data={
+                    "content": "hi",
+                    "llm_model_id": str(captured_ids["override"]),
+                },
+            )
+        assert resp.status_code == 200
+        assert captured["model"] == "anthropic/claude-sonnet-4-6"
+        assert captured["api_key"] == "sk-claude"

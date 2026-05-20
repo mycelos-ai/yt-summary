@@ -5,7 +5,7 @@ from markupsafe import escape
 
 from app.main import get_current_user_id, get_db
 from app.repos import chat as chat_repo
-from app.repos import settings as settings_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import videos as videos_repo
 from app.services.chat import stream_reply
 from app.services.markdown import render_markdown
@@ -42,6 +42,7 @@ def _msg_html(role: str, content: str, *, is_error: bool = False) -> str:
 async def post_chat(
     video_id: str,
     content: str = Form(...),
+    llm_model_id: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -50,11 +51,23 @@ async def post_chat(
         raise HTTPException(404, "Video or transcript not found")
     if video.user_id != current_user_id:
         raise HTTPException(404, "Video or transcript not found")
-    settings = await settings_repo.get_all(db)
-    model = settings.get("llm_model")
-    if not model:
+
+    chosen_id: int | None = None
+    if llm_model_id.strip():
+        try:
+            chosen_id = int(llm_model_id)
+        except ValueError as e:
+            raise HTTPException(400, f"invalid llm_model_id: {e}")
+    model_row = (
+        await llm_models_repo.get(db, chosen_id)
+        if chosen_id is not None
+        else await llm_models_repo.get_default(db)
+    )
+    if model_row is None:
         raise HTTPException(400, "LLM not configured")
-    api_key = settings.get("llm_api_key") or ""
+    model = model_row.model
+    api_key = model_row.api_key or ""
+    base_url = model_row.base_url or None
 
     history = await chat_repo.history(db, video_id)
     await chat_repo.append(
@@ -70,7 +83,7 @@ async def post_chat(
             user_message=content,
             model=model,
             api_key=api_key,
-            base_url=settings.get("llm_base_url"),
+            base_url=base_url,
         ):
             collected.append(token)
     except Exception as e:
