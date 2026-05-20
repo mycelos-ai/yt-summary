@@ -67,10 +67,7 @@ def _additional_prompt_block(additional_prompt: str | None) -> str:
     text = (additional_prompt or "").strip()
     if not text:
         return ""
-    return (
-        "USER OVERRIDE FOR THIS RUN:\n"
-        f"{text}"
-    )
+    return "USER OVERRIDE FOR THIS RUN:\n" + text
 
 
 def build_system_prompt(
@@ -213,11 +210,9 @@ def build_reduce_prompt(
     prompt established because the LLM applies it to the merged
     result.
 
-    additional_prompt: optional one-shot override appended at the very
-        end of the system prompt, marked with a ``USER OVERRIDE FOR
-        THIS RUN:`` header. Used by the Re-summarize panel to bias the
-        next single run without persisting anything. None/blank → no
-        block rendered.
+    additional_prompt: see build_system_prompt — the same one-shot
+        override block is appended at the end of the reduce prompt so
+        chunked videos honour the user's per-run tweak too.
     """
     timestamp_block = (
         "PRESERVE INLINE TIMESTAMP LINKS:\n"

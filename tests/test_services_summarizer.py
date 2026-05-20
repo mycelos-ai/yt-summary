@@ -646,6 +646,9 @@ def test_build_reduce_prompt_appends_additional_prompt_block():
     )
     assert "USER OVERRIDE FOR THIS RUN:" in out
     assert "answer in bullet points only" in out
+    # Override block must be terminal — same prompt-engineering
+    # invariant as build_system_prompt's tests.
+    assert out.rstrip().endswith("answer in bullet points only")
 
 
 def test_build_system_prompt_with_custom_appends_override_block():
