@@ -2103,7 +2103,27 @@ button.section-download {
   margin-top: 0.5rem;
 }
 
-.chat-model-select {
-  font-size: 0.85em;
-  max-width: 14rem;
+/* The chat form is a pill: rounded transparent input on the left, a
+   green submit button on the right. The model select sits between
+   them — match the form's vibe (transparent, no border, subtle
+   muted label) so it reads as part of the pill, not a parked
+   browser-default widget. Keep the native caret because removing
+   it requires extra markup, but tighten everything else. */
+.chat-form .chat-model-select {
+  font-size: 12px;
+  max-width: 11rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 6px 6px 0;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+}
+.chat-form .chat-model-select:hover,
+.chat-form .chat-model-select:focus {
+  color: var(--primary);
+}
+@media (max-width: 600px) {
+  .chat-form .chat-model-select { max-width: 7rem; }
 }
