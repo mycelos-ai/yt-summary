@@ -446,20 +446,42 @@ async def llm_models_test(
     # Matches the kwargs shape the old global test-llm endpoint used; no
     # explicit annotation so Pyright infers a compatible Dict[str, X | Y]
     # for litellm.acompletion's strict parameter typing.
+    #
+    # max_tokens budget: reasoning-tier models (e.g. openai/gpt-5*,
+    # anthropic/claude-*-thinking) spend their first tokens on an
+    # internal reasoning pass before emitting any visible content. A
+    # too-tight cap returns an empty `message.content` even on a
+    # perfectly healthy backend — we'd render "(empty)" and confuse
+    # the user. 200 leaves enough room for a reasoning warm-up plus
+    # the single "ok" we asked for. The actual summary path uses the
+    # model's full context budget; this is the diagnostic ping.
     kwargs = {
         "model": row.model,
         "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
         "api_key": row.api_key or "",
-        "max_tokens": 10,
+        "max_tokens": 200,
     }
     if base_url:
         kwargs["api_base"] = base_url
     try:
         response = await litellm.acompletion(**kwargs)
-        text = (response.choices[0].message.content or "").strip()
+        message = response.choices[0].message
+        # Reasoning-tier models put their visible answer on .content
+        # but their internal trace on .reasoning_content (litellm
+        # surfaces both). Prefer .content; fall back to a short slice
+        # of .reasoning_content so the test panel never says "(empty)"
+        # on a model that genuinely answered — even if it only did so
+        # internally.
+        text = (message.content or "").strip()
+        if not text:
+            reasoning = (
+                getattr(message, "reasoning_content", "") or ""
+            ).strip()
+            if reasoning:
+                text = f"(reasoning-only) {reasoning[:80]}"
         return HTMLResponse(
             f'<p class="status status-done">✓ {row.model} responded: '
-            f'{text[:50] or "(empty)"}</p>'
+            f'{text[:120] or "(empty)"}</p>'
         )
     except Exception as e:
         return HTMLResponse(
