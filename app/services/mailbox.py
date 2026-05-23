@@ -45,6 +45,21 @@ class ImapConfig:
 
 
 @dataclass(frozen=True)
+class SenderInfo:
+    addr: str
+    name: str
+    count: int
+    last_subject: str
+    last_date: datetime | None
+
+
+@dataclass(frozen=True)
+class Discovery:
+    senders: list[SenderInfo]
+    max_uid: int
+
+
+@dataclass(frozen=True)
 class MailMessage:
     uid: int
     message_id: str
@@ -335,6 +350,72 @@ async def check_connection(cfg: ImapConfig) -> int:
     user-readable message on any auth/TLS/connection failure.
     """
     return await asyncio.to_thread(_check_sync, cfg)
+
+
+def _discover_sync(cfg: ImapConfig, limit: int) -> Discovery:
+    imap_tools = _require_imap_tools()
+
+    box_cls = imap_tools.MailBox if cfg.ssl else imap_tools.MailBoxUnencrypted
+    # Aggregate by from-address. reverse=True → newest first, so the
+    # first time we see an address its subject is the most recent one.
+    agg: dict[str, dict] = {}
+    max_uid = 0
+    try:
+        with box_cls(cfg.host, port=cfg.port).login(
+            cfg.username, cfg.password, initial_folder=cfg.folder
+        ) as mailbox:
+            for msg in mailbox.fetch(
+                reverse=True,
+                limit=limit,
+                # headers_only + mark_seen=False: discovery is read-only,
+                # cheap (no bodies), and must never mark mail as read.
+                headers_only=True,
+                mark_seen=False,
+                bulk=True,
+            ):
+                try:
+                    uid = int(msg.uid) if msg.uid else 0
+                except (TypeError, ValueError):
+                    uid = 0
+                max_uid = max(max_uid, uid)
+                addr = (msg.from_ or "").strip().lower()
+                if not addr:
+                    continue
+                name = (msg.from_values.name if msg.from_values else "") or addr
+                entry = agg.get(addr)
+                if entry is None:
+                    agg[addr] = {
+                        "name": name,
+                        "count": 1,
+                        "last_subject": msg.subject or "",
+                        "last_date": msg.date,
+                    }
+                else:
+                    entry["count"] += 1
+    except Exception as e:
+        raise ValueError(
+            f"IMAP connection failed ({type(e).__name__}: {e})"
+        ) from e
+
+    senders = [
+        SenderInfo(
+            addr=addr,
+            name=v["name"],
+            count=v["count"],
+            last_subject=v["last_subject"],
+            last_date=v["last_date"],
+        )
+        for addr, v in agg.items()
+    ]
+    senders.sort(key=lambda s: (s.last_date is None, s.last_date), reverse=True)
+    return Discovery(senders=senders, max_uid=max_uid)
+
+
+async def discover_senders(cfg: ImapConfig, *, limit: int = 150) -> Discovery:
+    """Scan the most recent `limit` messages and return the distinct
+    senders (headers only — fast, read-only). Also returns the highest
+    UID seen so the caller can initialise the sync cursor to "now"."""
+    return await asyncio.to_thread(_discover_sync, cfg, limit)
 
 
 async def fetch_new_messages(

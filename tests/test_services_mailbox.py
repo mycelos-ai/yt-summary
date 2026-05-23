@@ -165,6 +165,30 @@ async def test_missing_imap_tools_raises_friendly_error():
             raise AssertionError("expected ValueError")
 
 
+async def test_discover_senders_aggregates_by_address():
+    from app.services.mailbox import discover_senders
+
+    # reverse=True in the real fetch yields newest first; the fake just
+    # returns this list in order, so first-seen = "latest".
+    msgs = [
+        _fake_msg(50, "<x@a.com>", name="Acme", from_="news@acme.com",
+                  subject="Latest issue"),
+        _fake_msg(49, "<y@a.com>", name="Acme", from_="news@acme.com",
+                  subject="Older issue"),
+        _fake_msg(48, "<z@b.com>", name="Other", from_="hi@other.com",
+                  subject="Hello"),
+    ]
+    cm, _box = _patch_box(msgs)
+    with cm:
+        result = await discover_senders(_cfg(), limit=10)
+
+    by_addr = {s.addr: s for s in result.senders}
+    assert set(by_addr) == {"news@acme.com", "hi@other.com"}
+    assert by_addr["news@acme.com"].count == 2
+    assert by_addr["news@acme.com"].last_subject == "Latest issue"
+    assert result.max_uid == 50
+
+
 async def test_fetch_new_messages_wraps_errors_as_valueerror():
     def boom(host, port=None):
         raise OSError("connection refused")

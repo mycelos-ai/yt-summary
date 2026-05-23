@@ -15,6 +15,7 @@ import aiosqlite
 from app.config import Config
 from app.models import TranscriptSource, VideoKind
 from app.repos import jobs as jobs_repo
+from app.repos import mail_senders as mail_senders_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import videos as videos_repo
@@ -74,6 +75,16 @@ async def sync_mailbox(
     if cfg is None:
         return None
 
+    # Newsletters are strictly opt-in: nothing is ingested until at
+    # least one sender is subscribed. With an empty subscription set we
+    # skip the fetch entirely — cheap, and the cursor (initialised to
+    # "now" at scan time) stays put so subscribing later crawls forward.
+    subscribed = await mail_senders_repo.subscribed_addrs(db, user_id)
+    if not subscribed:
+        return MailSyncResult(
+            fetched=0, newly_ingested=0, skipped_existing=0, max_uid=0
+        )
+
     try:
         since_uid = int(s.get("imap_last_uid") or 0)
     except ValueError:
@@ -81,12 +92,32 @@ async def sync_mailbox(
 
     messages = await fetch_new_messages(cfg, since_uid)
 
+    # Keep the sender list fresh: surface any new senders in this batch
+    # on the management page (as unsubscribed) without a manual rescan.
+    seen_senders = [
+        (
+            m.sender_addr,
+            m.sender_name,
+            m.date.isoformat() if m.date else None,
+            m.subject,
+        )
+        for m in messages
+        if m.sender_addr
+    ]
+    if seen_senders:
+        await mail_senders_repo.upsert_discovered(db, user_id, seen_senders)
+
     newly = 0
     skipped = 0
     max_uid = since_uid
     for m in messages:
         max_uid = max(max_uid, m.uid)
         try:
+            # Strict opt-in: only ingest mail from subscribed senders.
+            # Unsubscribed mail (incl. spam) is skipped, but the cursor
+            # still advances past it below.
+            if m.sender_addr.strip().lower() not in subscribed:
+                continue
             item_id = f"{user_id}:{mail_id_from_message_id(m.message_id)}"
             existing = await videos_repo.get(db, item_id)
             if existing is not None:

@@ -192,6 +192,19 @@ CREATE TABLE IF NOT EXISTS tts_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_tts_jobs_status ON tts_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_tts_jobs_video  ON tts_jobs(video_id);
+
+CREATE TABLE IF NOT EXISTS mail_senders (
+    user_id      INTEGER NOT NULL DEFAULT 1,
+    sender_addr  TEXT    NOT NULL,
+    sender_name  TEXT    NOT NULL DEFAULT '',
+    -- Newsletters are strictly opt-in: only subscribed senders get
+    -- ingested. New senders surface here as subscribed=0 until the user
+    -- ticks them on the "Add a source" page.
+    subscribed   INTEGER NOT NULL DEFAULT 0,
+    last_seen_at TEXT,
+    last_subject TEXT,
+    PRIMARY KEY (user_id, sender_addr)
+);
 """
 
 

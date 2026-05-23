@@ -1,0 +1,36 @@
+{% if senders %}
+<form method="post" action="/playlists/new/mail/subscribe" class="mail-senders-form">
+  <p class="mail-senders-hint">
+    Tick the senders you want summarized. Only checked senders get
+    crawled from now on — everything else (including spam) is ignored.
+  </p>
+  <ul class="mail-sender-list">
+    {% for s in senders %}
+      <li class="mail-sender-row">
+        <label class="mail-sender-label">
+          <input type="checkbox" name="sender" value="{{ s.sender_addr }}"
+                 {% if s.subscribed %}checked{% endif %}>
+          <span class="mail-sender-text">
+            <span class="mail-sender-name">{{ s.sender_name }}</span>
+            <span class="mail-sender-addr">&lt;{{ s.sender_addr }}&gt;</span>
+            {% if s.last_subject %}
+              <span class="mail-sender-subject">{{ s.last_subject }}</span>
+            {% endif %}
+          </span>
+        </label>
+      </li>
+    {% endfor %}
+  </ul>
+  <div class="playlist-new-actions">
+    <button type="submit" class="btn btn-primary">Save subscriptions</button>
+  </div>
+</form>
+{% else %}
+  <p class="mail-senders-empty">
+    {% if scanned %}
+      No senders found in the scanned messages.
+    {% else %}
+      No senders discovered yet — hit “Scan recent senders” above.
+    {% endif %}
+  </p>
+{% endif %}
