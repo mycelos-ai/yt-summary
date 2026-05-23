@@ -149,6 +149,22 @@ async def test_fetch_new_messages_marks_seen_and_limits():
     assert box.fetched_kwargs["limit"] == 2
 
 
+async def test_missing_imap_tools_raises_friendly_error():
+    import sys
+
+    from app.services.mailbox import check_connection
+
+    # Simulate imap-tools not being installed: a None entry in
+    # sys.modules makes `import imap_tools` raise ImportError.
+    with patch.dict(sys.modules, {"imap_tools": None}):
+        try:
+            await check_connection(_cfg())
+        except ValueError as e:
+            assert "isn't installed" in str(e)
+        else:
+            raise AssertionError("expected ValueError")
+
+
 async def test_fetch_new_messages_wraps_errors_as_valueerror():
     def boom(host, port=None):
         raise OSError("connection refused")

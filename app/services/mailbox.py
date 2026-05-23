@@ -239,12 +239,30 @@ def clean_body(*, html: str | None, plain: str | None) -> str:
     return text.strip()
 
 
-def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailMessage]:
-    # Imported lazily so the module imports cleanly even if imap-tools
-    # isn't installed (e.g. a partial dev env that never touches mail).
-    from imap_tools import AND, MailBox, MailBoxUnencrypted
+def _require_imap_tools():
+    """Import imap-tools, or raise a ValueError the UI can show verbatim.
 
-    box_cls = MailBox if cfg.ssl else MailBoxUnencrypted
+    imap-tools is an optional-at-runtime dependency: the module imports
+    fine without it, and only the actual fetch/test paths need it. When
+    it's missing (e.g. a source install done before it was added to
+    pyproject), we want the Test button to say so plainly instead of
+    bubbling a raw ModuleNotFoundError up as a 500.
+    """
+    try:
+        import imap_tools
+    except ImportError as e:
+        raise ValueError(
+            "The 'imap-tools' package isn't installed. Install it with "
+            "`pip install imap-tools` (or reinstall the app) and restart "
+            "the server."
+        ) from e
+    return imap_tools
+
+
+def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailMessage]:
+    imap_tools = _require_imap_tools()
+
+    box_cls = imap_tools.MailBox if cfg.ssl else imap_tools.MailBoxUnencrypted
     out: list[MailMessage] = []
     try:
         with box_cls(cfg.host, port=cfg.port).login(
@@ -254,7 +272,7 @@ def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailM
             # stored cursor. mark_seen so a glance at the mailbox shows
             # what's been handled; dedup still relies on the id + cursor.
             for msg in mailbox.fetch(
-                AND(uid=f"{since_uid + 1}:*"),
+                imap_tools.AND(uid=f"{since_uid + 1}:*"),
                 mark_seen=True,
                 bulk=True,
                 limit=batch_limit,
@@ -295,9 +313,9 @@ def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailM
 
 
 def _check_sync(cfg: ImapConfig) -> int:
-    from imap_tools import MailBox, MailBoxUnencrypted
+    imap_tools = _require_imap_tools()
 
-    box_cls = MailBox if cfg.ssl else MailBoxUnencrypted
+    box_cls = imap_tools.MailBox if cfg.ssl else imap_tools.MailBoxUnencrypted
     try:
         with box_cls(cfg.host, port=cfg.port).login(
             cfg.username, cfg.password, initial_folder=cfg.folder
