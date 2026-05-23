@@ -45,8 +45,9 @@ In scope:
 - A newsletter-tuned summarizer prompt that ignores the remaining cruft
   and, for digest-style mails, breaks out the individual stories so you
   can decide what's worth reading in full.
-- Sender surfaced as a **tag** (reusing the existing tag-pill UI) so the
-  library filters by newsletter for free.
+- Sender surfaced as a **tag** in the **normal tag-pill filter row**
+  (same treatment as YouTube tags — not hidden), so the library filters
+  by newsletter for free. This filtering is the whole point of the UX.
 - "Fetch now" button wired to the scheduler's existing `request_tick()`.
 
 Out of scope (explicitly, deferred):
@@ -173,11 +174,24 @@ Connection errors (auth failure, host unreachable, TLS) raise
 
 Newsletters are the noisiest input this app will ever see. Two layers:
 
-**Layer 1 — structural extraction.** Prefer the `text/html` MIME part
-and run it through **trafilatura** (already a dependency), which is
-purpose-built to drop boilerplate and is what the web-article path
-uses. Fall back to the `text/plain` part if there's no HTML. This alone
-removes most navigation, image alt-text, and layout scaffolding.
+**Layer 1 — structural extraction.** Prefer the `text/html` MIME part.
+Newsletter HTML is far dirtier than article HTML, so we **pre-clean the
+raw HTML before handing it to trafilatura** (this is the step the owner
+flagged as most important):
+
+- Strip `<style>`, `<script>`, and MSO `<!--[if mso]>` conditional
+  blocks outright.
+- Remove hidden pre-header / spacer spam: nodes with `display:none`,
+  `font-size:0`, `mso-hide:all`, `&zwnj;`/zero-width padding, and 1×1
+  tracking-pixel `<img>` (width/height ≤ 1, or `width="1"`).
+- Drop social-icon and app-badge image rows (alt-text like
+  "Facebook"/"Twitter"/"App Store").
+
+The cleaned HTML then goes through **trafilatura** (already a
+dependency, same engine the web-article path uses) for the actual
+body extraction. Fall back to the `text/plain` part if there's no
+HTML part at all. This pre-clean → extract order is what removes the
+bulk of typical newsletter cruft before any LLM sees it.
 
 **Layer 2 — newsletter-specific heuristics** in `mailbox.py`, applied
 to the extracted text:
@@ -245,10 +259,11 @@ stall playlist sync or re-embedding. Heartbeat step string
 `"fetching mail (uid N)"`. The "Jetzt prüfen" diagnostics button
 already calls `request_tick()`, so manual refresh works for free.
 
-Note: the scheduler is user-1-scoped today for playlists; the mailbox
-pass should iterate **all** profiles that have IMAP configured, since
-the settings are per-user. This is a small, contained widening of the
-tick's scope.
+**Decided:** the mailbox pass iterates **all** profiles that have
+`imap_enabled`, not just user 1. Settings are per-user, so each profile
+can point at its own dedicated address. This is a small, contained
+widening of the tick's scope beyond the playlist scan's current
+user-1-only behaviour.
 
 ## Settings UI
 
@@ -320,14 +335,14 @@ Captured here so the Settings helper text and README can point at it:
   password + IMAP enabled; Google is progressively deprecating basic
   IMAP, so treat as the fallback, not the default).
 
-## Open questions
+## Resolved decisions
 
-1. Poll **all** IMAP-enabled profiles in the shared scheduler tick
-   (proposed) vs. keep parity with the current user-1-only playlist
-   scan? Proposed: all profiles, since settings are per-user.
-2. Should the sender tag be auto-created hidden, or appear in the normal
-   tag-pill filter row like YouTube tags? Proposed: normal row — it's
-   the whole point of the filtering UX.
-3. Digest newsletters can be very long (50k+ chars). The map-reduce
-   summarizer already handles long transcripts, so no special-casing —
-   but worth confirming token budgets on the smallest configured models.
+1. **Poll all IMAP-enabled profiles** in the shared scheduler tick (not
+   just user 1) — each profile can have its own dedicated address.
+2. **Sender tag appears in the normal tag-pill filter row**, same as
+   YouTube tags — it's the primary filtering mechanism, so it must be
+   visible.
+3. **Long digests:** no special-casing in the pipeline — the existing
+   map-reduce summarizer already handles long inputs. The primary lever
+   for keeping token cost (and noise) down is the up-front HTML
+   pre-clean + boilerplate stripping above, not a separate length path.
