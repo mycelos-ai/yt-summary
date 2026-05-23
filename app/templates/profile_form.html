@@ -106,6 +106,84 @@
       <a href="/profiles" class="btn btn-secondary">Cancel</a>
     </div>
   </form>
+
+  {% if profile %}
+  {#- Newsletter/IMAP config is per-profile, so it lives here on the
+      profile page (not the global Settings page). Separate form: it has
+      its own Test button and "keep password" semantics. Only shown when
+      editing an existing profile — a brand-new profile has no id yet. -#}
+  <form method="post" action="/profiles/{{ profile.id }}/imap"
+        class="profile-form profile-imap-form">
+    <h2 class="profile-imap-heading">✉️ Newsletter (IMAP)</h2>
+    <p class="profile-imap-sub">
+      Point this profile at a mailbox and yt-summary pulls every
+      newsletter that lands there, strips the cruft, and summarizes it
+      on the playlist refresh schedule. Each profile can use its own
+      address — easiest is a dedicated mailbox.org / Posteo account or a
+      catch-all on your own domain.
+    </p>
+
+    <label class="profile-form-field profile-imap-check">
+      <input type="checkbox" name="imap_enabled" value="1"
+             {% if imap.get('imap_enabled') %}checked{% endif %}>
+      <span class="profile-form-label">Enable newsletter polling</span>
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">IMAP host</span>
+      <input name="imap_host" type="text" value="{{ imap.get('imap_host', '') }}"
+             placeholder="imap.mailbox.org">
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Port</span>
+      <input name="imap_port" type="text" inputmode="numeric"
+             value="{{ imap.get('imap_port', '993') }}" placeholder="993">
+    </label>
+
+    <label class="profile-form-field profile-imap-check">
+      <input type="checkbox" name="imap_ssl" value="1"
+             {% if imap.get('imap_ssl', '1') != '0' %}checked{% endif %}>
+      <span class="profile-form-label">Use SSL/TLS (port 993)</span>
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Username</span>
+      <input name="imap_username" type="text" autocomplete="off"
+             value="{{ imap.get('imap_username', '') }}"
+             placeholder="newsletters@example.com">
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">App password</span>
+      <input name="imap_password" type="password" autocomplete="new-password"
+             placeholder="{% if has_imap_password %}(set, leave blank to keep){% else %}app-specific password{% endif %}">
+      <small>Use an <strong>app-specific password</strong> so you can
+        revoke access without touching your main account password.</small>
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Folder</span>
+      <input name="imap_folder" type="text"
+             value="{{ imap.get('imap_folder', 'INBOX') }}" placeholder="INBOX">
+    </label>
+
+    <div class="settings-test-row">
+      <button type="button" class="btn btn-secondary"
+              hx-post="/profiles/{{ profile.id }}/imap/test"
+              hx-include="closest form"
+              hx-target="#imap-test-result" hx-swap="innerHTML"
+              hx-disabled-elt="this">
+        Test connection
+      </button>
+      <div id="imap-test-result" class="settings-test-result"></div>
+    </div>
+
+    <div class="profile-form-actions">
+      <button type="submit" class="btn btn-primary">Save newsletter settings</button>
+    </div>
+  </form>
+  {% endif %}
 </div>
 
 <style>
@@ -189,6 +267,35 @@
   .profile-form-actions {
     display: flex;
     gap: 10px;
+  }
+
+  /* Newsletter / IMAP — visually separated from the main profile form */
+  .profile-imap-form {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--hairline, #e0e0e0);
+  }
+  .profile-imap-heading {
+    font-size: 18px;
+    margin: 0;
+  }
+  .profile-imap-sub {
+    color: var(--steel, #666);
+    font-size: 13px;
+    margin: -8px 0 0;
+  }
+  .profile-imap-check {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .profile-imap-form input[type="text"],
+  .profile-imap-form input[type="password"] {
+    padding: 8px 12px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    border-radius: var(--rounded-sm, 6px);
+    font: inherit;
+    background: var(--canvas, #fff);
   }
 
   /* Avatar picker — image grid + emoji fallback */

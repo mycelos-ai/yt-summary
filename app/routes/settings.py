@@ -21,7 +21,6 @@ from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
-from app.services.mailbox import ImapConfig, check_connection
 from app.services.providers import (
     PROVIDER_PRESETS,
     fetch_ollama_models,
@@ -97,13 +96,6 @@ async def settings_page(
     # profile thing. Pull from there for the API access card.
     user = await users_repo.get_default_user(db)
 
-    # IMAP / newsletter config is the one PER-PROFILE setting block:
-    # each profile can poll its own dedicated mailbox. Load the active
-    # profile's config and never echo the stored password back.
-    imap_raw = await settings_repo.get_all_for_user(db, current_user.id)
-    has_imap_password = bool(imap_raw.get("imap_password"))
-    imap = {k: v for k, v in imap_raw.items() if k != "imap_password"}
-
     # Build preset dropdown data for the Quick Setup wizard.
     presets = list(PROVIDER_PRESETS.values())
     applied_preset = None
@@ -178,8 +170,6 @@ async def settings_page(
             "voice_cache_summary": voice_cache_summary,
             "llm_models": llm_models,
             "edit_model": edit_model,
-            "imap": imap,
-            "has_imap_password": has_imap_password,
         },
     )
 
@@ -269,96 +259,6 @@ async def save_settings(
         except ValueError:
             pass
     return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/imap")
-async def save_imap(
-    imap_enabled: str = Form(""),
-    imap_host: str = Form(""),
-    imap_port: str = Form(""),
-    imap_ssl: str = Form(""),
-    imap_username: str = Form(""),
-    imap_password: str = Form(""),
-    imap_folder: str = Form("INBOX"),
-    db: aiosqlite.Connection = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
-):
-    """Save the active profile's IMAP/newsletter config.
-
-    Per-profile (scoped via the cookie-resolved current_user_id) so each
-    profile can poll its own mailbox — unlike the household-global
-    LLM/Whisper settings. An empty password means "keep the existing
-    one", matching the Whisper/LLM key fields.
-    """
-    uid = current_user_id
-    # `imap_ssl` is stored explicitly as "1"/"0" (never deleted) so an
-    # unchecked box reliably disables TLS — a missing key defaults to on.
-    pairs = {
-        "imap_enabled": "1" if imap_enabled else "",
-        "imap_host": imap_host.strip(),
-        "imap_port": imap_port.strip(),
-        "imap_ssl": "1" if imap_ssl else "0",
-        "imap_username": imap_username.strip(),
-        "imap_folder": imap_folder.strip() or "INBOX",
-    }
-    for key, value in pairs.items():
-        # imap_ssl is always written; everything else clears on empty.
-        if value or key == "imap_ssl":
-            await settings_repo.set_for_user(db, uid, key, value)
-        else:
-            await settings_repo.delete_for_user(db, uid, key)
-    if imap_password:
-        await settings_repo.set_for_user(db, uid, "imap_password", imap_password)
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/imap/test", response_class=HTMLResponse)
-async def test_imap(
-    imap_host: str = Form(""),
-    imap_port: str = Form(""),
-    imap_ssl: str = Form(""),
-    imap_username: str = Form(""),
-    imap_password: str = Form(""),
-    imap_folder: str = Form("INBOX"),
-    db: aiosqlite.Connection = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
-):
-    """Round-trip a real IMAP login with the values currently in the
-    form, so users can verify before saving. A blank password falls
-    back to the stored one (the field shows a placeholder, not the
-    secret)."""
-    host = imap_host.strip()
-    username = imap_username.strip()
-    ssl = bool(imap_ssl)
-    password = imap_password or (
-        await settings_repo.get_for_user(db, current_user_id, "imap_password")
-        or ""
-    )
-    if not host or not username or not password:
-        return HTMLResponse(
-            '<p class="status status-failed">⚠ Host, username and password '
-            'are required.</p>'
-        )
-    try:
-        port = int(imap_port.strip()) if imap_port.strip() else (993 if ssl else 143)
-    except ValueError:
-        port = 993 if ssl else 143
-    cfg = ImapConfig(
-        host=host,
-        port=port,
-        ssl=ssl,
-        username=username,
-        password=password,
-        folder=imap_folder.strip() or "INBOX",
-    )
-    try:
-        count = await check_connection(cfg)
-    except ValueError as e:
-        return HTMLResponse(f'<p class="status status-failed">⚠ {e}</p>')
-    return HTMLResponse(
-        f'<p class="status status-done">✓ Connected to {host} — '
-        f'{count} message(s) in {cfg.folder}.</p>'
-    )
 
 
 @router.get(
