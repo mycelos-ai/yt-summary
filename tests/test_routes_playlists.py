@@ -311,3 +311,28 @@ def test_subscribe_persists_selected_senders(tmp_path, monkeypatch):
 
         subscribed = asyncio.get_event_loop().run_until_complete(read())
     assert subscribed == {"a@x.com"}
+
+
+def test_saved_creds_without_polling_still_count_as_connected(tmp_path, monkeypatch):
+    """Saving IMAP creds with the polling toggle OFF must NOT read as
+    'no mailbox connected' — the sender UI shows, with a polling-off
+    hint."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # imap_enabled omitted → polling off, but creds are saved.
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.mailbox.org", "imap_ssl": "1",
+                "imap_username": "u@mailbox.org", "imap_password": "pw",
+            },
+            follow_redirects=False,
+        )
+        resp = client.get("/playlists/new")
+    assert resp.status_code == 200
+    assert "No mailbox connected" not in resp.text
+    assert "Scan recent senders" in resp.text
+    # Polling-off hint is shown (text wraps, so match contiguous markers).
+    assert "Mailbox connected, but" in resp.text
+    assert "Enable newsletter polling" in resp.text

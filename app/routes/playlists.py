@@ -63,7 +63,14 @@ async def new_playlist_form(
     # mailbox connected (config lives on the profile page) and which
     # senders it already knows about.
     imap_settings = await settings_repo.get_all_for_user(db, current_user.id)
-    imap_configured = _imap_config_from_settings(imap_settings) is not None
+    # "Connected" = valid credentials saved (independent of the polling
+    # toggle), so a saved-but-not-enabled mailbox isn't falsely reported
+    # as missing. The polling flag is surfaced separately as a hint.
+    imap_configured = (
+        _imap_config_from_settings(imap_settings, require_enabled=False)
+        is not None
+    )
+    imap_polling_enabled = bool(imap_settings.get("imap_enabled"))
     senders = await mail_senders_repo.list_for_user(db, current_user.id)
     return templates.TemplateResponse(
         request,
@@ -71,6 +78,7 @@ async def new_playlist_form(
         {
             "current_user": current_user,
             "imap_configured": imap_configured,
+            "imap_polling_enabled": imap_polling_enabled,
             "senders": senders,
         },
     )
@@ -87,7 +95,9 @@ async def scan_mail_senders(
     seen). Also initialises the sync cursor to "now" on first scan so
     subscribing crawls forward instead of backfilling the whole inbox."""
     imap_settings = await settings_repo.get_all_for_user(db, current_user_id)
-    cfg = _imap_config_from_settings(imap_settings)
+    # Scanning is a manual, read-only action — allow it whenever creds
+    # exist, even if scheduled polling is toggled off.
+    cfg = _imap_config_from_settings(imap_settings, require_enabled=False)
     if cfg is None:
         return HTMLResponse(
             '<p class="status status-failed">⚠ No mailbox connected for '

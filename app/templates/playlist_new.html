@@ -127,8 +127,20 @@
           Set up the IMAP connection on your
           <a href="/profiles/{{ current_user.id }}/edit">profile page</a>
           first, then come back here to pick senders.
+          <br><small>Heads up: <em>Test connection</em> only checks the
+          login — you still have to hit <em>Save newsletter settings</em>
+          to store it.</small>
         </p>
       {% else %}
+        {% if not imap_polling_enabled %}
+          <p class="status status-failed">
+            ⚠ Mailbox connected, but <strong>newsletter polling is
+            off</strong>. You can pick senders below, but nothing gets
+            pulled until you tick <em>Enable newsletter polling</em> on
+            your <a href="/profiles/{{ current_user.id }}/edit">profile
+            page</a>.
+          </p>
+        {% endif %}
         <div class="mail-scan-row">
           <button type="button" class="btn btn-secondary"
                   hx-post="/playlists/new/mail/scan"

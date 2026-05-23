@@ -36,10 +36,19 @@ class MailSyncResult:
     max_uid: int
 
 
-def _imap_config_from_settings(s: dict[str, str]) -> ImapConfig | None:
+def _imap_config_from_settings(
+    s: dict[str, str], *, require_enabled: bool = True
+) -> ImapConfig | None:
     """Build an ImapConfig from a profile's settings, or None if the
-    mailbox isn't fully configured / not enabled."""
-    if not s.get("imap_enabled"):
+    mailbox isn't fully configured.
+
+    `require_enabled` separates two distinct states: the scheduler only
+    auto-polls when "Enable newsletter polling" is on, but the mailbox is
+    still "connected" (and scannable for senders) as long as valid
+    credentials are saved — so the sender-management UI passes
+    require_enabled=False.
+    """
+    if require_enabled and not s.get("imap_enabled"):
         return None
     host = (s.get("imap_host") or "").strip()
     username = (s.get("imap_username") or "").strip()
