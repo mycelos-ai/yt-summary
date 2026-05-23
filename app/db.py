@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL DEFAULT 1,
     kind TEXT NOT NULL DEFAULT 'youtube'
-        CHECK(kind IN ('youtube','web')),
+        CHECK(kind IN ('youtube','web','email')),
     url TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',

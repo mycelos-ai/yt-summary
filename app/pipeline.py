@@ -220,6 +220,9 @@ async def process_video(
     custom_prompt = profile.custom_summary_prompt if profile else None
 
     summary_language_setting = (settings.get("summary_language") or "").strip()
+    # Email-kind items get the newsletter-tuned prompt (triage + drop
+    # ad/tracking/footer cruft); everything else uses the standard path.
+    content_kind = "email" if video.kind == VideoKind.EMAIL else "youtube"
     summary = await summarize(
         transcript=text,
         model=model,
@@ -232,6 +235,7 @@ async def process_video(
         playlist_context=playlist_context or None,
         transcript_segments=segments,
         additional_prompt=additional_prompt,
+        content_kind=content_kind,
         progress=set_step,
         on_partial=_persist_partial,
     )
@@ -301,9 +305,9 @@ async def process_video(
 
 def _segments_for_summarizer(video) -> list[dict] | None:
     """Decode the JSON-stored transcript_segments into a list of
-    {start, text} dicts suitable for `summarize()`. Web videos
-    return None unconditionally — they have no time concept."""
-    if video.kind == VideoKind.WEB:
+    {start, text} dicts suitable for `summarize()`. Only YouTube videos
+    have a time concept — web articles and newsletters return None."""
+    if video.kind != VideoKind.YOUTUBE:
         return None
     raw = getattr(video, "transcript_segments", None)
     if not raw:

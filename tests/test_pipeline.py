@@ -790,3 +790,49 @@ async def test_pipeline_falls_back_to_default_when_no_override(
     assert captured["model"] == "anthropic/claude-sonnet-4-6"
     assert captured["api_key"] == "default-key"
     assert captured["additional_prompt"] is None
+
+
+async def test_pipeline_email_uses_newsletter_content_kind(db, tmp_path):
+    """Email-kind items are summarized with content_kind='email' so the
+    summarizer picks the newsletter-tuned prompt. The body is set at
+    ingest time, so the pipeline does NOT enter any transcript-fetch
+    path for them."""
+    from app.models import VideoKind
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await videos_repo.upsert_metadata(
+        db, video_id="1:mail-abc", url="", title="Weekly digest",
+        description="From Acme <news@acme.com>", thumbnail_path=None,
+        duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    await videos_repo.set_transcript(
+        db, "1:mail-abc", "Newsletter body text.", TranscriptSource.EMAIL,
+    )
+    await llm_models_repo.insert(
+        db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+
+    captured: dict = {}
+
+    async def fake_summarize(**kwargs):
+        captured.update(kwargs)
+        return "NEWSLETTER SUMMARY"
+
+    async def noop_step(_s: str) -> None:
+        pass
+
+    with (
+        patch("app.pipeline.summarize", fake_summarize),
+        patch("app.pipeline.obtain_transcript", AsyncMock(side_effect=AssertionError(
+            "email pipeline must not fetch a transcript"))),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "1:mail-abc", noop_step)
+
+    assert captured["content_kind"] == "email"
+    assert captured["transcript"] == "Newsletter body text."
+    assert captured["transcript_segments"] is None
+    v = await videos_repo.get(db, "1:mail-abc")
+    assert v is not None and v.summary == "NEWSLETTER SUMMARY"

@@ -367,3 +367,18 @@ def test_tts_jobs_cascade_deletes_with_video(tmp_path, monkeypatch):
         loop.run_until_complete(check())
     finally:
         loop.close()
+
+
+async def test_schema_accepts_email_kind(db: aiosqlite.Connection):
+    """The kind CHECK constraint must allow 'email' on a fresh install."""
+    from app.models import VideoKind
+    from app.repos import videos as videos_repo
+
+    await videos_repo.upsert_metadata(
+        db, video_id="1:mail-xyz", url="", title="Newsletter",
+        description="", thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.EMAIL,
+    )
+    v = await videos_repo.get(db, "1:mail-xyz")
+    assert v is not None
+    assert v.kind is VideoKind.EMAIL

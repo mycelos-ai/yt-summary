@@ -549,6 +549,89 @@
     </form>
   </section>
 
+  <!-- ── Newsletter / IMAP ─────────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">✉️</span>
+      <div class="settings-card-head-text">
+        <h2>Newsletter (IMAP)</h2>
+        <p class="settings-card-sub">
+          Point this profile at a mailbox and yt-summary pulls every
+          newsletter that lands there, strips the cruft, and summarizes
+          it on the same schedule as playlists. Per-profile — each
+          profile can use its own address.
+        </p>
+      </div>
+    </header>
+
+    <form method="post" action="/settings/imap" class="settings-form">
+      <label class="settings-field settings-field-check">
+        <input type="checkbox" name="imap_enabled" value="1"
+               {% if imap.get('imap_enabled') %}checked{% endif %}>
+        <span class="settings-label">Enable newsletter polling</span>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">IMAP host</span>
+        <input name="imap_host" value="{{ imap.get('imap_host', '') }}"
+               placeholder="imap.mailbox.org">
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Port</span>
+        <input name="imap_port" type="number" min="1" max="65535"
+               value="{{ imap.get('imap_port', '993') }}" placeholder="993">
+      </label>
+
+      <label class="settings-field settings-field-check">
+        <input type="checkbox" name="imap_ssl" value="1"
+               {% if imap.get('imap_ssl', '1') != '0' %}checked{% endif %}>
+        <span class="settings-label">Use SSL/TLS (port 993)</span>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Username</span>
+        <input name="imap_username" value="{{ imap.get('imap_username', '') }}"
+               placeholder="newsletters@example.com" autocomplete="off">
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">App password</span>
+        <input name="imap_password" type="password" autocomplete="new-password"
+               placeholder="{% if has_imap_password %}(set, leave blank to keep){% else %}app-specific password{% endif %}">
+        <small>Use a dedicated mailbox and an <strong>app-specific
+          password</strong> so you can revoke access without touching
+          your main account password.</small>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Folder</span>
+        <input name="imap_folder" value="{{ imap.get('imap_folder', 'INBOX') }}"
+               placeholder="INBOX">
+      </label>
+
+      <div class="settings-test-row">
+        <button type="button" class="btn btn-secondary"
+                hx-post="/settings/imap/test"
+                hx-include="closest form"
+                hx-target="#imap-test-result" hx-swap="innerHTML"
+                hx-disabled-elt="this">
+          Test connection
+        </button>
+        <div id="imap-test-result" class="settings-test-result"></div>
+      </div>
+      <p class="settings-test-hint">
+        Tests the values above without saving. Easiest mailbox to set up:
+        a dedicated mailbox.org / Posteo account, or a catch-all on your
+        own domain. Polling runs on the playlist refresh interval.
+      </p>
+
+      <div class="settings-save-row">
+        <button type="submit" class="btn btn-primary">Save newsletter settings</button>
+      </div>
+    </form>
+  </section>
+
   <!-- ── API access ───────────────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">

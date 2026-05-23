@@ -9,11 +9,13 @@ class TranscriptSource(StrEnum):
     AUTO_SUBS = "auto_subs"
     WHISPER = "whisper"
     WEB = "web"
+    EMAIL = "email"
 
 
 class VideoKind(StrEnum):
     YOUTUBE = "youtube"
     WEB = "web"
+    EMAIL = "email"
 
 
 class JobState(StrEnum):

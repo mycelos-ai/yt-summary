@@ -31,6 +31,8 @@ It also works on:
 - single YouTube URLs (the classic use case)
 - web articles (anything readable, paywalls willing)
 - public playlists (auto-summarize new uploads from a channel)
+- newsletters (point it at a dedicated mailbox over IMAP; it pulls,
+  de-cruds, and summarizes every issue automatically)
 
 ## Quick start
 
@@ -123,6 +125,7 @@ That's it — Caddy sets the forwarded headers correctly out of the box.
 |---|---|
 | YouTube → transcript → summary | Tries YouTube subtitles first, falls back to Whisper if unavailable |
 | Web articles | trafilatura-based readability extractor for any article URL |
+| Newsletters (IMAP) | Per-profile mailbox polled on the scheduler tick; HTML pre-cleaned (tracking pixels, hidden pre-headers, footers stripped) before a newsletter-tuned summary. Sender becomes a filter tag. Configure in Settings → Newsletter (IMAP). |
 | Personal queue / playlist subscriptions | Scheduler re-checks every hour for new videos in subscribed playlists |
 | Hybrid search | SQLite FTS5 + vector embeddings via `sqlite-vec`, ranked with Reciprocal Rank Fusion |
 | Chat over a video | Ask follow-up questions; the transcript is the context |

@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.scheduler import PlaylistScheduler
     from app.services.heartbeat import HeartbeatRegistry
     from app.services.log_buffer import RingBufferHandler
+    from app.services.mail_sync import sync_mailbox
     from app.services.playlist_sync import sync_playlist
     from app.services.translation import translate
     from app.services.tts_render import render_chunks_to_mp3
@@ -113,7 +114,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tts_worker_task = asyncio.create_task(tts_worker.run())
 
         scheduler = PlaylistScheduler(
-            db=db, config=config, sync_fn=sync_playlist, heartbeat=heartbeats,
+            db=db, config=config, sync_fn=sync_playlist,
+            mail_sync_fn=sync_mailbox, heartbeat=heartbeats,
         )
         scheduler_task = asyncio.create_task(scheduler.run())
 

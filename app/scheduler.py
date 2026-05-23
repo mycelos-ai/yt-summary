@@ -15,12 +15,16 @@ from app.config import Config
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services import embeddings as embeddings_service
 
 log = logging.getLogger(__name__)
 
 SyncFn = Callable[[aiosqlite.Connection, Config, str], Awaitable[None]]
+# Mailbox sync takes a user_id (per-profile IMAP config) rather than a
+# playlist id, and may return a result object or None (disabled mailbox).
+MailSyncFn = Callable[[aiosqlite.Connection, Config, int], Awaitable[object]]
 
 # Default refresh interval if no setting is present.
 _DEFAULT_INTERVAL_MINUTES = 60.0
@@ -46,12 +50,14 @@ class PlaylistScheduler:
         config: Config,
         sync_fn: SyncFn,
         *,
+        mail_sync_fn: MailSyncFn | None = None,
         min_sleep_seconds: float = 1.0,
         heartbeat: HeartbeatRegistry | None = None,
     ) -> None:
         self._db = db
         self._config = config
         self._sync_fn = sync_fn
+        self._mail_sync_fn = mail_sync_fn
         self._min_sleep_seconds = min_sleep_seconds
         self._heartbeat = heartbeat
         self._stopped = asyncio.Event()
@@ -188,12 +194,40 @@ class PlaylistScheduler:
                     log.exception(
                         "scheduler: sync failed for playlist %s", playlist.id
                     )
+            if self._mail_sync_fn is not None:
+                await self._sync_mailboxes()
             n_reembedded = await self._reembed_pending_batch(limit=10)
             if n_reembedded:
                 self._touch(
                     current_step=f"re-embedded {n_reembedded} videos"
                 )
             await self._record_tick()
+
+    async def _sync_mailboxes(self) -> None:
+        """Poll every profile's IMAP mailbox once.
+
+        Settings are per-user, so each profile can point at its own
+        dedicated address. ``mail_sync_fn`` reads that profile's config
+        and no-ops (returns None) when the mailbox isn't enabled, so
+        iterating all users is cheap for the common single-mailbox case.
+        One profile's IMAP failure must not stall the others.
+        """
+        assert self._mail_sync_fn is not None
+        try:
+            users = await users_repo.list_all(self._db)
+        except Exception:
+            log.exception("scheduler: listing users for mail sync failed")
+            return
+        for user in users:
+            if self._stopped.is_set():
+                return
+            self._touch(current_step=f"fetching mail (user {user.id})")
+            try:
+                await self._mail_sync_fn(self._db, self._config, user.id)
+            except Exception:
+                log.exception(
+                    "scheduler: mail sync failed for user %s", user.id
+                )
 
     def request_tick(self) -> None:
         """Wake the scheduler so the next iteration runs immediately.
