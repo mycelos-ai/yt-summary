@@ -145,9 +145,12 @@
           <button type="button" class="btn btn-secondary"
                   hx-post="/playlists/new/mail/scan"
                   hx-target="#mail-senders-panel" hx-swap="innerHTML"
-                  hx-disabled-elt="this">
+                  hx-indicator="#scan-status" hx-disabled-elt="this">
             Scan recent senders
           </button>
+          <span id="scan-status" class="htmx-indicator mail-scan-spinner">
+            ⏳ Scanning the latest messages…
+          </span>
           <small>Reads the latest ~150 messages (headers only — nothing is
             marked read) to list who's been emailing this mailbox.</small>
         </div>
@@ -201,6 +204,24 @@
     margin-bottom: 16px;
   }
   .mail-senders-hint { color: var(--steel, #666); font-size: 14px; }
+  /* htmx adds .htmx-request to the hx-indicator target during the
+     request; toggle display so the spinner reserves no space when idle. */
+  .mail-scan-spinner { display: none; color: var(--steel, #666); font-size: 13px; }
+  .mail-scan-spinner.htmx-request { display: inline; }
+  .mail-scan-result { margin: 0 0 12px; }
+  .mail-sender-new {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: #065f46;
+    background: var(--brand-green-soft, #d1fae5);
+    border-radius: 9999px;
+    vertical-align: middle;
+  }
   .mail-senders-empty { color: var(--steel, #666); }
   .mail-sender-list {
     list-style: none;

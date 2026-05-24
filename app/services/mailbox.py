@@ -57,6 +57,7 @@ class SenderInfo:
 class Discovery:
     senders: list[SenderInfo]
     max_uid: int
+    scanned: int = 0
 
 
 @dataclass(frozen=True)
@@ -454,6 +455,7 @@ def _discover_sync(cfg: ImapConfig, limit: int) -> Discovery:
     # first time we see an address its subject is the most recent one.
     agg: dict[str, dict] = {}
     max_uid = 0
+    scanned = 0
     try:
         with box_cls(cfg.host, port=cfg.port).login(
             cfg.username, cfg.password, initial_folder=cfg.folder
@@ -467,6 +469,7 @@ def _discover_sync(cfg: ImapConfig, limit: int) -> Discovery:
                 mark_seen=False,
                 bulk=True,
             ):
+                scanned += 1
                 try:
                     uid = int(msg.uid) if msg.uid else 0
                 except (TypeError, ValueError):
@@ -502,7 +505,7 @@ def _discover_sync(cfg: ImapConfig, limit: int) -> Discovery:
         for addr, v in agg.items()
     ]
     senders.sort(key=lambda s: (s.last_date is None, s.last_date), reverse=True)
-    return Discovery(senders=senders, max_uid=max_uid)
+    return Discovery(senders=senders, max_uid=max_uid, scanned=scanned)
 
 
 async def discover_senders(cfg: ImapConfig, *, limit: int = 150) -> Discovery:

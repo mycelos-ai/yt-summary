@@ -116,6 +116,13 @@ async def scan_mail_senders(
     # Exclude them from the scan and evict any left over from an earlier
     # scan that ran before the address was registered.
     own = _own_addresses_from_settings(imap_settings)
+    known = {
+        s.sender_addr
+        for s in await mail_senders_repo.list_for_user(db, current_user_id)
+    }
+    discovered = [s for s in discovery.senders if s.addr not in own]
+    new_addrs = {s.addr for s in discovered if s.addr not in known}
+
     await mail_senders_repo.delete_addrs(db, current_user_id, list(own))
     await mail_senders_repo.upsert_discovered(
         db,
@@ -123,8 +130,7 @@ async def scan_mail_senders(
         [
             (s.addr, s.name, s.last_date.isoformat() if s.last_date else None,
              s.last_subject)
-            for s in discovery.senders
-            if s.addr not in own
+            for s in discovered
         ],
     )
     # Forward-only default: if the cursor is unset, start from the newest
@@ -138,7 +144,16 @@ async def scan_mail_senders(
     return templates.TemplateResponse(
         request,
         "_mail_senders.html",
-        {"senders": senders, "scanned": True},
+        {
+            "senders": senders,
+            "scanned": True,
+            "new_addrs": new_addrs,
+            "scan_summary": {
+                "scanned": discovery.scanned,
+                "found": len(discovered),
+                "new": len(new_addrs),
+            },
+        },
     )
 
 

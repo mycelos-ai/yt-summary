@@ -262,6 +262,7 @@ def test_scan_lists_discovered_senders(tmp_path, monkeypatch):
                        last_subject="Weekly", last_date=None),
         ],
         max_uid=42,
+        scanned=137,
     )
     with TestClient(app) as client:
         # Connect a mailbox for the active profile.
@@ -282,6 +283,10 @@ def test_scan_lists_discovered_senders(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "news@acme.com" in resp.text
     assert "Acme" in resp.text
+    # Feedback summary: messages scanned + senders found (+ new count).
+    assert "Scanned 137 messages" in resp.text
+    assert "1 sender found" in resp.text
+    assert "1 new" in resp.text
 
 
 def test_subscribe_persists_selected_senders(tmp_path, monkeypatch):
