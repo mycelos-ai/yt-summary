@@ -251,3 +251,25 @@ def test_parse_forward_returns_none_without_from_line():
 
     assert parse_forward("just body text, no headers here") is None
     assert parse_forward("") is None
+
+
+def test_parse_forward_address_wrapped_across_lines():
+    """Gmail wraps long sender lines after the '<', putting the address on
+    the next line. The parser must still recover it (real-world Substack
+    forward)."""
+    from app.services.mailbox import parse_forward
+
+    text = (
+        "---------- Forwarded message ---------\n"
+        "Von: Dr. Alex Wissner-Gross from The Innermost Loop <\n"
+        "theinnermostloop@substack.com>\n"
+        "Date: Sa., 23. Mai 2026 um 18:40 Uhr\n"
+        "Subject: The First Consumer-Scale Interspecies Foundation Model\n"
+        "To: <stefan.nothegger@gmx.de>\n\n"
+        "The Singularity has been fluent in exactly one species..."
+    )
+    fi = parse_forward(text)
+    assert fi is not None
+    assert fi.addr == "theinnermostloop@substack.com"
+    assert fi.name == "Dr. Alex Wissner-Gross from The Innermost Loop"
+    assert fi.subject == "The First Consumer-Scale Interspecies Foundation Model"

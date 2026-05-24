@@ -273,11 +273,21 @@ def clean_body(*, html: str | None, plain: str | None) -> str:
 # block. We recover it so the item is attributed to the real newsletter,
 # not to the person who forwarded it. Handles Gmail / Apple Mail /
 # Outlook layouts in English and German.
-_FWD_FROM_RE = re.compile(
-    r"^\s*(?:From|Von)\s*:\s*(?P<rest>.+)$", re.IGNORECASE | re.MULTILINE
+#
+# The From value can wrap across lines — Gmail breaks long sender lines
+# right after the "<", putting the address on the next line — so we
+# capture the whole value up to the next header (Date/Subject/To/…) or a
+# blank line, then hunt for the address inside that (possibly multi-line)
+# block.
+_FWD_NEXT_HEADER = r"(?:Date|Datum|Sent|Gesendet|Subject|Betreff|To|An|Cc|Reply-To)"
+_FWD_FROM_BLOCK_RE = re.compile(
+    r"(?:^|\n)[ \t>]*(?:From|Von)[ \t]*:[ \t]*(?P<rest>.*?)"
+    rf"(?=\n[ \t>]*{_FWD_NEXT_HEADER}[ \t]*:|\n[ \t>]*\n|\Z)",
+    re.IGNORECASE | re.DOTALL,
 )
 _FWD_SUBJECT_RE = re.compile(
-    r"^\s*(?:Subject|Betreff)\s*:\s*(?P<subj>.+)$", re.IGNORECASE | re.MULTILINE
+    r"(?:^|\n)[ \t>]*(?:Subject|Betreff)[ \t]*:[ \t]*(?P<subj>[^\n]+)",
+    re.IGNORECASE,
 )
 _EMAIL_IN_ANGLE_RE = re.compile(r"<\s*([^<>@\s]+@[^<>@\s]+?)\s*>")
 _MAILTO_RE = re.compile(r"mailto:\s*([^\]\s>]+@[^\]\s>]+)", re.IGNORECASE)
@@ -290,27 +300,31 @@ def strip_reply_prefix(subject: str) -> str:
     return _REPLY_PREFIX_RE.sub("", subject or "").strip()
 
 
+def _clean_name(raw: str) -> str:
+    return re.sub(r"\s+", " ", raw).strip().strip('"').strip(' <["').strip()
+
+
 def parse_forward(text: str) -> ForwardInfo | None:
     """Recover the original sender (and subject) from a forwarded body.
 
-    Returns None when no `From:`/`Von:` line carrying an email address is
-    found. Takes the first such line, which in a forward is the original
-    sender at the top of the quoted header block.
+    Returns None when no `From:`/`Von:` block carrying an email address is
+    found. Takes the first such block, which in a forward is the original
+    sender at the top of the quoted header section.
     """
     if not text:
         return None
-    for m in _FWD_FROM_RE.finditer(text):
-        rest = m.group("rest").strip()
+    for m in _FWD_FROM_BLOCK_RE.finditer(text):
+        rest = m.group("rest")
         angle = _EMAIL_IN_ANGLE_RE.search(rest)
         if angle:
             addr = angle.group(1).strip().lower()
-            name = rest[: angle.start()].strip().strip('"').strip()
+            name = _clean_name(rest[: angle.start()])
         else:
             hit = _MAILTO_RE.search(rest) or _BARE_EMAIL_RE.search(rest)
             if not hit:
                 continue
             addr = hit.group(1).strip().lower()
-            name = ""
+            name = _clean_name(rest[: hit.start()])
         subj_m = _FWD_SUBJECT_RE.search(text)
         subject = (
             strip_reply_prefix(subj_m.group("subj").strip()) if subj_m else ""
