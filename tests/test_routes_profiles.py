@@ -104,3 +104,30 @@ def test_save_imap_404_for_missing_profile(tmp_path, monkeypatch):
             follow_redirects=False,
         )
     assert resp.status_code == 404
+
+
+def test_save_imap_persists_own_addresses(tmp_path, monkeypatch):
+    """The 'your own addresses' field (forward-to-summarize) is saved and
+    rendered back into the form."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.mailbox.org", "imap_ssl": "1",
+                "imap_username": "news@example.com", "imap_password": "pw",
+                "mail_own_addresses": "stefan@gmail.com, work@company.com",
+            },
+            follow_redirects=False,
+        )
+
+        async def read():
+            from app.repos import settings as settings_repo
+            return await settings_repo.get_all_for_user(app.state.db, 1)
+
+        stored = _run(read())
+        assert stored["mail_own_addresses"] == "stefan@gmail.com, work@company.com"
+
+        page = client.get("/profiles/1/edit")
+    assert "stefan@gmail.com" in page.text

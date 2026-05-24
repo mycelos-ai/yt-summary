@@ -8,6 +8,7 @@ summarizer / embedder pick it up from there unchanged.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 
 import aiosqlite
@@ -23,6 +24,7 @@ from app.services.mailbox import (
     ImapConfig,
     fetch_new_messages,
     mail_id_from_message_id,
+    strip_reply_prefix,
 )
 
 log = logging.getLogger(__name__)
@@ -71,6 +73,17 @@ def _imap_config_from_settings(
     )
 
 
+_OWN_ADDR_RE = re.compile(r"[^\s,;<>]+@[^\s,;<>]+")
+
+
+def _own_addresses_from_settings(s: dict[str, str]) -> frozenset[str]:
+    """The profile's own sending addresses (for the forward-to-summarize
+    flow), parsed from the free-text profile field into lowercased
+    addresses."""
+    raw = s.get("mail_own_addresses") or ""
+    return frozenset(a.lower() for a in _OWN_ADDR_RE.findall(raw))
+
+
 async def sync_mailbox(
     db: aiosqlite.Connection,
     config: Config,  # noqa: ARG001 — kept for signature parity with sync_playlist
@@ -84,12 +97,14 @@ async def sync_mailbox(
     if cfg is None:
         return None
 
-    # Newsletters are strictly opt-in: nothing is ingested until at
-    # least one sender is subscribed. With an empty subscription set we
-    # skip the fetch entirely — cheap, and the cursor (initialised to
-    # "now" at scan time) stays put so subscribing later crawls forward.
+    # Two ways a message gets summarized: it's from a subscribed
+    # newsletter (strict opt-in), or it was forwarded from one of the
+    # profile's own addresses (always summarized, unwrapped to the
+    # original sender). With neither configured there's nothing to do —
+    # skip the fetch entirely so the cursor stays put.
     subscribed = await mail_senders_repo.subscribed_addrs(db, user_id)
-    if not subscribed:
+    own = _own_addresses_from_settings(s)
+    if not subscribed and not own:
         return MailSyncResult(
             fetched=0, newly_ingested=0, skipped_existing=0, max_uid=0
         )
@@ -99,22 +114,25 @@ async def sync_mailbox(
     except ValueError:
         since_uid = 0
 
-    messages = await fetch_new_messages(cfg, since_uid)
+    messages = await fetch_new_messages(cfg, since_uid, own_addresses=own)
 
-    # Keep the sender list fresh: surface any new senders in this batch
-    # on the management page (as unsubscribed) without a manual rescan.
-    seen_senders = [
-        (
-            m.sender_addr,
-            m.sender_name,
-            m.date.isoformat() if m.date else None,
-            m.subject,
-        )
-        for m in messages
-        if m.sender_addr
-    ]
-    if seen_senders:
-        await mail_senders_repo.upsert_discovered(db, user_id, seen_senders)
+    # Keep the sender list fresh: surface senders in this batch on the
+    # management page (as unsubscribed candidates) without a manual
+    # rescan. For a forward we surface the *original* sender, not the
+    # user's own address.
+    candidates: list[tuple[str, str, str | None, str | None]] = []
+    for m in messages:
+        when = m.date.isoformat() if m.date else None
+        if m.sender_addr.strip().lower() in own:
+            if m.forwarded_addr:
+                candidates.append(
+                    (m.forwarded_addr, m.forwarded_name or m.forwarded_addr,
+                     when, m.forwarded_subject or m.subject)
+                )
+        elif m.sender_addr:
+            candidates.append((m.sender_addr, m.sender_name, when, m.subject))
+    if candidates:
+        await mail_senders_repo.upsert_discovered(db, user_id, candidates)
 
     newly = 0
     skipped = 0
@@ -122,11 +140,24 @@ async def sync_mailbox(
     for m in messages:
         max_uid = max(max_uid, m.uid)
         try:
-            # Strict opt-in: only ingest mail from subscribed senders.
-            # Unsubscribed mail (incl. spam) is skipped, but the cursor
-            # still advances past it below.
-            if m.sender_addr.strip().lower() not in subscribed:
+            sender = m.sender_addr.strip().lower()
+            is_forward = sender in own
+            # Skip mail that's neither a forward nor from a subscribed
+            # sender — the cursor still advances past it below.
+            if not is_forward and sender not in subscribed:
                 continue
+
+            if is_forward:
+                # Attribute to the original newsletter; fall back to a
+                # generic "Forwarded" when the block couldn't be parsed.
+                attr_addr = m.forwarded_addr or m.sender_addr
+                attr_name = m.forwarded_name or "Forwarded"
+                title = strip_reply_prefix(m.forwarded_subject or m.subject) \
+                    or m.subject
+            else:
+                attr_addr, attr_name = m.sender_addr, m.sender_name
+                title = m.subject
+
             item_id = f"{user_id}:{mail_id_from_message_id(m.message_id)}"
             existing = await videos_repo.get(db, item_id)
             if existing is not None:
@@ -136,12 +167,12 @@ async def sync_mailbox(
                 # Nothing extractable (e.g. an image-only mail). Skip it
                 # but let the cursor advance past it.
                 continue
-            description = f"From {m.sender_name} <{m.sender_addr}>".strip()
+            description = f"From {attr_name} <{attr_addr}>".strip()
             await videos_repo.upsert_metadata(
                 db,
                 video_id=item_id,
                 url=m.web_url or "",
-                title=m.subject,
+                title=title,
                 description=description,
                 thumbnail_path=None,
                 duration_seconds=None,
@@ -151,7 +182,7 @@ async def sync_mailbox(
             await videos_repo.set_transcript(
                 db, item_id, m.body, TranscriptSource.EMAIL
             )
-            await tags_repo.set_tags_for_video(db, item_id, [m.sender_name])
+            await tags_repo.set_tags_for_video(db, item_id, [attr_name])
             await jobs_repo.enqueue(db, item_id)
             newly += 1
         except Exception:

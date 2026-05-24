@@ -126,7 +126,7 @@ That's it — Caddy sets the forwarded headers correctly out of the box.
 |---|---|
 | YouTube → transcript → summary | Tries YouTube subtitles first, falls back to Whisper if unavailable |
 | Web articles | trafilatura-based readability extractor for any article URL |
-| Newsletters (IMAP) | Per-profile mailbox polled on the scheduler tick. Strictly opt-in: scan the recent senders and subscribe to the ones you want (the rest, incl. spam, are ignored). HTML is pre-cleaned (tracking pixels, hidden pre-headers, footers stripped) before a newsletter-tuned summary; sender becomes a filter tag. Connect the mailbox on the profile page; pick senders under "Add a source" → Newsletter. |
+| Newsletters (IMAP) | Per-profile mailbox polled on the scheduler tick. Strictly opt-in: scan the recent senders and subscribe to the ones you want (the rest, incl. spam, are ignored). HTML is pre-cleaned (tracking pixels, hidden pre-headers, footers stripped) before a newsletter-tuned summary; sender becomes a filter tag. Connect the mailbox on the profile page; pick senders under "Add a source" → Newsletter. Register your own addresses on the profile page to **forward** any newsletter (or one-off article) into the mailbox: it's always summarized and unwrapped to the original sender, which then shows up as a subscribe candidate. |
 | Personal queue / playlist subscriptions | Scheduler re-checks every hour for new videos in subscribed playlists |
 | Hybrid search | SQLite FTS5 + vector embeddings via `sqlite-vec`, ranked with Reciprocal Rank Fusion |
 | Chat over a video | Ask follow-up questions; the transcript is the context |

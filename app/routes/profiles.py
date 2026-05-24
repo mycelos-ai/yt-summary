@@ -224,6 +224,7 @@ async def profile_save_imap(
     imap_username: str = Form(""),
     imap_password: str = Form(""),
     imap_folder: str = Form("INBOX"),
+    mail_own_addresses: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """Save this profile's IMAP/newsletter config.
@@ -246,6 +247,7 @@ async def profile_save_imap(
         "imap_ssl": "1" if imap_ssl else "0",
         "imap_username": imap_username.strip(),
         "imap_folder": imap_folder.strip() or "INBOX",
+        "mail_own_addresses": mail_own_addresses.strip(),
     }
     for key, value in pairs.items():
         if value or key == "imap_ssl":

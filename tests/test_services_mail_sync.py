@@ -14,6 +14,7 @@ from app.services.mailbox import MailMessage, mail_id_from_message_id
 def _msg(
     uid, mid, *, subject="Subj", sender="Acme News",
     addr="news@acme.com", body="Body content.",
+    fwd_addr=None, fwd_name=None, fwd_subject=None,
 ):
     return MailMessage(
         uid=uid,
@@ -24,6 +25,9 @@ def _msg(
         date=None,
         body=body,
         web_url="https://acme.com/web",
+        forwarded_addr=fwd_addr,
+        forwarded_name=fwd_name,
+        forwarded_subject=fwd_subject,
     )
 
 
@@ -176,3 +180,61 @@ async def test_sync_only_ingests_subscribed_senders(db, config: Config):
     # (as not-subscribed) so the user can subscribe later if they want.
     addrs = {s.sender_addr for s in await mail_senders_repo.list_for_user(db, 1)}
     assert "spam@evil.com" in addrs
+
+
+async def test_sync_forwarded_mail_attributed_to_original_sender(db, config: Config):
+    """A mail forwarded from one of the profile's own addresses is always
+    summarized, unwrapped to the original newsletter, and the original
+    sender becomes a (non-subscribed) candidate."""
+    await _enable_imap(db)
+    await settings_repo.set_for_user(db, 1, "mail_own_addresses", "stefan@gmail.com")
+    # No subscriptions at all — the forward path must still ingest.
+    msgs = [
+        _msg(60, "<fwd1@acme.com>", addr="stefan@gmail.com", sender="Stefan",
+             subject="Fwd: TLDR 2026-05-24", body="Forwarded newsletter body.",
+             fwd_addr="dan@tldr.tech", fwd_name="TLDR",
+             fwd_subject="TLDR 2026-05-24"),
+    ]
+    with patch(
+        "app.services.mail_sync.fetch_new_messages", AsyncMock(return_value=msgs)
+    ):
+        result = await sync_mailbox(db, config, 1)
+
+    assert result is not None
+    assert result.newly_ingested == 1
+    item_id = f"1:{mail_id_from_message_id('<fwd1@acme.com>')}"
+    v = await videos_repo.get(db, item_id)
+    assert v is not None
+    assert v.title == "TLDR 2026-05-24"  # attributed to the original
+    assert "TLDR" in await tags_repo.tags_for_video(db, item_id)
+    # Original sender surfaces as candidate; own address does not.
+    addrs = {s.sender_addr for s in await mail_senders_repo.list_for_user(db, 1)}
+    assert "dan@tldr.tech" in addrs
+    assert "stefan@gmail.com" not in addrs
+    # Forwarding does NOT auto-subscribe — strict opt-in stays intact.
+    assert await mail_senders_repo.subscribed_addrs(db, 1) == set()
+
+
+async def test_sync_unparsed_forward_falls_back_to_generic(db, config: Config):
+    """When the forward block can't be parsed, still summarize (generic
+    'Forwarded' attribution) and add no candidate."""
+    await _enable_imap(db)
+    await settings_repo.set_for_user(db, 1, "mail_own_addresses", "stefan@gmail.com")
+    msgs = [
+        _msg(61, "<fwd2@acme.com>", addr="stefan@gmail.com", sender="Stefan",
+             subject="Fwd: Some article", body="A forwarded one-off article."),
+    ]
+    with patch(
+        "app.services.mail_sync.fetch_new_messages", AsyncMock(return_value=msgs)
+    ):
+        result = await sync_mailbox(db, config, 1)
+
+    assert result is not None
+    assert result.newly_ingested == 1
+    item_id = f"1:{mail_id_from_message_id('<fwd2@acme.com>')}"
+    v = await videos_repo.get(db, item_id)
+    assert v is not None
+    assert v.title == "Some article"  # "Fwd:" stripped
+    assert "Forwarded" in await tags_repo.tags_for_video(db, item_id)
+    # Nothing to subscribe to → no candidate created.
+    assert await mail_senders_repo.list_for_user(db, 1) == []

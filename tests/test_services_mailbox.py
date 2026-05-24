@@ -200,3 +200,54 @@ async def test_fetch_new_messages_wraps_errors_as_valueerror():
             assert "IMAP connection failed" in str(e)
         else:
             raise AssertionError("expected ValueError")
+
+
+def test_parse_forward_gmail():
+    from app.services.mailbox import parse_forward
+
+    text = (
+        "---------- Forwarded message ---------\n"
+        "From: TLDR <dan@tldr.tech>\n"
+        "Date: Sat, 24 May 2026 at 09:00\n"
+        "Subject: TLDR for May 24\n"
+        "To: Stefan <stefan@gmail.com>\n\n"
+        "Today's stories..."
+    )
+    fi = parse_forward(text)
+    assert fi is not None
+    assert fi.addr == "dan@tldr.tech"
+    assert fi.name == "TLDR"
+    assert fi.subject == "TLDR for May 24"
+
+
+def test_parse_forward_german_strips_prefix_and_quotes():
+    from app.services.mailbox import parse_forward
+
+    text = (
+        "Weitergeleitete Nachricht\n"
+        'Von: "Heise Newsletter" <newsletter@heise.de>\n'
+        "Betreff: WG: Wochenrückblick\n"
+        "An: ich@gmx.de\n\n"
+        "Inhalt"
+    )
+    fi = parse_forward(text)
+    assert fi is not None
+    assert fi.addr == "newsletter@heise.de"
+    assert fi.name == "Heise Newsletter"
+    assert fi.subject == "Wochenrückblick"
+
+
+def test_parse_forward_outlook_mailto():
+    from app.services.mailbox import parse_forward
+
+    text = "From: Acme [mailto:news@acme.com]\nSent: Monday\nSubject: Hi\n"
+    fi = parse_forward(text)
+    assert fi is not None
+    assert fi.addr == "news@acme.com"
+
+
+def test_parse_forward_returns_none_without_from_line():
+    from app.services.mailbox import parse_forward
+
+    assert parse_forward("just body text, no headers here") is None
+    assert parse_forward("") is None

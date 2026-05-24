@@ -168,6 +168,17 @@
              value="{{ imap.get('imap_folder', 'INBOX') }}" placeholder="INBOX">
     </label>
 
+    <label class="profile-form-field">
+      <span class="profile-form-label">Your own addresses (forwarding)</span>
+      <textarea name="mail_own_addresses" rows="2"
+                placeholder="stefan@gmail.com, work@company.com">{{ imap.get('mail_own_addresses', '') }}</textarea>
+      <small>Mail forwarded <em>from</em> these addresses is always
+        summarized and unwrapped to the original newsletter — so you can
+        forward any issue (or a one-off article) here. The original sender
+        then shows up as a subscribe candidate. Comma- or
+        newline-separated.</small>
+    </label>
+
     <div class="settings-test-row">
       <button type="button" class="btn btn-secondary"
               hx-post="/profiles/{{ profile.id }}/imap/test"

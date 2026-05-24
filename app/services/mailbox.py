@@ -60,6 +60,13 @@ class Discovery:
 
 
 @dataclass(frozen=True)
+class ForwardInfo:
+    addr: str
+    name: str
+    subject: str
+
+
+@dataclass(frozen=True)
 class MailMessage:
     uid: int
     message_id: str
@@ -69,6 +76,12 @@ class MailMessage:
     date: datetime | None
     body: str  # cleaned plain text
     web_url: str | None  # "view in browser" link if found
+    # Set only when the message was forwarded from one of the profile's
+    # own addresses: the original newsletter parsed out of the forward
+    # block, so the sync can attribute the item to the real sender.
+    forwarded_addr: str | None = None
+    forwarded_name: str | None = None
+    forwarded_subject: str | None = None
 
 
 def mail_id_from_message_id(message_id: str) -> str:
@@ -254,6 +267,58 @@ def clean_body(*, html: str | None, plain: str | None) -> str:
     return text.strip()
 
 
+# --- Forward parsing -------------------------------------------------
+# When the user forwards a newsletter from their own mailbox, the
+# original sender ends up in the body as a "Forwarded message" header
+# block. We recover it so the item is attributed to the real newsletter,
+# not to the person who forwarded it. Handles Gmail / Apple Mail /
+# Outlook layouts in English and German.
+_FWD_FROM_RE = re.compile(
+    r"^\s*(?:From|Von)\s*:\s*(?P<rest>.+)$", re.IGNORECASE | re.MULTILINE
+)
+_FWD_SUBJECT_RE = re.compile(
+    r"^\s*(?:Subject|Betreff)\s*:\s*(?P<subj>.+)$", re.IGNORECASE | re.MULTILINE
+)
+_EMAIL_IN_ANGLE_RE = re.compile(r"<\s*([^<>@\s]+@[^<>@\s]+?)\s*>")
+_MAILTO_RE = re.compile(r"mailto:\s*([^\]\s>]+@[^\]\s>]+)", re.IGNORECASE)
+_BARE_EMAIL_RE = re.compile(r"([^<>@\s,;\[\]]+@[^<>@\s,;\[\]]+)")
+_REPLY_PREFIX_RE = re.compile(r"^(?:(?:re|fwd?|wg|aw|tr)\s*:\s*)+", re.IGNORECASE)
+
+
+def strip_reply_prefix(subject: str) -> str:
+    """Drop leading Fwd:/Re:/WG:/AW: markers (repeated) from a subject."""
+    return _REPLY_PREFIX_RE.sub("", subject or "").strip()
+
+
+def parse_forward(text: str) -> ForwardInfo | None:
+    """Recover the original sender (and subject) from a forwarded body.
+
+    Returns None when no `From:`/`Von:` line carrying an email address is
+    found. Takes the first such line, which in a forward is the original
+    sender at the top of the quoted header block.
+    """
+    if not text:
+        return None
+    for m in _FWD_FROM_RE.finditer(text):
+        rest = m.group("rest").strip()
+        angle = _EMAIL_IN_ANGLE_RE.search(rest)
+        if angle:
+            addr = angle.group(1).strip().lower()
+            name = rest[: angle.start()].strip().strip('"').strip()
+        else:
+            hit = _MAILTO_RE.search(rest) or _BARE_EMAIL_RE.search(rest)
+            if not hit:
+                continue
+            addr = hit.group(1).strip().lower()
+            name = ""
+        subj_m = _FWD_SUBJECT_RE.search(text)
+        subject = (
+            strip_reply_prefix(subj_m.group("subj").strip()) if subj_m else ""
+        )
+        return ForwardInfo(addr=addr, name=name or addr, subject=subject)
+    return None
+
+
 def _require_imap_tools():
     """Import imap-tools, or raise a ValueError the UI can show verbatim.
 
@@ -274,7 +339,12 @@ def _require_imap_tools():
     return imap_tools
 
 
-def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailMessage]:
+def _fetch_sync(
+    cfg: ImapConfig,
+    since_uid: int,
+    batch_limit: int,
+    own_addresses: frozenset[str],
+) -> list[MailMessage]:
     imap_tools = _require_imap_tools()
 
     box_cls = imap_tools.MailBox if cfg.ssl else imap_tools.MailBoxUnencrypted
@@ -303,6 +373,13 @@ def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailM
                     message_id = hashlib.sha256(basis.encode("utf-8")).hexdigest()
                 body = clean_body(html=msg.html, plain=msg.text)
                 web_url = _extract_web_url(msg.html or "")
+                # Only parse the forward block for mail the user sent
+                # themselves — that's the migration path, and it keeps the
+                # heuristic from misfiring on ordinary newsletters.
+                fwd: ForwardInfo | None = None
+                if (msg.from_ or "").strip().lower() in own_addresses:
+                    raw = msg.text or _lxml_text(msg.html or "")
+                    fwd = parse_forward(raw)
                 out.append(
                     MailMessage(
                         uid=uid,
@@ -315,6 +392,9 @@ def _fetch_sync(cfg: ImapConfig, since_uid: int, batch_limit: int) -> list[MailM
                         date=msg.date,
                         body=body,
                         web_url=web_url,
+                        forwarded_addr=fwd.addr if fwd else None,
+                        forwarded_name=fwd.name if fwd else None,
+                        forwarded_subject=fwd.subject if fwd else None,
                     )
                 )
     except Exception as e:
@@ -419,12 +499,21 @@ async def discover_senders(cfg: ImapConfig, *, limit: int = 150) -> Discovery:
 
 
 async def fetch_new_messages(
-    cfg: ImapConfig, since_uid: int, *, batch_limit: int = 50
+    cfg: ImapConfig,
+    since_uid: int,
+    *,
+    batch_limit: int = 50,
+    own_addresses: frozenset[str] = frozenset(),
 ) -> list[MailMessage]:
     """Fetch up to `batch_limit` messages with UID greater than `since_uid`.
+
+    `own_addresses` are the profile's own sending addresses; mail from
+    them is treated as a forward and its original sender is parsed out.
 
     Synchronous `imap-tools` work is offloaded to a thread so the event
     loop keeps serving requests. Raises ValueError with a user-readable
     message on any connection/auth failure.
     """
-    return await asyncio.to_thread(_fetch_sync, cfg, since_uid, batch_limit)
+    return await asyncio.to_thread(
+        _fetch_sync, cfg, since_uid, batch_limit, own_addresses
+    )
