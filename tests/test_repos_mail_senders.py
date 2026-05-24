@@ -35,3 +35,12 @@ async def test_senders_scoped_per_user(db):
     await repo.set_subscriptions(db, 1, ["a@x.com"])
     assert await repo.subscribed_addrs(db, 2) == set()
     assert {s.sender_addr for s in await repo.list_for_user(db, 2)} == {"b@x.com"}
+
+
+async def test_delete_addrs_removes_only_given(db):
+    await repo.upsert_discovered(
+        db, 1, [("a@x.com", "A", None, None), ("me@gmail.com", "Me", None, None)]
+    )
+    await repo.delete_addrs(db, 1, ["me@gmail.com"])
+    addrs = {s.sender_addr for s in await repo.list_for_user(db, 1)}
+    assert addrs == {"a@x.com"}

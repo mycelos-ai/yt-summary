@@ -11,7 +11,10 @@ from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.repos import mail_senders as mail_senders_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
-from app.services.mail_sync import _imap_config_from_settings
+from app.services.mail_sync import (
+    _imap_config_from_settings,
+    _own_addresses_from_settings,
+)
 from app.services.mailbox import discover_senders
 from app.services.playlist import fetch_playlist
 from app.services.playlist_sync import load_older_videos, sync_playlist
@@ -108,6 +111,12 @@ async def scan_mail_senders(
     except ValueError as e:
         return HTMLResponse(f'<p class="status status-failed">⚠ {e}</p>')
 
+    # The profile's own addresses are never newsletter candidates — they
+    # show up here only because forwarded copies sit in the mailbox.
+    # Exclude them from the scan and evict any left over from an earlier
+    # scan that ran before the address was registered.
+    own = _own_addresses_from_settings(imap_settings)
+    await mail_senders_repo.delete_addrs(db, current_user_id, list(own))
     await mail_senders_repo.upsert_discovered(
         db,
         current_user_id,
@@ -115,6 +124,7 @@ async def scan_mail_senders(
             (s.addr, s.name, s.last_date.isoformat() if s.last_date else None,
              s.last_subject)
             for s in discovery.senders
+            if s.addr not in own
         ],
     )
     # Forward-only default: if the cursor is unset, start from the newest

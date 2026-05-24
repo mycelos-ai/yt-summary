@@ -22,8 +22,10 @@ from app.main import (
     get_current_user_id,
     get_db,
 )
+from app.repos import mail_senders as mail_senders_repo
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
+from app.services.mail_sync import _own_addresses_from_settings
 from app.services.mailbox import ImapConfig, check_connection
 from app.template_filters import register_filters
 
@@ -258,6 +260,11 @@ async def profile_save_imap(
         await settings_repo.set_for_user(
             db, user_id, "imap_password", imap_password
         )
+    # Evict any of these own addresses that an earlier scan added as
+    # newsletter candidates — you forwarding mail isn't a newsletter.
+    own = _own_addresses_from_settings({"mail_own_addresses": mail_own_addresses})
+    if own:
+        await mail_senders_repo.delete_addrs(db, user_id, list(own))
     return RedirectResponse(f"/profiles/{user_id}/edit", status_code=303)
 
 

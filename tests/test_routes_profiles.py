@@ -131,3 +131,37 @@ def test_save_imap_persists_own_addresses(tmp_path, monkeypatch):
 
         page = client.get("/profiles/1/edit")
     assert "stefan@gmail.com" in page.text
+
+
+def test_save_own_address_evicts_existing_candidate(tmp_path, monkeypatch):
+    """Registering an own address removes it from the newsletter
+    candidate list if an earlier scan had added it."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            from app.repos import mail_senders as repo
+            await repo.upsert_discovered(
+                app.state.db, 1, [("stefan@gmail.com", "Stefan", None, None)]
+            )
+
+        asyncio.get_event_loop().run_until_complete(seed())
+
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.x", "imap_ssl": "1",
+                "imap_username": "u@x", "imap_password": "pw",
+                "mail_own_addresses": "stefan@gmail.com",
+            },
+            follow_redirects=False,
+        )
+
+        async def read():
+            from app.repos import mail_senders as repo
+            return {s.sender_addr for s in await repo.list_for_user(app.state.db, 1)}
+
+        addrs = asyncio.get_event_loop().run_until_complete(read())
+    assert "stefan@gmail.com" not in addrs

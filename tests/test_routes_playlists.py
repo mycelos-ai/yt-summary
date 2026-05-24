@@ -336,3 +336,52 @@ def test_saved_creds_without_polling_still_count_as_connected(tmp_path, monkeypa
     # Polling-off hint is shown (text wraps, so match contiguous markers).
     assert "Mailbox connected, but" in resp.text
     assert "Enable newsletter polling" in resp.text
+
+
+def test_scan_excludes_and_evicts_own_addresses(tmp_path, monkeypatch):
+    """The profile's own addresses must never appear as scan candidates —
+    forwarded copies in the mailbox shouldn't make 'me' look like a
+    newsletter — and a leftover from an earlier scan is evicted."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services.mailbox import Discovery, SenderInfo
+
+    discovery = Discovery(
+        senders=[
+            SenderInfo(addr="news@acme.com", name="Acme", count=2,
+                       last_subject="Hi", last_date=None),
+            SenderInfo(addr="stefan@gmail.com", name="Stefan", count=1,
+                       last_subject="Fwd: thing", last_date=None),
+        ],
+        max_uid=10,
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.x", "imap_ssl": "1",
+                "imap_username": "u@x", "imap_password": "pw",
+                "mail_own_addresses": "stefan@gmail.com",
+            },
+            follow_redirects=False,
+        )
+
+        async def seed():
+            from app.repos import mail_senders as repo
+            await repo.upsert_discovered(
+                app.state.db, 1, [("stefan@gmail.com", "Stefan", None, None)]
+            )
+
+        asyncio.get_event_loop().run_until_complete(seed())
+
+        with patch(
+            "app.routes.playlists.discover_senders",
+            AsyncMock(return_value=discovery),
+        ):
+            resp = client.post("/playlists/new/mail/scan")
+    assert resp.status_code == 200
+    assert "news@acme.com" in resp.text
+    assert "stefan@gmail.com" not in resp.text

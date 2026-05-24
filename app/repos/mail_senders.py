@@ -98,3 +98,17 @@ async def subscribed_addrs(
         (user_id,),
     )
     return {row[0] for row in await cursor.fetchall()}
+
+
+async def delete_addrs(
+    db: aiosqlite.Connection, user_id: int, addrs: Sequence[str]
+) -> None:
+    """Remove specific senders for a profile. Used to evict the profile's
+    own addresses, which are never newsletter candidates."""
+    wanted = {a.strip().lower() for a in addrs if a.strip()}
+    for addr in wanted:
+        await db.execute(
+            "DELETE FROM mail_senders WHERE user_id=? AND sender_addr=?",
+            (user_id, addr),
+        )
+    await db.commit()
