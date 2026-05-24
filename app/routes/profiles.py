@@ -22,7 +22,11 @@ from app.main import (
     get_current_user_id,
     get_db,
 )
+from app.repos import mail_senders as mail_senders_repo
+from app.repos import settings as settings_repo
 from app.repos import users as users_repo
+from app.services.mail_sync import _own_addresses_from_settings
+from app.services.mailbox import ImapConfig, check_connection
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -147,6 +151,11 @@ async def profile_edit_form(
     if profile is None:
         raise HTTPException(404, detail="Profile not found")
     from app.services import avatars as avatars_service
+    # Newsletter/IMAP config is per-profile, so it lives here rather
+    # than on the global Settings page. Never echo the password back.
+    imap_raw = await settings_repo.get_all_for_user(db, user_id)
+    has_imap_password = bool(imap_raw.get("imap_password"))
+    imap = {k: v for k, v in imap_raw.items() if k != "imap_password"}
     return templates.TemplateResponse(
         request,
         "profile_form.html",
@@ -156,6 +165,8 @@ async def profile_edit_form(
             "avatar_groups": avatars_service.grouped(),
             "form_action": f"/profiles/{user_id}/edit",
             "submit_label": "Save changes",
+            "imap": imap,
+            "has_imap_password": has_imap_password,
         },
     )
 
@@ -203,6 +214,101 @@ async def profile_edit(
     except ValueError as e:
         raise HTTPException(400, detail=str(e)) from e
     return RedirectResponse("/profiles", status_code=303)
+
+
+@router.post("/profiles/{user_id}/imap")
+async def profile_save_imap(
+    user_id: int,
+    imap_enabled: str = Form(""),
+    imap_host: str = Form(""),
+    imap_port: str = Form(""),
+    imap_ssl: str = Form(""),
+    imap_username: str = Form(""),
+    imap_password: str = Form(""),
+    imap_folder: str = Form("INBOX"),
+    mail_own_addresses: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Save this profile's IMAP/newsletter config.
+
+    Scoped to the profile in the URL — NOT the active cookie profile —
+    so editing profile X's mailbox always touches profile X regardless
+    of who's currently switched in. An empty password keeps the stored
+    one, matching the Whisper/LLM key fields.
+    """
+    profile = await users_repo.get_by_id(db, user_id)
+    if profile is None:
+        raise HTTPException(404, detail="Profile not found")
+
+    # imap_ssl is stored explicitly as "1"/"0" (never deleted) so an
+    # unchecked box reliably disables TLS — a missing key defaults to on.
+    pairs = {
+        "imap_enabled": "1" if imap_enabled else "",
+        "imap_host": imap_host.strip(),
+        "imap_port": imap_port.strip(),
+        "imap_ssl": "1" if imap_ssl else "0",
+        "imap_username": imap_username.strip(),
+        "imap_folder": imap_folder.strip() or "INBOX",
+        "mail_own_addresses": mail_own_addresses.strip(),
+    }
+    for key, value in pairs.items():
+        if value or key == "imap_ssl":
+            await settings_repo.set_for_user(db, user_id, key, value)
+        else:
+            await settings_repo.delete_for_user(db, user_id, key)
+    if imap_password:
+        await settings_repo.set_for_user(
+            db, user_id, "imap_password", imap_password
+        )
+    # Evict any of these own addresses that an earlier scan added as
+    # newsletter candidates — you forwarding mail isn't a newsletter.
+    own = _own_addresses_from_settings({"mail_own_addresses": mail_own_addresses})
+    if own:
+        await mail_senders_repo.delete_addrs(db, user_id, list(own))
+    return RedirectResponse(f"/profiles/{user_id}/edit", status_code=303)
+
+
+@router.post("/profiles/{user_id}/imap/test", response_class=HTMLResponse)
+async def profile_test_imap(
+    user_id: int,
+    imap_host: str = Form(""),
+    imap_port: str = Form(""),
+    imap_ssl: str = Form(""),
+    imap_username: str = Form(""),
+    imap_password: str = Form(""),
+    imap_folder: str = Form("INBOX"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Round-trip a real IMAP login with the form's current values so the
+    user can verify before saving. Blank password falls back to the
+    stored one for this profile."""
+    host = imap_host.strip()
+    username = imap_username.strip()
+    ssl = bool(imap_ssl)
+    password = imap_password or (
+        await settings_repo.get_for_user(db, user_id, "imap_password") or ""
+    )
+    if not host or not username or not password:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Host, username and password '
+            'are required.</p>'
+        )
+    try:
+        port = int(imap_port.strip()) if imap_port.strip() else (993 if ssl else 143)
+    except ValueError:
+        port = 993 if ssl else 143
+    cfg = ImapConfig(
+        host=host, port=port, ssl=ssl, username=username,
+        password=password, folder=imap_folder.strip() or "INBOX",
+    )
+    try:
+        count = await check_connection(cfg)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="status status-failed">⚠ {e}</p>')
+    return HTMLResponse(
+        f'<p class="status status-done">✓ Connected to {host} — '
+        f'{count} message(s) in {cfg.folder}.</p>'
+    )
 
 
 @router.post("/profiles/{user_id}/delete")

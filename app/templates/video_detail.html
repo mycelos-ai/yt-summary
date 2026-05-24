@@ -4,10 +4,11 @@
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
-    {% if video.kind.value == 'web' %}
-      {# Web articles have no inline player, so the "↗ Open original"
-         link stays at the top — it's the only way to navigate to the
-         source. YouTube videos move this link below the player. #}
+    {% if video.kind.value == 'web' or (video.kind.value == 'email' and video.url) %}
+      {# Web articles and newsletters have no inline player. The
+         "↗ Open original" link stays at the top — for newsletters it's
+         the "view in browser" URL, shown only when one was found.
+         YouTube videos move this link below the player. #}
       <p class="meta-row">
         <a href="{{ video.url }}" target="_blank" rel="noopener">↗ Open original</a>
       </p>
@@ -49,7 +50,7 @@
           </div>
         </form>
 
-        {% if video.transcript and video.kind.value != 'web' %}
+        {% if video.transcript and video.kind.value == 'youtube' %}
           <form method="post" action="/v/{{ video.id }}/retranscribe"
                 onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
             <button type="submit" class="link-button">Re-transcribe</button>
@@ -66,7 +67,7 @@
     {% endif %}
   </header>
 
-  {% if video.kind.value != 'web' %}
+  {% if video.kind.value == 'youtube' %}
     {# Lazy player: thumbnail + play overlay until first interaction.
        On the first click of the thumbnail OR any [data-yt-timestamp]
        link in the summary / transcript we swap in an iframe pointed
@@ -111,23 +112,25 @@
         <span>
           {% if video.kind.value == 'web' %}
             Article body
+          {% elif video.kind.value == 'email' %}
+            Newsletter body
           {% else %}
             Transcript ({{ video.transcript_source.value if video.transcript_source else 'unknown' }})
           {% endif %}
         </span>
         <span class="section-controls">
           <a class="section-download" href="/v/{{ video.id }}/transcript.md"
-             title="Download {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %} as Markdown"
+             title="Download {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %} as Markdown"
              onclick="event.stopPropagation()">↓ .md</a>
           <button type="button" class="section-download"
                   hx-get="/v/{{ video.id }}/audio?source=transcript"
                   hx-target="#audio-modal-content"
                   hx-swap="innerHTML"
                   onclick="event.stopPropagation()"
-                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% else %}transcript{% endif %}">🎧 Audio</button>
+                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %}">🎧 Audio</button>
         </span>
       </summary>
-      {% if transcript_blocks and video.kind.value != 'web' %}
+      {% if transcript_blocks and video.kind.value == 'youtube' %}
         <div class="transcript-body">
           {% for block in transcript_blocks %}
             <div class="transcript-block">
@@ -161,7 +164,7 @@
         hx-disabled-elt="find input, find button"
         hx-on::after-request="document.querySelector('input[name=content]').value=''; document.querySelector('input[name=content]').focus()"
       >
-        <input name="content" placeholder="{% if video.kind.value == 'web' %}Ask about this article…{% else %}Ask about this video…{% endif %}" autocomplete="off" required>
+        <input name="content" placeholder="{% if video.kind.value == 'web' %}Ask about this article…{% elif video.kind.value == 'email' %}Ask about this newsletter…{% else %}Ask about this video…{% endif %}" autocomplete="off" required>
         {% if llm_models %}
           <select name="llm_model_id" class="chat-model-select"
                   title="Model for this chat reply">
@@ -229,7 +232,7 @@
   </script>
 </article>
 
-{% if video.kind.value != 'web' %}
+{% if video.kind.value == 'youtube' %}
 <script>
   (function () {
     "use strict";

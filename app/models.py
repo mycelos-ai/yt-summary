@@ -9,11 +9,13 @@ class TranscriptSource(StrEnum):
     AUTO_SUBS = "auto_subs"
     WHISPER = "whisper"
     WEB = "web"
+    EMAIL = "email"
 
 
 class VideoKind(StrEnum):
     YOUTUBE = "youtube"
     WEB = "web"
+    EMAIL = "email"
 
 
 class JobState(StrEnum):
@@ -135,6 +137,22 @@ class User:
     # curated library; the emoji input is a fallback / quick option.
     avatar_image: str = ""
     custom_summary_prompt: str | None = None
+
+
+@dataclass
+class MailSender:
+    """A distinct From-address seen in a profile's mailbox.
+
+    Discovered by scanning recent messages. `subscribed` drives whether
+    the sync ingests this sender's mail — newsletters are strictly
+    opt-in, so only subscribed senders are crawled.
+    """
+    user_id: int
+    sender_addr: str
+    sender_name: str
+    subscribed: bool
+    last_seen_at: str | None
+    last_subject: str | None
 
 
 @dataclass

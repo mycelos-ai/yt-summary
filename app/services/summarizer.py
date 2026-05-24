@@ -70,12 +70,59 @@ def _additional_prompt_block(additional_prompt: str | None) -> str:
     return "USER OVERRIDE FOR THIS RUN:\n" + text
 
 
+def _newsletter_system_prompt(language: str | None) -> str:
+    """Default system prompt for email-kind items (newsletters).
+
+    Used when the profile has no custom prompt and the content is a
+    newsletter issue. Its job is triage: pull the substance out, drop
+    the advertising / tracking / footer cruft that survived the
+    structural cleaning, and — for digest-style issues — break the
+    edition into individual items the reader can decide on.
+    """
+    return (
+        "You are triaging a newsletter issue for a reader who subscribed "
+        "but doesn't have time to read every edition. Extract the "
+        "substance and help them decide what, if anything, is worth their "
+        "full attention.\n\n"
+        f"{_language_directive(language)}\n"
+        "OUTPUT FORMAT: Markdown. Use **bold** for item headlines and key "
+        "terms, bullets for enumerations. Tables with `| col | col |` "
+        "(plus a `|---|---|` row) render as HTML if a two-column mapping "
+        "fits.\n\n"
+        "IGNORE — never surface these, even if the cleaning missed them:\n"
+        "- Advertising, sponsorships, \"a word from our sponsor\".\n"
+        "- Tracking notices, \"view in browser\", \"add us to your address "
+        "book\".\n"
+        "- Unsubscribe / manage-preferences / footer boilerplate and legal "
+        "disclaimers.\n"
+        "- Social-follow prompts and app-download badges.\n\n"
+        "STRUCTURE:\n"
+        "1. **TL;DR** — 1-3 sentences naming the single most noteworthy "
+        "item in this issue. Lead with the most concrete fact (a name, a "
+        "number, a launch).\n"
+        "2. **In this issue** — IF the newsletter bundles multiple "
+        "distinct stories, links, or items: list each as a bullet — a "
+        "one-line headline in **bold**, then one sentence on why it "
+        "matters or whether it's worth opening in full. Order by "
+        "importance, not by where it appeared. Preserve concrete names, "
+        "numbers, products, people, and claims.\n\n"
+        "If the issue is a single essay rather than a digest, omit \"In "
+        "this issue\" and instead give **Key points** as dense bullets "
+        "anchored in specifics.\n\n"
+        "CORE RULE — SPECIFICITY OVER SYNTHESIS:\n"
+        "Keep specific names, numbers, companies, people, dates, and "
+        "quoted phrasing. A summary that could describe any edition of "
+        "any newsletter has failed."
+    )
+
+
 def build_system_prompt(
     *,
     language: str | None,
     custom_system_prompt: str | None = None,
     with_timestamps: bool = False,
     additional_prompt: str | None = None,
+    content_kind: str = "youtube",
 ) -> str:
     """Build the system prompt for single-shot summarization.
 
@@ -108,6 +155,10 @@ def build_system_prompt(
             f"{custom}\n\n"
             f"{timestamp_block}"
         ).rstrip() + "\n" + override_suffix
+    if content_kind == "email":
+        # Newsletters have no timestamps; the newsletter prompt is
+        # self-contained, so we only append the one-shot override.
+        return _newsletter_system_prompt(language) + override_suffix
     return (
         "You analyze YouTube videos and extract their substance for someone "
         "who doesn't have time to watch.\n\n"
@@ -198,11 +249,33 @@ def build_system_prompt(
     ) + override_suffix
 
 
+def _newsletter_reduce_prompt(language: str | None) -> str:
+    """Merge prompt for long, chunked newsletter issues."""
+    return (
+        "You merge several partial summaries of a single newsletter issue "
+        "into one cohesive Markdown summary.\n\n"
+        f"{_language_directive(language)}\n"
+        "OUTPUT FORMAT: Markdown. **bold** headlines, bullets for items.\n\n"
+        "Preserve this structure in the merged result:\n"
+        "1. **TL;DR** — 1-3 sentences naming the single most noteworthy "
+        "item across all partials.\n"
+        "2. **In this issue** — one bullet per distinct story/item: a "
+        "**bold** headline plus one sentence on why it matters. "
+        "Deduplicate across partials, do NOT abstract — if two partials "
+        "list different items, the merged result lists all of them. Order "
+        "by importance.\n\n"
+        "If the issue is a single essay, use **Key points** instead. "
+        "Drop any advertising, sponsorships, tracking, or unsubscribe "
+        "boilerplate that leaked into the partials."
+    )
+
+
 def build_reduce_prompt(
     *,
     language: str | None,
     with_timestamps: bool = False,
     additional_prompt: str | None = None,
+    content_kind: str = "youtube",
 ) -> str:
     """Reduce prompt is intentionally NOT user-customizable — it's an
     internal map-reduce mechanic, not a user-facing summary style. The
@@ -224,6 +297,8 @@ def build_reduce_prompt(
     )
     override_block = _additional_prompt_block(additional_prompt)
     override_suffix = f"\n\n{override_block}" if override_block else ""
+    if content_kind == "email":
+        return _newsletter_reduce_prompt(language) + override_suffix
     return (
         "You merge several partial summaries of a single YouTube video into "
         "one cohesive Markdown summary.\n\n"
@@ -421,6 +496,7 @@ async def summarize(
     playlist_context: list[str] | None = None,
     transcript_segments: list[dict] | None = None,
     additional_prompt: str | None = None,
+    content_kind: str = "youtube",
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
@@ -462,11 +538,13 @@ async def summarize(
         custom_system_prompt=custom_system_prompt,
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
+        content_kind=content_kind,
     )
     reduce_prompt = build_reduce_prompt(
         language=language,
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
+        content_kind=content_kind,
     )
 
     max_tokens = await get_context_window(model, base_url)

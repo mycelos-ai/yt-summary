@@ -384,3 +384,64 @@ async def test_scheduler_reembed_continues_after_per_video_failure(
     )
     row = await cursor.fetchone()
     assert row[0] >= 1
+
+
+async def test_scheduler_calls_mail_sync_for_each_user(
+    db: aiosqlite.Connection, tmp_path
+):
+    """The mailbox pass runs once per profile each tick. user_id=1 is
+    seeded by init_schema; the fn no-ops for profiles without a mailbox,
+    so we just assert it's invoked for the seeded user."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await settings_repo.set(db, "playlist_refresh_interval_hours", "0")
+
+    mail_calls: list[int] = []
+
+    async def fake_mail_sync(db_, config_, user_id):
+        mail_calls.append(user_id)
+        return None
+
+    scheduler = PlaylistScheduler(
+        db=db, config=config, sync_fn=AsyncMock(),
+        mail_sync_fn=fake_mail_sync, min_sleep_seconds=0.05,
+    )
+    task = asyncio.create_task(scheduler.run())
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if mail_calls:
+            break
+    scheduler.stop()
+    await task
+
+    assert 1 in mail_calls
+
+
+async def test_scheduler_swallows_mail_sync_errors(
+    db: aiosqlite.Connection, tmp_path
+):
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await settings_repo.set(db, "playlist_refresh_interval_hours", "0")
+
+    ticks: list[str] = []
+
+    async def boom_mail_sync(db_, config_, user_id):
+        raise RuntimeError("imap down")
+
+    scheduler = PlaylistScheduler(
+        db=db, config=config, sync_fn=AsyncMock(),
+        mail_sync_fn=boom_mail_sync, min_sleep_seconds=0.05,
+    )
+    task = asyncio.create_task(scheduler.run())
+    # The scheduler records a tick at the end of each loop even when the
+    # mail pass raised — proves the error was swallowed.
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if await settings_repo.get(db, "scheduler_last_tick_at"):
+            ticks.append("ok")
+            break
+    scheduler.stop()
+    await task
+
+    assert ticks  # loop survived the raising mail sync

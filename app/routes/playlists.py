@@ -8,8 +8,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
+from app.repos import mail_senders as mail_senders_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.services.mail_sync import (
+    _imap_config_from_settings,
+    _own_addresses_from_settings,
+)
+from app.services.mailbox import discover_senders
 from app.services.playlist import fetch_playlist
 from app.services.playlist_sync import load_older_videos, sync_playlist
 from app.services.youtube import download_thumbnail
@@ -52,11 +58,115 @@ async def list_playlists(
 @router.get("/playlists/new", response_class=HTMLResponse)
 async def new_playlist_form(
     request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return templates.TemplateResponse(
-        request, "playlist_new.html", {"current_user": current_user}
+    # The "Add a source" page is tabbed: YouTube playlists + Email
+    # newsletters. The Email tab needs to know whether THIS profile has a
+    # mailbox connected (config lives on the profile page) and which
+    # senders it already knows about.
+    imap_settings = await settings_repo.get_all_for_user(db, current_user.id)
+    # "Connected" = valid credentials saved (independent of the polling
+    # toggle), so a saved-but-not-enabled mailbox isn't falsely reported
+    # as missing. The polling flag is surfaced separately as a hint.
+    imap_configured = (
+        _imap_config_from_settings(imap_settings, require_enabled=False)
+        is not None
     )
+    imap_polling_enabled = bool(imap_settings.get("imap_enabled"))
+    senders = await mail_senders_repo.list_for_user(db, current_user.id)
+    return templates.TemplateResponse(
+        request,
+        "playlist_new.html",
+        {
+            "current_user": current_user,
+            "imap_configured": imap_configured,
+            "imap_polling_enabled": imap_polling_enabled,
+            "senders": senders,
+        },
+    )
+
+
+@router.post("/playlists/new/mail/scan", response_class=HTMLResponse)
+async def scan_mail_senders(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Scan recent mail for distinct senders and render the subscribe
+    checklist. Read-only on the mailbox (headers only, never marks
+    seen). Also initialises the sync cursor to "now" on first scan so
+    subscribing crawls forward instead of backfilling the whole inbox."""
+    imap_settings = await settings_repo.get_all_for_user(db, current_user_id)
+    # Scanning is a manual, read-only action — allow it whenever creds
+    # exist, even if scheduled polling is toggled off.
+    cfg = _imap_config_from_settings(imap_settings, require_enabled=False)
+    if cfg is None:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ No mailbox connected for '
+            'this profile yet. Set it up on your profile page first.</p>'
+        )
+    try:
+        discovery = await discover_senders(cfg)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="status status-failed">⚠ {e}</p>')
+
+    # The profile's own addresses are never newsletter candidates — they
+    # show up here only because forwarded copies sit in the mailbox.
+    # Exclude them from the scan and evict any left over from an earlier
+    # scan that ran before the address was registered.
+    own = _own_addresses_from_settings(imap_settings)
+    known = {
+        s.sender_addr
+        for s in await mail_senders_repo.list_for_user(db, current_user_id)
+    }
+    discovered = [s for s in discovery.senders if s.addr not in own]
+    new_addrs = {s.addr for s in discovered if s.addr not in known}
+
+    await mail_senders_repo.delete_addrs(db, current_user_id, list(own))
+    await mail_senders_repo.upsert_discovered(
+        db,
+        current_user_id,
+        [
+            (s.addr, s.name, s.last_date.isoformat() if s.last_date else None,
+             s.last_subject)
+            for s in discovered
+        ],
+    )
+    # Forward-only default: if the cursor is unset, start from the newest
+    # message so subscribing pulls future issues, not the back-catalogue.
+    if imap_settings.get("imap_last_uid") is None and discovery.max_uid:
+        await settings_repo.set_for_user(
+            db, current_user_id, "imap_last_uid", str(discovery.max_uid)
+        )
+
+    senders = await mail_senders_repo.list_for_user(db, current_user_id)
+    return templates.TemplateResponse(
+        request,
+        "_mail_senders.html",
+        {
+            "senders": senders,
+            "scanned": True,
+            "new_addrs": new_addrs,
+            "scan_summary": {
+                "scanned": discovery.scanned,
+                "found": len(discovered),
+                "new": len(new_addrs),
+            },
+        },
+    )
+
+
+@router.post("/playlists/new/mail/subscribe")
+async def subscribe_mail_senders(
+    sender: list[str] = Form(default=[]),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Persist the subscribed sender set for this profile. Only checked
+    senders are crawled by the scheduler from now on."""
+    await mail_senders_repo.set_subscriptions(db, current_user_id, sender)
+    return RedirectResponse("/playlists/new", status_code=303)
 
 
 @router.post("/playlists")

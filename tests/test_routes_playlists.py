@@ -225,3 +225,168 @@ def test_get_playlists_empty_state(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "No playlists yet" in resp.text
     assert 'href="/playlists/new"' in resp.text
+
+
+def test_add_source_page_has_tabs_and_email_needs_mailbox(tmp_path, monkeypatch):
+    """The /playlists/new page is now a tabbed 'Add a source' page. With
+    no mailbox connected, the Newsletter tab points the user at the
+    profile page."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/playlists/new")
+    assert resp.status_code == 200
+    assert "Add a source" in resp.text
+    assert "Newsletter" in resp.text
+    assert "/profiles/1/edit" in resp.text  # "connect a mailbox first" link
+
+
+def test_scan_without_mailbox_returns_friendly_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post("/playlists/new/mail/scan")
+    assert resp.status_code == 200
+    assert "No mailbox connected" in resp.text
+
+
+def test_scan_lists_discovered_senders(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services.mailbox import Discovery, SenderInfo
+
+    discovery = Discovery(
+        senders=[
+            SenderInfo(addr="news@acme.com", name="Acme", count=3,
+                       last_subject="Weekly", last_date=None),
+        ],
+        max_uid=42,
+        scanned=137,
+    )
+    with TestClient(app) as client:
+        # Connect a mailbox for the active profile.
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_enabled": "1", "imap_host": "imap.acme.com",
+                "imap_ssl": "1", "imap_username": "u@acme.com",
+                "imap_password": "pw",
+            },
+            follow_redirects=False,
+        )
+        with patch(
+            "app.routes.playlists.discover_senders",
+            AsyncMock(return_value=discovery),
+        ):
+            resp = client.post("/playlists/new/mail/scan")
+    assert resp.status_code == 200
+    assert "news@acme.com" in resp.text
+    assert "Acme" in resp.text
+    # Feedback summary: messages scanned + senders found (+ new count).
+    assert "Scanned 137 messages" in resp.text
+    assert "1 sender found" in resp.text
+    assert "1 new" in resp.text
+
+
+def test_subscribe_persists_selected_senders(tmp_path, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            from app.repos import mail_senders as repo
+            await repo.upsert_discovered(
+                app.state.db, 1,
+                [("a@x.com", "A", None, None), ("b@x.com", "B", None, None)],
+            )
+
+        asyncio.get_event_loop().run_until_complete(seed())
+
+        client.post(
+            "/playlists/new/mail/subscribe",
+            data={"sender": ["a@x.com"]},
+            follow_redirects=False,
+        )
+
+        async def read():
+            from app.repos import mail_senders as repo
+            return await repo.subscribed_addrs(app.state.db, 1)
+
+        subscribed = asyncio.get_event_loop().run_until_complete(read())
+    assert subscribed == {"a@x.com"}
+
+
+def test_saved_creds_without_polling_still_count_as_connected(tmp_path, monkeypatch):
+    """Saving IMAP creds with the polling toggle OFF must NOT read as
+    'no mailbox connected' — the sender UI shows, with a polling-off
+    hint."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        # imap_enabled omitted → polling off, but creds are saved.
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.mailbox.org", "imap_ssl": "1",
+                "imap_username": "u@mailbox.org", "imap_password": "pw",
+            },
+            follow_redirects=False,
+        )
+        resp = client.get("/playlists/new")
+    assert resp.status_code == 200
+    assert "No mailbox connected" not in resp.text
+    assert "Scan recent senders" in resp.text
+    # Polling-off hint is shown (text wraps, so match contiguous markers).
+    assert "Mailbox connected, but" in resp.text
+    assert "Enable newsletter polling" in resp.text
+
+
+def test_scan_excludes_and_evicts_own_addresses(tmp_path, monkeypatch):
+    """The profile's own addresses must never appear as scan candidates —
+    forwarded copies in the mailbox shouldn't make 'me' look like a
+    newsletter — and a leftover from an earlier scan is evicted."""
+    import asyncio
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services.mailbox import Discovery, SenderInfo
+
+    discovery = Discovery(
+        senders=[
+            SenderInfo(addr="news@acme.com", name="Acme", count=2,
+                       last_subject="Hi", last_date=None),
+            SenderInfo(addr="stefan@gmail.com", name="Stefan", count=1,
+                       last_subject="Fwd: thing", last_date=None),
+        ],
+        max_uid=10,
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/profiles/1/imap",
+            data={
+                "imap_host": "imap.x", "imap_ssl": "1",
+                "imap_username": "u@x", "imap_password": "pw",
+                "mail_own_addresses": "stefan@gmail.com",
+            },
+            follow_redirects=False,
+        )
+
+        async def seed():
+            from app.repos import mail_senders as repo
+            await repo.upsert_discovered(
+                app.state.db, 1, [("stefan@gmail.com", "Stefan", None, None)]
+            )
+
+        asyncio.get_event_loop().run_until_complete(seed())
+
+        with patch(
+            "app.routes.playlists.discover_senders",
+            AsyncMock(return_value=discovery),
+        ):
+            resp = client.post("/playlists/new/mail/scan")
+    assert resp.status_code == 200
+    assert "news@acme.com" in resp.text
+    assert "stefan@gmail.com" not in resp.text

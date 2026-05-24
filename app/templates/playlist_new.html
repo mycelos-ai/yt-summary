@@ -1,101 +1,165 @@
 {% extends "base.html" %}
-{% block title %}Add a playlist — yt-summary{% endblock %}
+{% block title %}Add a source — yt-summary{% endblock %}
 {% block content %}
-<div class="playlist-new">
+<div class="playlist-new" x-data="{ tab: 'youtube' }">
   <header class="playlist-new-head">
-    <h1>Hook up a YouTube playlist</h1>
+    <h1>Add a source</h1>
     <p class="playlist-new-sub">
-      yt-summary monitors any playlist you point at and summarizes new
-      videos as they're added. The killer pattern is <strong>your own
-      private "watch later" queue</strong> — but you can also subscribe
-      to a public playlist if you just want everything from a channel.
+      yt-summary monitors the sources you connect and summarizes new
+      items as they appear — YouTube playlists and email newsletters.
     </p>
   </header>
 
-  <!-- ── Personal queue (primary use case) ──────────────────── -->
-  <section class="playlist-new-card playlist-new-card-primary">
-    <header class="playlist-new-card-head">
-      <span class="playlist-new-card-tag">Recommended</span>
-      <h2>Your personal queue</h2>
-      <p class="playlist-new-card-sub">
-        Create an unlisted playlist on YouTube. Whenever you spot a
-        long video while scrolling — on your phone, on the couch,
-        doesn't matter — hit ⋯ → <em>Save to playlist</em> and pick
-        your playlist. Your summary is ready in minutes, here in
-        yt-summary. Skim it, decide whether the full video is worth
-        your time.
-      </p>
-    </header>
+  <div class="source-tabs" role="tablist">
+    <button type="button" class="source-tab"
+            :class="tab === 'youtube' ? 'is-active' : ''"
+            @click="tab = 'youtube'">▶ YouTube</button>
+    <button type="button" class="source-tab"
+            :class="tab === 'email' ? 'is-active' : ''"
+            @click="tab = 'email'">✉️ Newsletter</button>
+  </div>
 
-    <details class="playlist-new-help" open>
-      <summary>One-time setup on YouTube</summary>
-      <ol>
-        <li>Open <a href="https://www.youtube.com/feed/playlists" target="_blank" rel="noopener">YouTube → Library → Playlists</a> and click <strong>+ New playlist</strong>.</li>
-        <li>Name it something like <code>yt-summary queue</code>.</li>
-        <li>Set privacy to <strong>Unlisted</strong>. (Private won't work — yt-dlp can't see the videos. Unlisted lets yt-summary in via the link without making the playlist searchable.)</li>
-        <li>Save the empty playlist, then copy its URL from the address bar.</li>
-        <li>Paste it below. From now on, ⋯ → <em>Save to playlist → your playlist</em> on any video sends it to yt-summary.</li>
-      </ol>
-    </details>
+  <!-- ════════════════ YouTube ════════════════ -->
+  <div x-show="tab === 'youtube'" x-cloak>
+    <!-- ── Personal queue (primary use case) ──────────────────── -->
+    <section class="playlist-new-card playlist-new-card-primary">
+      <header class="playlist-new-card-head">
+        <span class="playlist-new-card-tag">Recommended</span>
+        <h2>Your personal queue</h2>
+        <p class="playlist-new-card-sub">
+          Create an unlisted playlist on YouTube. Whenever you spot a
+          long video while scrolling — on your phone, on the couch,
+          doesn't matter — hit ⋯ → <em>Save to playlist</em> and pick
+          your playlist. Your summary is ready in minutes, here in
+          yt-summary. Skim it, decide whether the full video is worth
+          your time.
+        </p>
+      </header>
 
-    <form method="post" action="/playlists" class="playlist-new-form">
-      <label class="playlist-new-field">
-        <span class="playlist-new-label">Your queue's playlist URL</span>
-        <input id="queue-url" name="url" type="url"
-               placeholder="https://www.youtube.com/playlist?list=PL..."
-               required>
-      </label>
-      <div class="playlist-new-actions">
-        <a href="/" class="btn btn-link">Cancel</a>
-        <button type="submit" class="btn btn-primary">Connect queue</button>
-      </div>
-    </form>
-  </section>
+      <details class="playlist-new-help" open>
+        <summary>One-time setup on YouTube</summary>
+        <ol>
+          <li>Open <a href="https://www.youtube.com/feed/playlists" target="_blank" rel="noopener">YouTube → Library → Playlists</a> and click <strong>+ New playlist</strong>.</li>
+          <li>Name it something like <code>yt-summary queue</code>.</li>
+          <li>Set privacy to <strong>Unlisted</strong>. (Private won't work — yt-dlp can't see the videos. Unlisted lets yt-summary in via the link without making the playlist searchable.)</li>
+          <li>Save the empty playlist, then copy its URL from the address bar.</li>
+          <li>Paste it below. From now on, ⋯ → <em>Save to playlist → your playlist</em> on any video sends it to yt-summary.</li>
+        </ol>
+      </details>
 
-  <!-- ── Public playlist (secondary use case) ───────────────── -->
-  <section class="playlist-new-card playlist-new-card-secondary">
-    <header class="playlist-new-card-head">
-      <h2>Or subscribe to a public playlist</h2>
-      <p class="playlist-new-card-sub">
-        Auto-summarize new uploads from someone else's curated list or a
-        channel's "All videos" playlist. Great for following research
-        groups, podcast feeds with YouTube versions, or specific
-        channels.
-      </p>
-    </header>
+      <form method="post" action="/playlists" class="playlist-new-form">
+        <label class="playlist-new-field">
+          <span class="playlist-new-label">Your queue's playlist URL</span>
+          <input id="queue-url" name="url" type="url"
+                 placeholder="https://www.youtube.com/playlist?list=PL..."
+                 required>
+        </label>
+        <div class="playlist-new-actions">
+          <a href="/" class="btn btn-link">Cancel</a>
+          <button type="submit" class="btn btn-primary">Connect queue</button>
+        </div>
+      </form>
+    </section>
 
-    <form method="post" action="/playlists" class="playlist-new-form">
-      <label class="playlist-new-field">
-        <span class="playlist-new-label">Public playlist URL</span>
-        <input id="public-url" name="url" type="url"
-               placeholder="https://www.youtube.com/playlist?list=PL..."
-               required>
-      </label>
+    <!-- ── Public playlist (secondary use case) ───────────────── -->
+    <section class="playlist-new-card playlist-new-card-secondary">
+      <header class="playlist-new-card-head">
+        <h2>Or subscribe to a public playlist</h2>
+        <p class="playlist-new-card-sub">
+          Auto-summarize new uploads from someone else's curated list or a
+          channel's "All videos" playlist. Great for following research
+          groups, podcast feeds with YouTube versions, or specific
+          channels.
+        </p>
+      </header>
 
-      <p class="playlist-new-examples-label">Try one of these:</p>
-      <div class="playlist-new-examples">
-        <button type="button" class="playlist-new-example"
-                data-url="https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi">
-          <strong>3Blue1Brown</strong>
-          <span>Visual math + ML explainers</span>
-        </button>
-        <button type="button" class="playlist-new-example"
-                data-url="https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf">
-          <strong>Lex Fridman Podcast</strong>
-          <span>Long-form AI &amp; science interviews</span>
-        </button>
-        <button type="button" class="playlist-new-example"
-                data-url="https://www.youtube.com/playlist?list=PLOspHqNVtKABAZoaRKj8yf36HytWPfuRr">
-          <strong>Anthropic</strong>
-          <span>Claude updates and research talks</span>
-        </button>
-      </div>
+      <form method="post" action="/playlists" class="playlist-new-form">
+        <label class="playlist-new-field">
+          <span class="playlist-new-label">Public playlist URL</span>
+          <input id="public-url" name="url" type="url"
+                 placeholder="https://www.youtube.com/playlist?list=PL..."
+                 required>
+        </label>
 
-      <div class="playlist-new-actions">
-        <button type="submit" class="btn btn-secondary">Subscribe</button>
-      </div>
-    </form>
-  </section>
+        <p class="playlist-new-examples-label">Try one of these:</p>
+        <div class="playlist-new-examples">
+          <button type="button" class="playlist-new-example"
+                  data-url="https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi">
+            <strong>3Blue1Brown</strong>
+            <span>Visual math + ML explainers</span>
+          </button>
+          <button type="button" class="playlist-new-example"
+                  data-url="https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf">
+            <strong>Lex Fridman Podcast</strong>
+            <span>Long-form AI &amp; science interviews</span>
+          </button>
+          <button type="button" class="playlist-new-example"
+                  data-url="https://www.youtube.com/playlist?list=PLOspHqNVtKABAZoaRKj8yf36HytWPfuRr">
+            <strong>Anthropic</strong>
+            <span>Claude updates and research talks</span>
+          </button>
+        </div>
+
+        <div class="playlist-new-actions">
+          <button type="submit" class="btn btn-secondary">Subscribe</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- ════════════════ Newsletter ════════════════ -->
+  <div x-show="tab === 'email'" x-cloak>
+    <section class="playlist-new-card playlist-new-card-primary">
+      <header class="playlist-new-card-head">
+        <h2>Subscribe to newsletter senders</h2>
+        <p class="playlist-new-card-sub">
+          yt-summary pulls newsletters from this profile's mailbox over
+          IMAP, strips the cruft, and summarizes them on the playlist
+          refresh schedule. You stay in control: scan the recent senders
+          and tick only the ones you actually want — spam and the rest
+          are ignored.
+        </p>
+      </header>
+
+      {% if not imap_configured %}
+        <p class="mail-senders-empty">
+          No mailbox connected for <strong>{{ current_user.name }}</strong> yet.
+          Set up the IMAP connection on your
+          <a href="/profiles/{{ current_user.id }}/edit">profile page</a>
+          first, then come back here to pick senders.
+          <br><small>Heads up: <em>Test connection</em> only checks the
+          login — you still have to hit <em>Save newsletter settings</em>
+          to store it.</small>
+        </p>
+      {% else %}
+        {% if not imap_polling_enabled %}
+          <p class="status status-failed">
+            ⚠ Mailbox connected, but <strong>newsletter polling is
+            off</strong>. You can pick senders below, but nothing gets
+            pulled until you tick <em>Enable newsletter polling</em> on
+            your <a href="/profiles/{{ current_user.id }}/edit">profile
+            page</a>.
+          </p>
+        {% endif %}
+        <div class="mail-scan-row">
+          <button type="button" class="btn btn-secondary"
+                  hx-post="/playlists/new/mail/scan"
+                  hx-target="#mail-senders-panel" hx-swap="innerHTML"
+                  hx-indicator="#scan-status" hx-disabled-elt="this">
+            Scan recent senders
+          </button>
+          <span id="scan-status" class="htmx-indicator mail-scan-spinner">
+            ⏳ Scanning the latest messages…
+          </span>
+          <small>Reads the latest ~150 messages (headers only — nothing is
+            marked read) to list who's been emailing this mailbox.</small>
+        </div>
+        <div id="mail-senders-panel">
+          {% include "_mail_senders.html" %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
 </div>
 
 <script>
@@ -108,4 +172,86 @@
     });
   });
 </script>
+
+<style>
+  .source-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--hairline, #e0e0e0);
+  }
+  .source-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 16px;
+    font: inherit;
+    font-weight: 500;
+    color: var(--steel, #666);
+    cursor: pointer;
+    margin-bottom: -1px;
+  }
+  .source-tab:hover { color: var(--ink, #111); }
+  .source-tab.is-active {
+    color: var(--ink, #111);
+    border-bottom-color: var(--brand-green, #00d4a4);
+  }
+  .mail-scan-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .mail-senders-hint { color: var(--steel, #666); font-size: 14px; }
+  /* htmx adds .htmx-request to the hx-indicator target during the
+     request; toggle display so the spinner reserves no space when idle. */
+  .mail-scan-spinner { display: none; color: var(--steel, #666); font-size: 13px; }
+  .mail-scan-spinner.htmx-request { display: inline; }
+  .mail-scan-result { margin: 0 0 12px; }
+  .mail-sender-new {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: #065f46;
+    background: var(--brand-green-soft, #d1fae5);
+    border-radius: 9999px;
+    vertical-align: middle;
+  }
+  .mail-senders-empty { color: var(--steel, #666); }
+  .mail-sender-list {
+    list-style: none;
+    margin: 12px 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mail-sender-row { padding: 0; }
+  .mail-sender-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--rounded-sm, 6px);
+    cursor: pointer;
+  }
+  .mail-sender-label:hover { background: var(--surface, #f6f6f6); }
+  .mail-sender-label input { margin-top: 3px; }
+  .mail-sender-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .mail-sender-name { font-weight: 500; }
+  .mail-sender-addr { color: var(--steel, #666); font-size: 12px; }
+  .mail-sender-subject {
+    color: var(--steel, #666);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+</style>
 {% endblock %}

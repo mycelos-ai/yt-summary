@@ -4,7 +4,7 @@
       <img src="/thumbnails/{{ video.id }}.jpg" alt="">
     {% else %}
       <div class="video-card-placeholder">
-        {% if video.kind.value == 'web' %}🌐{% else %}▶{% endif %}
+        {% if video.kind.value == 'web' %}🌐{% elif video.kind.value == 'email' %}✉️{% else %}▶{% endif %}
       </div>
     {% endif %}
     <span class="video-card-kind">{{ video.kind.value }}</span>
