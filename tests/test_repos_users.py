@@ -86,3 +86,35 @@ async def test_delete_user_removes_tts_audio_files(
 
     assert not mp3.exists()
     assert not (config.tts_audio_dir / "vidu").exists()
+
+
+async def test_set_and_get_interest_profile(db: aiosqlite.Connection):
+    # User 1 is seeded by init_schema (default profile).
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="my interests", expected_version=0,
+    )
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "my interests"
+    assert version == 1
+
+
+async def test_interest_profile_optimistic_lock_conflict(db: aiosqlite.Connection):
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="v1", expected_version=0,
+    )
+    # Second writer thinks the profile is still at version 0 → conflict.
+    ok = await users_repo.set_interest_profile(
+        db, user_id=1, markdown="v2", expected_version=0,
+    )
+    assert ok is False
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "v1"
+    assert version == 1
+
+
+async def test_set_digest_prefs(db: aiosqlite.Connection):
+    await users_repo.set_digest_prefs(
+        db, user_id=1, digest_enabled=True, digest_hour_local=8,
+    )
+    prefs = await users_repo.get_digest_prefs(db, user_id=1)
+    assert prefs == (True, 8)
