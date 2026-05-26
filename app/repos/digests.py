@@ -115,7 +115,7 @@ async def exists_in_range(
     user_id: int,
     range_start: datetime,
     range_end: datetime,
-    in_states: tuple[str, ...],
+    in_states: tuple[DigestStatus, ...],
 ) -> bool:
     placeholders = ",".join("?" for _ in in_states)
     # Normalise both sides through SQLite's datetime() so we don't depend
@@ -132,6 +132,11 @@ async def exists_in_range(
           AND status IN ({placeholders})
         LIMIT 1
         """,
-        (user_id, range_start.isoformat(), range_end.isoformat(), *in_states),
+        (
+            user_id,
+            range_start.isoformat(),
+            range_end.isoformat(),
+            *(s.value for s in in_states),
+        ),
     )
     return await cur.fetchone() is not None

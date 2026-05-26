@@ -54,7 +54,7 @@ async def test_exists_for_today(db: aiosqlite.Connection):
     assert await digests_repo.exists_in_range(
         db, user_id=1,
         range_start=today_start, range_end=today_end,
-        in_states=("pending", "ready"),
+        in_states=(DigestStatus.PENDING, DigestStatus.READY),
     ) is False
     await digests_repo.create_pending(
         db, user_id=1,
@@ -64,8 +64,60 @@ async def test_exists_for_today(db: aiosqlite.Connection):
     assert await digests_repo.exists_in_range(
         db, user_id=1,
         range_start=today_start, range_end=today_end,
-        in_states=("pending", "ready"),
+        in_states=(DigestStatus.PENDING, DigestStatus.READY),
     ) is True
+
+
+async def test_exists_in_range_returns_false_outside_window(
+    db: aiosqlite.Connection,
+):
+    """A digest created now must not show up when the queried window
+    ended an hour ago. Guards against regressions in the datetime()
+    normalisation."""
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=datetime(2026, 5, 25),
+        period_end=datetime(2026, 5, 26),
+    )
+    past_start = datetime(2020, 1, 1)
+    past_end = datetime(2020, 1, 2)
+    assert await digests_repo.exists_in_range(
+        db, user_id=1,
+        range_start=past_start, range_end=past_end,
+        in_states=(DigestStatus.PENDING, DigestStatus.READY),
+    ) is False
+
+
+async def test_exists_in_range_respects_in_states_filter(
+    db: aiosqlite.Connection,
+):
+    """A pending digest in-window must NOT match when in_states is
+    restricted to ('ready',). Catches regressions where status IN (...)
+    is stripped or always-trued."""
+    today_start = datetime(2026, 5, 26, 0, 0)
+    today_end = today_start + timedelta(days=1)
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=today_start + timedelta(hours=7),
+        period_end=today_start + timedelta(hours=31),
+    )
+    assert await digests_repo.exists_in_range(
+        db, user_id=1,
+        range_start=today_start, range_end=today_end,
+        in_states=(DigestStatus.READY,),
+    ) is False
+
+
+async def test_mark_rendering_transitions_status(db: aiosqlite.Connection):
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=datetime(2026, 5, 25),
+        period_end=datetime(2026, 5, 26),
+    )
+    await digests_repo.mark_rendering(db, digest_id=d.id)
+    fetched = await digests_repo.get(db, d.id)
+    assert fetched is not None
+    assert fetched.status == DigestStatus.RENDERING
 
 
 async def test_list_for_user(db: aiosqlite.Connection):
