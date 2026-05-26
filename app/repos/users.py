@@ -291,7 +291,9 @@ async def get_interest_profile(
     row = await cur.fetchone()
     if row is None:
         return (None, 0)
-    return (row[0], row[1] or 0)
+    # interest_profile_version is NOT NULL DEFAULT 0 (see app/db.py SCHEMA);
+    # trust the schema rather than defending the read path.
+    return (row[0], row[1])
 
 
 async def set_interest_profile(
@@ -329,7 +331,9 @@ async def get_digest_prefs(
     row = await cur.fetchone()
     if row is None:
         return (False, 7)
-    return (bool(row[0]), int(row[1] or 7))
+    # Both columns are NOT NULL DEFAULT in SCHEMA (db.py); trust the
+    # schema rather than coalescing here.
+    return (bool(row[0]), int(row[1]))
 
 
 async def set_digest_prefs(
