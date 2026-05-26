@@ -125,17 +125,21 @@ async def consolidate(
 
 async def rebuild(db: aiosqlite.Connection, *, user_id: int) -> None:
     """Wipe the profile and redistill it from every feedback row for
-    this Profile. Used by the "Rebuild from feedback" button."""
-    _, version = await users_repo.get_interest_profile(db, user_id=user_id)
-    # Set to empty before consolidating so the consolidate prompt starts
-    # from a clean slate.
-    await users_repo.set_interest_profile(
-        db, user_id=user_id, markdown="", expected_version=version,
-    )
+    this Profile in a SINGLE optimistic-lock write.
+
+    Used by the "Rebuild from feedback" button. Single-write semantics
+    mean no transient-empty window observable to other readers, no risk
+    of leaving the user with an empty profile if the LLM call fails,
+    and concurrent writes are detected via the version lock.
+    """
     fb_rows = await feedback_repo.list_recent_for_user(
         db, user_id=user_id, limit=10_000,
     )
     if not fb_rows:
+        log.info(
+            "interest_profile: rebuild for user %s skipped (no feedback)",
+            user_id,
+        )
         return
 
     model_row = await llm_models_repo.get_default(db)
@@ -143,6 +147,7 @@ async def rebuild(db: aiosqlite.Connection, *, user_id: int) -> None:
         log.warning("interest_profile: no default LLM configured; rebuild skipped")
         return
 
+    _, version = await users_repo.get_interest_profile(db, user_id=user_id)
     feedback_lines = "\n".join(
         f"- [{fb.sentiment.value}] \"{fb.selected_text}\""
         + (f" (comment: {fb.comment})" if fb.comment else "")
@@ -162,7 +167,12 @@ async def rebuild(db: aiosqlite.Connection, *, user_id: int) -> None:
         return
 
     updated = (updated or "").strip()[:_MAX_PROFILE_CHARS]
-    _, new_version = await users_repo.get_interest_profile(db, user_id=user_id)
-    await users_repo.set_interest_profile(
-        db, user_id=user_id, markdown=updated, expected_version=new_version,
+
+    ok = await users_repo.set_interest_profile(
+        db, user_id=user_id, markdown=updated, expected_version=version,
     )
+    if not ok:
+        log.warning(
+            "interest_profile: optimistic-lock conflict during rebuild for "
+            "user %s; existing profile preserved", user_id,
+        )

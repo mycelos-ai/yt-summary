@@ -148,3 +148,70 @@ async def test_consolidate_skips_when_no_default_llm_configured(
     await profile_service.consolidate(db, user_id=1)
 
     fake_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_with_no_feedback_preserves_existing_profile(
+    db, monkeypatch,
+):
+    """Rebuild on a user with no feedback rows must NOT wipe an
+    existing profile. Single-write semantics preserve it."""
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="- existing interests", expected_version=0,
+    )
+    fake_llm = AsyncMock()
+    monkeypatch.setattr(profile_service, "_call_consolidate_llm", fake_llm)
+
+    await profile_service.rebuild(db, user_id=1)
+
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "- existing interests"
+    assert version == 1  # unchanged from the manual set
+    fake_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_llm_failure_preserves_existing_profile(
+    db, monkeypatch,
+):
+    """If the LLM call fails during rebuild, the existing profile must
+    remain intact — no transient empty window, no half-applied state."""
+    await _video(db)
+    await _default_llm(db)
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="- existing interests", expected_version=0,
+    )
+    await feedback_repo.create(
+        db, user_id=1, video_id="v1", source=FeedbackSource.SUMMARY,
+        selected_text="x", text_offset_start=0, text_offset_end=1,
+        sentiment=Sentiment.INTERESTING, comment=None,
+    )
+    fake_llm = AsyncMock(side_effect=RuntimeError("LLM down"))
+    monkeypatch.setattr(profile_service, "_call_consolidate_llm", fake_llm)
+
+    await profile_service.rebuild(db, user_id=1)
+
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "- existing interests"
+    assert version == 1  # unchanged — no version bump from failed rebuild
+
+
+@pytest.mark.asyncio
+async def test_rebuild_skips_when_no_default_llm_configured(
+    db, monkeypatch,
+):
+    """Rebuild must bail before any write when no default LLM is
+    configured — same guard as consolidate."""
+    await _video(db)
+    await feedback_repo.create(
+        db, user_id=1, video_id="v1", source=FeedbackSource.SUMMARY,
+        selected_text="x", text_offset_start=0, text_offset_end=1,
+        sentiment=Sentiment.INTERESTING, comment=None,
+    )
+    fake_llm = AsyncMock()
+    monkeypatch.setattr(profile_service, "_call_consolidate_llm", fake_llm)
+
+    # No _default_llm seeded.
+    await profile_service.rebuild(db, user_id=1)
+
+    fake_llm.assert_not_called()
