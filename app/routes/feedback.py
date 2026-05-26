@@ -23,6 +23,12 @@ from app.services import interest_profile as profile_service
 
 router = APIRouter()
 
+# Strong references to in-flight consolidate tasks. asyncio.create_task
+# only weak-references the resulting Task; without a strong ref the loop
+# can GC it before it runs, and consolidate silently never happens.
+# Tasks self-discard from this set when done (add_done_callback below).
+_PENDING_CONSOLIDATES: set[asyncio.Task] = set()
+
 
 class FeedbackIn(BaseModel):
     video_id: str
@@ -64,7 +70,13 @@ async def create_feedback(
     )
 
     # Schedule consolidate in the background — don't block the request.
-    asyncio.create_task(profile_service.consolidate(db, user_id=user_id))
+    # Hold a strong reference to the task until it completes; otherwise
+    # the event loop is permitted to GC it before it runs.
+    task = asyncio.create_task(
+        profile_service.consolidate(db, user_id=user_id),
+    )
+    _PENDING_CONSOLIDATES.add(task)
+    task.add_done_callback(_PENDING_CONSOLIDATES.discard)
 
     return {
         "id": fb.id,
