@@ -89,7 +89,7 @@ def test_user_dataclass():
     assert u.api_key_hash is None
 
 
-def test_feedback_dataclass_round_trip():
+def test_feedback_dataclass():
     fb = Feedback(
         id=1, user_id=2, video_id="v1",
         source=FeedbackSource.SUMMARY,
@@ -103,7 +103,7 @@ def test_feedback_dataclass_round_trip():
     assert fb.sentiment == "interesting"
 
 
-def test_digest_dataclass_round_trip():
+def test_digest_dataclass():
     d = Digest(
         id=1, user_id=2,
         period_start=datetime(2026, 5, 25),

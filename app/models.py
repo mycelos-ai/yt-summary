@@ -214,6 +214,9 @@ class Digest:
     period_start: datetime
     period_end: datetime
     tldr: str | None
+    # JSON-encoded list of {video_id, rank, hook, reason}. NULL while
+    # the digest is pending/rendering; "[]" when status='ready' but
+    # the pool was empty.
     top_items_json: str | None
     item_count: int
     status: DigestStatus
