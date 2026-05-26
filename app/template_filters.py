@@ -1,5 +1,6 @@
 """Custom Jinja filters used across the templates."""
 
+import json as _json
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +31,7 @@ def register_filters(templates: "Jinja2Templates") -> None:
     """
     templates.env.filters["relative_time"] = relative_time
     templates.env.filters["format_duration"] = format_duration
+    templates.env.filters["from_json"] = lambda s: _json.loads(s) if s else []
     # Lazy import — markdown.py imports markdown_it which is
     # noticeable on import. Loading the filter on first use keeps
     # template-only routes (settings, status fragments) snappy.
