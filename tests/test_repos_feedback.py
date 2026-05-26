@@ -41,8 +41,8 @@ async def test_list_for_video_scoped_per_user(db: aiosqlite.Connection):
         selected_text="b", text_offset_start=0, text_offset_end=1,
         sentiment=Sentiment.INTERESTING, comment=None,
     )
-    assert len(await feedback_repo.list_for_video(db, "v1", user_id=1)) == 1
-    assert len(await feedback_repo.list_for_video(db, "v1", user_id=2)) == 1
+    assert len(await feedback_repo.list_for_video(db, video_id="v1", user_id=1)) == 1
+    assert len(await feedback_repo.list_for_video(db, video_id="v1", user_id=2)) == 1
 
 
 async def test_list_recent_for_user(db: aiosqlite.Connection):
@@ -66,7 +66,7 @@ async def test_delete(db: aiosqlite.Connection):
     )
     deleted = await feedback_repo.delete(db, feedback_id=fb.id, user_id=1)
     assert deleted is True
-    assert await feedback_repo.list_for_video(db, "v1", user_id=1) == []
+    assert await feedback_repo.list_for_video(db, video_id="v1", user_id=1) == []
 
 
 async def test_delete_rejects_cross_user(db: aiosqlite.Connection):
@@ -79,4 +79,4 @@ async def test_delete_rejects_cross_user(db: aiosqlite.Connection):
     deleted = await feedback_repo.delete(db, feedback_id=fb.id, user_id=2)
     assert deleted is False
     # Original feedback survives.
-    assert len(await feedback_repo.list_for_video(db, "v1", user_id=1)) == 1
+    assert len(await feedback_repo.list_for_video(db, video_id="v1", user_id=1)) == 1

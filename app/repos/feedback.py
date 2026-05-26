@@ -61,11 +61,14 @@ async def create(
 
 
 async def list_for_video(
-    db: aiosqlite.Connection, video_id: str, *, user_id: int,
+    db: aiosqlite.Connection, *, video_id: str, user_id: int,
 ) -> list[Feedback]:
+    # Tiebreak ties on created_at by id; SQLite's datetime('now') resolves
+    # to the second, so multiple feedbacks created in the same request
+    # would otherwise come back in an undefined order.
     cur = await db.execute(
         "SELECT * FROM feedback WHERE video_id=? AND user_id=? "
-        "ORDER BY created_at ASC",
+        "ORDER BY created_at ASC, id ASC",
         (video_id, user_id),
     )
     return [_row_to_feedback(r) for r in await cur.fetchall()]
@@ -76,7 +79,7 @@ async def list_recent_for_user(
 ) -> list[Feedback]:
     cur = await db.execute(
         "SELECT * FROM feedback WHERE user_id=? "
-        "ORDER BY created_at DESC LIMIT ?",
+        "ORDER BY created_at DESC, id DESC LIMIT ?",
         (user_id, limit),
     )
     return [_row_to_feedback(r) for r in await cur.fetchall()]
