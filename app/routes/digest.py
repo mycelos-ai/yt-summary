@@ -75,8 +75,9 @@ async def digest_index(
 ) -> HTMLResponse:
     digests = await digests_repo.list_for_user(db, user_id=user_id, limit=30)
     return templates.TemplateResponse(
+        request,
         "digest/list.html",
-        {"request": request, "digests": digests},
+        {"digests": digests},
     )
 
 
@@ -101,14 +102,14 @@ async def digest_show(
             if vid:
                 referenced[vid] = await videos_repo.get(db, vid)
     return templates.TemplateResponse(
+        request,
         "digest/show.html",
-        {"request": request, "digest": d, "videos": referenced},
+        {"digest": d, "videos": referenced},
     )
 
 
 @router.post("/digest/generate")
 async def digest_generate(
-    request: Request,
     period_hours: int = Form(default=24),
     db: aiosqlite.Connection = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
