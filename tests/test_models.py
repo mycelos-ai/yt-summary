@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.models import ChatMessage, Job, JobState, TranscriptSource, Video
+from app.models import Digest, DigestStatus, Feedback, FeedbackSource, Highlight, Sentiment
 
 
 def test_video_dataclass():
@@ -86,3 +87,36 @@ def test_user_dataclass():
     assert u.id == 1
     assert u.name == "admin"
     assert u.api_key_hash is None
+
+
+def test_feedback_dataclass_round_trip():
+    fb = Feedback(
+        id=1, user_id=2, video_id="v1",
+        source=FeedbackSource.SUMMARY,
+        selected_text="some text",
+        text_offset_start=0, text_offset_end=9,
+        sentiment=Sentiment.INTERESTING,
+        comment=None,
+        created_at=datetime(2026, 5, 26, 12, 0),
+    )
+    assert fb.video_id == "v1"
+    assert fb.sentiment == "interesting"
+
+
+def test_digest_dataclass_round_trip():
+    d = Digest(
+        id=1, user_id=2,
+        period_start=datetime(2026, 5, 25),
+        period_end=datetime(2026, 5, 26),
+        tldr="t", top_items_json="[]",
+        item_count=0,
+        status=DigestStatus.READY,
+        error=None,
+        created_at=datetime(2026, 5, 26, 7, 0),
+    )
+    assert d.status == "ready"
+
+
+def test_highlight_dataclass():
+    h = Highlight(text="key insight", rank=1, reason="matters")
+    assert h.rank == 1
