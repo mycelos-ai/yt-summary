@@ -309,6 +309,8 @@ def build_reduce_prompt(
     with_timestamps: bool = False,
     additional_prompt: str | None = None,
     content_kind: str = "youtube",
+    interest_profile_md: str | None = None,
+    with_highlights: bool = False,
 ) -> str:
     """Reduce prompt is intentionally NOT user-customizable — it's an
     internal map-reduce mechanic, not a user-facing summary style. The
@@ -319,6 +321,15 @@ def build_reduce_prompt(
     additional_prompt: see build_system_prompt — the same one-shot
         override block is appended at the end of the reduce prompt so
         chunked videos honour the user's per-run tweak too.
+    interest_profile_md: optional Markdown blob describing the active
+        Profile's stated interests; appended as an ``Interest profile``
+        block so the reduce step biases the merged summary toward those
+        interests too. None/blank → no block rendered.
+    with_highlights: when True, append the structured-highlights schema
+        hint so the reduce step also returns a
+        ``{"summary": ..., "highlights": [...]}`` JSON envelope; required
+        for long transcripts that take the map-reduce path under the
+        Daily Digest feature.
     """
     timestamp_block = (
         "PRESERVE INLINE TIMESTAMP LINKS:\n"
@@ -330,8 +341,28 @@ def build_reduce_prompt(
     )
     override_block = _additional_prompt_block(additional_prompt)
     override_suffix = f"\n\n{override_block}" if override_block else ""
+
+    profile_block = ""
+    if interest_profile_md and interest_profile_md.strip():
+        profile_block = (
+            "\n\nInterest profile (the active Profile's stated interests — "
+            "use this to shape which points you emphasize in the summary "
+            "and which highlights you surface):\n"
+            f"{interest_profile_md.strip()}\n"
+        )
+
+    highlights_block = ""
+    if with_highlights:
+        highlights_block = "\n\n" + HIGHLIGHTS_SCHEMA_HINT
+
     if content_kind == "email":
-        return _newsletter_reduce_prompt(language) + override_suffix
+        return (
+            _newsletter_reduce_prompt(language)
+            + override_suffix
+            + profile_block
+            + highlights_block
+        )
+
     return (
         "You merge several partial summaries of a single YouTube video into "
         "one cohesive Markdown summary.\n\n"
@@ -381,7 +412,7 @@ def build_reduce_prompt(
         "summary mentions sponsors, do not surface them in the final "
         "result.\n\n"
         f"{timestamp_block}"
-    ).rstrip() + override_suffix
+    ).rstrip() + override_suffix + profile_block + highlights_block
 
 
 def _build_user_message(
@@ -589,6 +620,8 @@ async def summarize(
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
         content_kind=content_kind,
+        interest_profile_md=interest_profile_md,
+        with_highlights=with_highlights,
     )
 
     max_tokens = await get_context_window(model, base_url)

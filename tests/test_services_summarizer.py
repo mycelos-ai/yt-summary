@@ -729,8 +729,9 @@ async def test_summarize_with_highlights_falls_back_when_not_json(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_summarize_with_highlights_threads_kwargs_to_summarize(monkeypatch):
-    """Verify the wrapper passes interest_profile_md and with_highlights
-    through to summarize() rather than handling them out-of-band."""
+    """Verify the wrapper passes interest_profile_md, with_highlights, and
+    custom_system_prompt through to summarize() rather than handling them
+    out-of-band."""
     captured = {}
 
     async def capturing_summarize(**kwargs):
@@ -741,9 +742,11 @@ async def test_summarize_with_highlights_threads_kwargs_to_summarize(monkeypatch
     await summarizer_mod.summarize_with_highlights(
         transcript="t", model="m", api_key="k", base_url=None,
         interest_profile_md="my interests",
+        custom_system_prompt="my custom prompt",
     )
     assert captured["with_highlights"] is True
     assert captured["interest_profile_md"] == "my interests"
+    assert captured["custom_system_prompt"] == "my custom prompt"
 
 
 def test_build_system_prompt_custom_branch_embeds_interest_profile():
@@ -766,3 +769,26 @@ def test_build_system_prompt_custom_branch_includes_highlights_schema():
     assert "My custom instructions." in prompt
     assert '"summary"' in prompt
     assert '"highlights"' in prompt
+
+
+def test_build_reduce_prompt_embeds_interest_profile():
+    prompt = build_reduce_prompt(
+        language=None,
+        interest_profile_md="I care about LLM cost optimization.",
+    )
+    assert "LLM cost optimization" in prompt
+    assert "Interest profile" in prompt
+
+
+def test_build_reduce_prompt_includes_highlights_schema_when_enabled():
+    prompt = build_reduce_prompt(
+        language=None, with_highlights=True,
+    )
+    assert "highlights" in prompt
+    assert '"summary"' in prompt
+
+
+def test_build_reduce_prompt_omits_blocks_by_default():
+    prompt = build_reduce_prompt(language=None)
+    assert "Interest profile" not in prompt
+    assert '"summary"' not in prompt
