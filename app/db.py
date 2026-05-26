@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS videos (
     summary_language TEXT,
     transcript_language TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    highlights_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -120,7 +121,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- place; new installs get it directly from this CREATE TABLE.
     avatar_image TEXT NOT NULL DEFAULT '',
     custom_summary_prompt TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    interest_profile_md TEXT,
+    interest_profile_version INTEGER NOT NULL DEFAULT 0,
+    digest_enabled INTEGER NOT NULL DEFAULT 0,
+    digest_hour_local INTEGER NOT NULL DEFAULT 7
 );
 
 CREATE TABLE IF NOT EXISTS llm_models (
@@ -205,6 +210,37 @@ CREATE TABLE IF NOT EXISTS mail_senders (
     last_subject TEXT,
     PRIMARY KEY (user_id, sender_addr)
 );
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK(source IN ('summary','transcript','digest')),
+    selected_text TEXT NOT NULL,
+    text_offset_start INTEGER NOT NULL,
+    text_offset_end INTEGER NOT NULL,
+    sentiment TEXT NOT NULL CHECK(sentiment IN ('interesting','not_interesting')),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user_created
+    ON feedback(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_video ON feedback(video_id);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    tldr TEXT,
+    top_items_json TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK(status IN ('pending','rendering','ready','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_digests_user_created
+    ON digests(user_id, created_at DESC);
 """
 
 
@@ -283,6 +319,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "source_language",     "TEXT")
         await _ensure_column(conn, "videos", "summary_language",    "TEXT")
         await _ensure_column(conn, "videos", "transcript_language", "TEXT")
+        await _ensure_column(conn, "videos", "highlights_json", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
@@ -319,6 +356,19 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             await conn.execute(
                 "ALTER TABLE users ADD COLUMN custom_summary_prompt TEXT"
             )
+        await _ensure_column(conn, "users", "interest_profile_md", "TEXT")
+        await _ensure_column(
+            conn, "users", "interest_profile_version",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        await _ensure_column(
+            conn, "users", "digest_enabled",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        await _ensure_column(
+            conn, "users", "digest_hour_local",
+            "INTEGER NOT NULL DEFAULT 7",
+        )
 
         # Seed the standard summarizer prompt onto every existing
         # profile. After this migration runs, every user has a
