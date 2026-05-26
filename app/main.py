@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,7 +25,7 @@ PROFILE_COOKIE = "yts_user_id"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.pipeline import process_video
-    from app.scheduler import PlaylistScheduler
+    from app.scheduler import DigestScheduler, PlaylistScheduler
     from app.services.heartbeat import HeartbeatRegistry
     from app.services.log_buffer import RingBufferHandler
     from app.services.mail_sync import sync_mailbox
@@ -119,6 +120,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         scheduler_task = asyncio.create_task(scheduler.run())
 
+        digest_scheduler = DigestScheduler(db, config)
+        digest_scheduler_task = asyncio.create_task(digest_scheduler.run())
+        app.state.digest_scheduler = digest_scheduler
+        app.state.digest_scheduler_task = digest_scheduler_task
+
         app.state.config = config
         app.state.db = db
         app.state.worker = worker
@@ -134,6 +140,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             worker.stop()
         if tts_worker is not None:
             tts_worker.stop()
+        digest_scheduler = getattr(app.state, "digest_scheduler", None)
+        digest_scheduler_task = getattr(
+            app.state, "digest_scheduler_task", None,
+        )
+        if digest_scheduler is not None:
+            digest_scheduler.stop()
+        if digest_scheduler_task is not None:
+            with contextlib.suppress(BaseException):
+                await digest_scheduler_task
         if scheduler_task is not None:
             await scheduler_task
         if worker_task is not None:

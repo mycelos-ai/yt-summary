@@ -248,3 +248,87 @@ class PlaylistScheduler:
         threshold for the scheduler heartbeat (3× this value).
         """
         return await self._interval_seconds()
+
+
+from datetime import datetime as _datetime, timedelta as _timedelta
+
+from app.models import DigestStatus
+from app.repos import digests as digests_repo
+from app.services import digest as digest_service
+
+
+class DigestScheduler:
+    """Once-per-hour sweep that enqueues digest jobs.
+
+    For each Profile with digest_enabled=1 whose digest_hour_local
+    matches the current local hour and that has no digest yet today
+    (status pending|rendering|ready), call digest_service.generate.
+    """
+
+    def __init__(
+        self,
+        db: aiosqlite.Connection,
+        config: Config,
+        *,
+        sleep_seconds: float = 3600.0,
+        heartbeat: HeartbeatRegistry | None = None,
+    ) -> None:
+        self._db = db
+        self._config = config
+        self._sleep_seconds = sleep_seconds
+        self._heartbeat = heartbeat
+        self._stopped = asyncio.Event()
+
+    def stop(self) -> None:
+        self._stopped.set()
+
+    async def run(self) -> None:
+        # Sleep first to avoid a sweep storm on container restart.
+        while not self._stopped.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stopped.wait(), timeout=self._sleep_seconds,
+                )
+                return
+            except TimeoutError:
+                pass
+            if self._stopped.is_set():
+                return
+            try:
+                await self.sweep_once(now_local=_datetime.now())
+            except Exception:
+                log.exception("digest-scheduler: sweep failed")
+
+    async def sweep_once(self, *, now_local: _datetime) -> None:
+        """One sweep tick. Public so tests can call it deterministically."""
+        cur = await self._db.execute(
+            "SELECT id, digest_hour_local FROM users WHERE digest_enabled=1"
+        )
+        rows = await cur.fetchall()
+        day_start = now_local.replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        )
+        day_end = day_start + _timedelta(days=1)
+        for row in rows:
+            user_id = row[0]
+            target_hour = row[1] or 7
+            if now_local.hour != target_hour:
+                continue
+            already = await digests_repo.exists_in_range(
+                self._db, user_id=user_id,
+                range_start=day_start, range_end=day_end,
+                in_states=(
+                    DigestStatus.PENDING,
+                    DigestStatus.RENDERING,
+                    DigestStatus.READY,
+                ),
+            )
+            if already:
+                continue
+            log.info(
+                "digest-scheduler: enqueuing daily digest for user %s",
+                user_id,
+            )
+            await digest_service.generate(
+                self._db, user_id=user_id, period_hours=24,
+            )
