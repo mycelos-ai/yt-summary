@@ -4,6 +4,7 @@ from typing import Any
 
 import litellm
 
+from app.services.highlight_parser import HIGHLIGHTS_SCHEMA_HINT, parse_summary_payload
 from app.services.model_info import get_context_window
 from app.services.transcript_format import format_timestamp
 
@@ -169,7 +170,6 @@ def build_system_prompt(
 
     highlights_block = ""
     if with_highlights:
-        from app.services.highlight_parser import HIGHLIGHTS_SCHEMA_HINT
         highlights_block = "\n\n" + HIGHLIGHTS_SCHEMA_HINT
 
     if custom:
@@ -532,6 +532,8 @@ async def summarize(
     content_kind: str = "youtube",
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
+    interest_profile_md: str | None = None,
+    with_highlights: bool = False,
 ) -> str:
     """Summarize a transcript.
 
@@ -563,6 +565,13 @@ async def summarize(
         in the map-reduce path. Receives a Markdown-formatted "live"
         summary that combines the partial summaries produced so far.
         Not called in the single-shot path (no intermediate state).
+    interest_profile_md: optional Markdown blob describing the active
+        Profile's stated interests; threaded into ``build_system_prompt``
+        so the LLM biases the summary toward those interests.
+    with_highlights: when True, instructs the LLM (via
+        ``build_system_prompt``) to return a JSON envelope with
+        structured highlights alongside the summary; consumed by
+        ``summarize_with_highlights``.
     """
     progress = progress or _noop
     has_segments = bool(transcript_segments)
@@ -572,6 +581,8 @@ async def summarize(
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
         content_kind=content_kind,
+        interest_profile_md=interest_profile_md,
+        with_highlights=with_highlights,
     )
     reduce_prompt = build_reduce_prompt(
         language=language,
@@ -712,23 +723,12 @@ async def summarize_with_highlights(
     "nothing noteworthy"), or None (LLM didn't follow the JSON shape —
     pipeline falls back to legacy behaviour).
 
-    Implementation: re-uses `summarize()` with a schema-hint addendum
-    threaded through `additional_prompt`. Map-reduce path discards
-    highlights from intermediate chunks and only honours the final
-    reduce LLM's JSON envelope.
+    Implementation: re-uses `summarize()` with `with_highlights=True`
+    and `interest_profile_md` threaded through `build_system_prompt`,
+    then parses the JSON envelope from the resulting string. Map-reduce
+    path discards highlights from intermediate chunks and only honours
+    the final reduce LLM's response.
     """
-    from app.services.highlight_parser import (
-        HIGHLIGHTS_SCHEMA_HINT,
-        parse_summary_payload,
-    )
-
-    schema_addendum = (
-        "\n\n[OUTPUT-FORMAT OVERRIDE FOR THIS RUN]\n"
-        + HIGHLIGHTS_SCHEMA_HINT
-    )
-    composed_additional = (
-        (additional_prompt or "") + schema_addendum
-    )
     raw = await summarize(
         transcript=transcript,
         model=model,
@@ -737,34 +737,13 @@ async def summarize_with_highlights(
         title=title,
         description=description,
         language=language,
-        custom_system_prompt=_inject_profile_into_custom(
-            custom_system_prompt, interest_profile_md,
-        ),
+        custom_system_prompt=custom_system_prompt,
+        interest_profile_md=interest_profile_md,
+        with_highlights=True,
         playlist_context=playlist_context,
         transcript_segments=transcript_segments,
-        additional_prompt=composed_additional,
+        additional_prompt=additional_prompt,
         progress=progress,
         on_partial=on_partial,
     )
     return parse_summary_payload(raw)
-
-
-def _inject_profile_into_custom(
-    custom: str | None, profile_md: str | None,
-) -> str | None:
-    """Splice the interest profile into the per-Profile custom prompt.
-
-    When a Profile has a custom_system_prompt set, `build_system_prompt`
-    uses it in place of the standard prompt. To still surface the
-    interest profile as context, we prepend an "Interest profile:" block
-    to the custom prompt itself when there is one to surface.
-    """
-    if not profile_md or not profile_md.strip():
-        return custom
-    block = (
-        "Interest profile (the active Profile's stated interests):\n"
-        f"{profile_md.strip()}\n\n"
-    )
-    if custom is None:
-        return block
-    return block + custom

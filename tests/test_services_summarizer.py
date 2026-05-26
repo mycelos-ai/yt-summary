@@ -725,3 +725,44 @@ async def test_summarize_with_highlights_falls_back_when_not_json(monkeypatch):
     )
     assert summary.startswith("## TL;DR")
     assert highlights is None
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_threads_kwargs_to_summarize(monkeypatch):
+    """Verify the wrapper passes interest_profile_md and with_highlights
+    through to summarize() rather than handling them out-of-band."""
+    captured = {}
+
+    async def capturing_summarize(**kwargs):
+        captured.update(kwargs)
+        return '{"summary":"ok","highlights":[]}'
+
+    monkeypatch.setattr(summarizer_mod, "summarize", capturing_summarize)
+    await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+        interest_profile_md="my interests",
+    )
+    assert captured["with_highlights"] is True
+    assert captured["interest_profile_md"] == "my interests"
+
+
+def test_build_system_prompt_custom_branch_embeds_interest_profile():
+    prompt = build_system_prompt(
+        language=None,
+        custom_system_prompt="My custom instructions.",
+        interest_profile_md="I care about X.",
+    )
+    assert "My custom instructions." in prompt
+    assert "Interest profile" in prompt
+    assert "I care about X." in prompt
+
+
+def test_build_system_prompt_custom_branch_includes_highlights_schema():
+    prompt = build_system_prompt(
+        language=None,
+        custom_system_prompt="My custom instructions.",
+        with_highlights=True,
+    )
+    assert "My custom instructions." in prompt
+    assert '"summary"' in prompt
+    assert '"highlights"' in prompt
