@@ -48,18 +48,33 @@ def _extract_json_blob(raw: str) -> str | None:
     """Find the first JSON-looking blob in raw text.
 
     Tries: code-fence first, then a brace-balanced first-object scan.
+    The brace scan is string-aware — it ignores '{' and '}' inside JSON
+    string literals (with proper handling of backslash escapes), so
+    summaries containing braces in prose or code samples don't trip
+    the boundary detection.
     """
     m = _CODE_FENCE.search(raw)
     if m:
         return m.group(1).strip()
-    # Fallback: find the first '{' and the matching '}' by brace depth.
     start = raw.find("{")
     if start == -1:
         return None
     depth = 0
+    in_string = False
+    escape = False
     for i in range(start, len(raw)):
         ch = raw[i]
-        if ch == "{":
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
@@ -78,7 +93,7 @@ def _validate_highlight(entry: object) -> dict | None:
         return None
     if len(text) > _MAX_HIGHLIGHT_TEXT:
         return None
-    if not isinstance(rank, int):
+    if isinstance(rank, bool) or not isinstance(rank, int):
         return None
     rank = max(1, min(5, rank))
     if not isinstance(reason, str):

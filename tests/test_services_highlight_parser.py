@@ -74,3 +74,37 @@ def test_drops_overlong_highlight_text():
 def test_schema_hint_constant_exists():
     assert "highlights" in HIGHLIGHTS_SCHEMA_HINT
     assert "summary" in HIGHLIGHTS_SCHEMA_HINT
+
+
+def test_brace_inside_summary_string_does_not_truncate_payload():
+    """A summary containing '}' must not cause the brace-balanced
+    scanner to close the outer object early."""
+    raw = (
+        '{"summary": "the function foo() { return 1; }",'
+        '"highlights": [{"text":"x","rank":1,"reason":"y"}]}'
+    )
+    summary, highlights = parse_summary_payload(raw)
+    assert summary == "the function foo() { return 1; }"
+    assert highlights is not None
+    assert len(highlights) == 1
+
+
+def test_escaped_quote_inside_summary_string():
+    """The brace scanner must respect backslash-escaped quotes inside
+    JSON string literals so it doesn't think the string ended early."""
+    raw = (
+        '{"summary": "she said \\"yes }\\" loudly",'
+        '"highlights": []}'
+    )
+    summary, highlights = parse_summary_payload(raw)
+    assert summary == 'she said "yes }" loudly'
+    assert highlights == []
+
+
+def test_rejects_bool_rank():
+    """`rank: true` must be rejected, not silently clamped to 1.
+    Python quirk: isinstance(True, int) is True, so a naive type
+    check would let booleans through."""
+    raw = '{"summary":"s","highlights":[{"text":"x","rank":true,"reason":"y"}]}'
+    _, highlights = parse_summary_payload(raw)
+    assert highlights == []
