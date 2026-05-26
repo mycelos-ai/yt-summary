@@ -663,3 +663,65 @@ def test_build_system_prompt_with_custom_appends_override_block():
     assert "USER OVERRIDE FOR THIS RUN:" in out
     assert "be specific" in out
     assert out.rstrip().endswith("be specific")
+
+
+# ---------------------------------------------------------------------------
+# Interest profile + structured highlights envelope
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_embeds_interest_profile():
+    prompt = build_system_prompt(
+        language=None,
+        interest_profile_md="I care about LLM cost optimization.",
+    )
+    assert "LLM cost optimization" in prompt
+    assert "Interest profile" in prompt
+
+
+def test_system_prompt_skips_profile_block_when_none():
+    prompt = build_system_prompt(language=None, interest_profile_md=None)
+    assert "Interest profile" not in prompt
+
+
+def test_system_prompt_requests_json_envelope_when_highlights_enabled():
+    prompt = build_system_prompt(
+        language=None, with_highlights=True,
+    )
+    assert "highlights" in prompt
+    assert '"summary"' in prompt
+
+
+def test_system_prompt_omits_highlights_block_when_disabled():
+    prompt = build_system_prompt(language=None, with_highlights=False)
+    assert '"summary"' not in prompt
+
+
+from app.services import summarizer as summarizer_mod
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_parses_json_envelope(monkeypatch):
+    async def fake_summarize(**kwargs):
+        return (
+            '{"summary": "## TL;DR\\nGood video.",'
+            ' "highlights": [{"text":"x","rank":1,"reason":"y"}]}'
+        )
+    monkeypatch.setattr(summarizer_mod, "summarize", fake_summarize)
+    summary, highlights = await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+    )
+    assert "Good video" in summary
+    assert highlights == [{"text": "x", "rank": 1, "reason": "y"}]
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_falls_back_when_not_json(monkeypatch):
+    async def fake_summarize(**kwargs):
+        return "## TL;DR\nSome plain markdown summary."
+    monkeypatch.setattr(summarizer_mod, "summarize", fake_summarize)
+    summary, highlights = await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+    )
+    assert summary.startswith("## TL;DR")
+    assert highlights is None
