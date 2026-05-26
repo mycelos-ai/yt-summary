@@ -35,3 +35,6 @@ drown*.png
 *.onnx.json
 test.wav
 test_*.wav
+
+# Visual brainstorming companion artefacts
+.superpowers/
