@@ -106,7 +106,13 @@ async def test_pipeline_skips_transcript_when_already_present(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript") as obtain_mock,
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("NEW SUMMARY", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("NEW SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "v1", set_step)
@@ -149,7 +155,13 @@ async def test_pipeline_uses_reader_for_web_kind(db, tmp_path):
     with (
         patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
         patch("app.pipeline.obtain_transcript") as obtain_mock,
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("THE SUMMARY", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "web-cafe1234567", set_step)
@@ -301,7 +313,13 @@ async def test_pipeline_refetches_when_segments_missing(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript", obtain_mock),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("S", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("S", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vlegacy", set_step)
@@ -442,7 +460,13 @@ async def test_pipeline_reports_timestamp_verification_step(db, tmp_path):
     summary = "Look at [00:00](#t=0) and [01:00](#t=60)."
     with (
         patch("app.pipeline.obtain_transcript"),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=(summary, None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=(summary, None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vverify", set_step)
@@ -482,7 +506,13 @@ async def test_pipeline_skips_fetch_when_segments_already_present(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript", obtain_mock),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("S", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("S", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vfresh", set_step)
@@ -554,7 +584,13 @@ async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
         ),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("ZUSAMMENFASSUNG", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("ZUSAMMENFASSUNG", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vauto", set_step)
@@ -576,7 +612,13 @@ async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
         ),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("THE SUMMARY", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vfixed", set_step)
@@ -626,7 +668,13 @@ async def test_pipeline_preserves_detected_source_lang_when_summary_lang_explici
                 "le contenu", [], TranscriptSource.AUTO_SUBS, None,
             )),
         ),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("THE SUMMARY", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
         patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
     ):
         from app.pipeline import process_video
@@ -677,7 +725,13 @@ async def test_pipeline_falls_back_to_llm_language_detect_when_no_signal(db, tmp
 
     with (
         patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
-        patch("app.pipeline.summarize_with_highlights", AsyncMock(return_value=("LE RÉSUMÉ", None))),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("LE RÉSUMÉ", None)),
+
+        ),
         patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
     ):
         from app.pipeline import process_video

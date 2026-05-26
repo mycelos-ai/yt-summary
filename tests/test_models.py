@@ -1,7 +1,18 @@
 from datetime import datetime
 
-from app.models import ChatMessage, Job, JobState, TranscriptSource, Video
-from app.models import Digest, DigestStatus, Feedback, FeedbackSource, Highlight, Sentiment
+from app.models import (
+    ChatMessage,
+    Digest,
+    DigestStatus,
+    Feedback,
+    FeedbackSource,
+    Highlight,
+    Job,
+    JobState,
+    Sentiment,
+    TranscriptSource,
+    Video,
+)
 
 
 def test_video_dataclass():

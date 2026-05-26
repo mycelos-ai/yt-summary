@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services import model_info
+from app.services import summarizer as summarizer_mod
 from app.services.summarizer import build_reduce_prompt, build_system_prompt
 
 
@@ -695,9 +696,6 @@ def test_system_prompt_requests_json_envelope_when_highlights_enabled():
 def test_system_prompt_omits_highlights_block_when_disabled():
     prompt = build_system_prompt(language=None, with_highlights=False)
     assert '"summary"' not in prompt
-
-
-from app.services import summarizer as summarizer_mod
 
 
 @pytest.mark.asyncio

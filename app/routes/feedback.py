@@ -40,7 +40,7 @@ class FeedbackIn(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
-    def _check_offsets(self) -> "FeedbackIn":
+    def _check_offsets(self) -> FeedbackIn:
         if self.text_offset_end <= self.text_offset_start:
             raise ValueError("text_offset_end must be > text_offset_start")
         return self
