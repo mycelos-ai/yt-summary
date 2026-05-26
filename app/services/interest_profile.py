@@ -95,17 +95,17 @@ async def consolidate(
     )
 
     model_row = await llm_models_repo.get_default(db)
-    model = model_row.model if model_row else ""
-    api_key = model_row.api_key if model_row else ""
-    base_url = (model_row.base_url or None) if model_row else None
+    if model_row is None:
+        log.warning("interest_profile: no default LLM configured; skip")
+        return
 
     try:
         updated = await _call_consolidate_llm(
             current_profile=current_md or "",
             feedback_lines=feedback_lines,
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
+            model=model_row.model,
+            api_key=model_row.api_key,
+            base_url=model_row.base_url or None,
         )
     except Exception:
         log.exception("interest_profile: consolidate LLM call failed")
@@ -139,9 +139,9 @@ async def rebuild(db: aiosqlite.Connection, *, user_id: int) -> None:
         return
 
     model_row = await llm_models_repo.get_default(db)
-    model = model_row.model if model_row else ""
-    api_key = model_row.api_key if model_row else ""
-    base_url = (model_row.base_url or None) if model_row else None
+    if model_row is None:
+        log.warning("interest_profile: no default LLM configured; rebuild skipped")
+        return
 
     feedback_lines = "\n".join(
         f"- [{fb.sentiment.value}] \"{fb.selected_text}\""
@@ -153,9 +153,9 @@ async def rebuild(db: aiosqlite.Connection, *, user_id: int) -> None:
         updated = await _call_consolidate_llm(
             current_profile="",
             feedback_lines=feedback_lines,
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
+            model=model_row.model,
+            api_key=model_row.api_key,
+            base_url=model_row.base_url or None,
         )
     except Exception:
         log.exception("interest_profile: rebuild LLM call failed")

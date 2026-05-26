@@ -4,6 +4,7 @@ import pytest
 
 from app.models import FeedbackSource, Sentiment
 from app.repos import feedback as feedback_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services import interest_profile as profile_service
@@ -16,9 +17,19 @@ async def _video(db) -> None:
     )
 
 
+async def _default_llm(db) -> None:
+    """Seed a default LLM row so the interest_profile service finds one
+    and proceeds to the (mocked) `_call_consolidate_llm` seam."""
+    await llm_models_repo.insert(
+        db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+
+
 @pytest.mark.asyncio
 async def test_consolidate_builds_profile_from_first_feedback(db, monkeypatch):
     await _video(db)
+    await _default_llm(db)
     await feedback_repo.create(
         db, user_id=1, video_id="v1", source=FeedbackSource.SUMMARY,
         selected_text="caching reduces cost by 3x",
@@ -39,6 +50,7 @@ async def test_consolidate_builds_profile_from_first_feedback(db, monkeypatch):
 @pytest.mark.asyncio
 async def test_consolidate_merges_with_existing_profile(db, monkeypatch):
     await _video(db)
+    await _default_llm(db)
     await users_repo.set_interest_profile(
         db, user_id=1, markdown="- Old interest", expected_version=0,
     )
@@ -72,6 +84,7 @@ async def test_consolidate_skips_when_no_feedback(db, monkeypatch):
 @pytest.mark.asyncio
 async def test_consolidate_failure_leaves_profile_unchanged(db, monkeypatch):
     await _video(db)
+    await _default_llm(db)
     await users_repo.set_interest_profile(
         db, user_id=1, markdown="stable", expected_version=0,
     )
@@ -93,6 +106,7 @@ async def test_consolidate_failure_leaves_profile_unchanged(db, monkeypatch):
 @pytest.mark.asyncio
 async def test_rebuild_from_all_feedback_resets_profile(db, monkeypatch):
     await _video(db)
+    await _default_llm(db)
     await users_repo.set_interest_profile(
         db, user_id=1, markdown="stale profile", expected_version=0,
     )
@@ -112,3 +126,25 @@ async def test_rebuild_from_all_feedback_resets_profile(db, monkeypatch):
     # The first arg to the LLM stub should have been an empty profile.
     call_kwargs = fake_llm.call_args.kwargs
     assert call_kwargs["current_profile"] == ""
+
+
+@pytest.mark.asyncio
+async def test_consolidate_skips_when_no_default_llm_configured(
+    db, monkeypatch,
+):
+    """If no default LLM model is configured, consolidate must skip
+    without invoking the LLM seam — preserves the clear log message
+    instead of letting litellm raise an opaque error."""
+    await _video(db)
+    await feedback_repo.create(
+        db, user_id=1, video_id="v1", source=FeedbackSource.SUMMARY,
+        selected_text="x", text_offset_start=0, text_offset_end=1,
+        sentiment=Sentiment.INTERESTING, comment=None,
+    )
+    fake_llm = AsyncMock()
+    monkeypatch.setattr(profile_service, "_call_consolidate_llm", fake_llm)
+
+    # No _default_llm seed → consolidate should bail before the LLM call.
+    await profile_service.consolidate(db, user_id=1)
+
+    fake_llm.assert_not_called()
