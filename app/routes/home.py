@@ -6,10 +6,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.main import _onboarding_status, get_current_user, get_current_user_id, get_db
+from app.repos import digests as digests_repo
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
+from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
 from app.template_filters import register_filters
@@ -113,6 +115,39 @@ async def home(
     video_ids = [v.id for v in videos]
     playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
     video_tags = await tags_repo.tags_for_videos(db, video_ids)
+
+    # Daily-digest teaser: fetch today's digest (if any) and the
+    # digest-enabled preference so the partial can pick the right
+    # variant (ready/pending/failed link, dismissible hint, or nothing).
+    # We use datetime() on BOTH sides of the comparison to bridge the
+    # space-vs-T separator mismatch between SQLite's datetime('now')
+    # column default ("YYYY-MM-DD HH:MM:SS") and Python's isoformat()
+    # ("YYYY-MM-DDTHH:MM:SS"). Lexicographic comparison would silently
+    # fail (space < T).
+    from datetime import UTC, datetime, timedelta
+
+    today_start = datetime.now(UTC).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+    today_end = today_start + timedelta(days=1)
+    cur = await db.execute(
+        """
+        SELECT * FROM digests
+        WHERE user_id = ?
+          AND datetime(created_at) >= datetime(?)
+          AND datetime(created_at) <  datetime(?)
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (current_user_id, today_start.isoformat(), today_end.isoformat()),
+    )
+    row = await cur.fetchone()
+    todays_digest = (
+        digests_repo._row_to_digest(row) if row else None  # noqa: SLF001
+    )
+    digest_enabled, _ = await users_repo.get_digest_prefs(
+        db, user_id=current_user_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -128,6 +163,8 @@ async def home(
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
             "onboarding_done": onboarding_done,
+            "todays_digest": todays_digest,
+            "digest_enabled": digest_enabled,
         },
     )
 
