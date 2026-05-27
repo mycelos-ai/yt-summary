@@ -147,3 +147,116 @@ def test_delete_feedback_succeeds_for_owner(tmp_path, monkeypatch):
         resp = client.delete(f"/feedback/{fb_id}")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+def test_post_feedback_for_digest_tldr_creates_row(tmp_path, monkeypatch):
+    """POST with digest_id (and no video_id) anchors the feedback to
+    the digest's TL;DR — used by the TL;DR section of the digest page."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        from datetime import UTC, datetime, timedelta
+
+        from app.repos import digests as digests_repo
+
+        async def setup():
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=1,
+                period_start=start, period_end=end,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            "/feedback",
+            json={
+                "digest_id": digest_id,
+                "source": "digest_tldr",
+                "selected_text": "key thematic observation",
+                "text_offset_start": 0,
+                "text_offset_end": 24,
+                "sentiment": "interesting",
+                "comment": None,
+            },
+        )
+    assert resp.status_code == 200
+    assert resp.json()["sentiment"] == "interesting"
+
+
+def test_post_feedback_rejects_both_anchors(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, "v1")
+        resp = client.post(
+            "/feedback",
+            json={
+                "video_id": "v1",
+                "digest_id": 1,
+                "source": "summary",
+                "selected_text": "x",
+                "text_offset_start": 0,
+                "text_offset_end": 1,
+                "sentiment": "interesting",
+                "comment": None,
+            },
+        )
+    assert resp.status_code == 422
+
+
+def test_post_feedback_rejects_neither_anchor(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/feedback",
+            json={
+                "source": "summary",
+                "selected_text": "x",
+                "text_offset_start": 0,
+                "text_offset_end": 1,
+                "sentiment": "interesting",
+                "comment": None,
+            },
+        )
+    assert resp.status_code == 422
+
+
+def test_post_feedback_rejects_cross_profile_digest(tmp_path, monkeypatch):
+    """A digest belonging to user 2 must not be writable by user 1."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        from datetime import UTC, datetime, timedelta
+
+        from app.repos import digests as digests_repo
+
+        async def setup():
+            await app.state.db.execute(
+                "INSERT INTO users (id, name) VALUES (2, 'other')"
+            )
+            await app.state.db.commit()
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=2,
+                period_start=start, period_end=end,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+
+        resp = client.post(
+            "/feedback",
+            json={
+                "digest_id": digest_id,
+                "source": "digest_tldr",
+                "selected_text": "x",
+                "text_offset_start": 0,
+                "text_offset_end": 1,
+                "sentiment": "interesting",
+                "comment": None,
+            },
+        )
+    assert resp.status_code == 403

@@ -106,14 +106,21 @@ async def _existing_feedback_for_digest(
     db: aiosqlite.Connection,
     *,
     user_id: int,
+    digest_id: int,
     video_ids: list[str],
 ) -> str:
-    """Render JSON of this Profile's digest-source feedback rows, so the
+    """Render JSON of this Profile's digest feedback rows so the
     highlight.js restore-pass can re-mark them on page load.
 
-    Only includes feedback rows whose source='digest' AND whose video_id
-    appears in the digest's source list — keeps the embedded JSON tight
-    and avoids leaking feedback from other digests."""
+    Two kinds of feedback live on a digest page:
+    - source-item feedback (anchored to a video_id) — for hooks /
+      reasons in the Sources list. We include only rows whose
+      source='digest' and whose video_id appears in this digest.
+    - TL;DR feedback (anchored to this digest_id) — for the LLM-
+      synthesised TL;DR block. source='digest_tldr'.
+
+    The JS distinguishes them by which of (video_id, digest_id) is set.
+    """
     from app.repos import feedback as feedback_repo
 
     rows: list[dict] = []
@@ -127,12 +134,26 @@ async def _existing_feedback_for_digest(
             rows.append({
                 "id": fb.id,
                 "video_id": fb.video_id,
+                "digest_id": None,
                 "selected_text": fb.selected_text,
                 "text_offset_start": fb.text_offset_start,
                 "text_offset_end": fb.text_offset_end,
                 "sentiment": fb.sentiment.value,
                 "comment": fb.comment,
             })
+    for fb in await feedback_repo.list_for_digest(
+        db, digest_id=digest_id, user_id=user_id,
+    ):
+        rows.append({
+            "id": fb.id,
+            "video_id": None,
+            "digest_id": fb.digest_id,
+            "selected_text": fb.selected_text,
+            "text_offset_start": fb.text_offset_start,
+            "text_offset_end": fb.text_offset_end,
+            "sentiment": fb.sentiment.value,
+            "comment": fb.comment,
+        })
     return json.dumps(rows)
 
 
@@ -145,7 +166,9 @@ async def digest_show(
 ) -> HTMLResponse:
     d, referenced = await _fetch_digest_for_user(db, digest_id, user_id)
     feedbacks_json = await _existing_feedback_for_digest(
-        db, user_id=user_id, video_ids=list(referenced.keys()),
+        db, user_id=user_id,
+        digest_id=digest_id,
+        video_ids=list(referenced.keys()),
     )
     return templates.TemplateResponse(
         request,

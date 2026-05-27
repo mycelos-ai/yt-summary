@@ -223,6 +223,10 @@ def test_ready_digest_embeds_highlight_machinery(tmp_path, monkeypatch):
     assert 'data-highlight-target' in resp.text
     assert 'data-video-id="v1"' in resp.text
     assert 'data-feedback-source="digest"' in resp.text
+    # TL;DR section is its own highlight target, anchored to the
+    # digest (NOT a video) so feedback there uses digest_id.
+    assert f'data-digest-id="{digest_id}"' in resp.text
+    assert 'data-feedback-source="digest_tldr"' in resp.text
 
 
 def test_pending_digest_omits_highlight_machinery(tmp_path, monkeypatch):

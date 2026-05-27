@@ -178,7 +178,8 @@ class LlmModel:
 class FeedbackSource(StrEnum):
     SUMMARY = "summary"
     TRANSCRIPT = "transcript"
-    DIGEST = "digest"
+    DIGEST = "digest"  # Feedback on a digest's source-item (hook/reason)
+    DIGEST_TLDR = "digest_tldr"  # Feedback on a digest's TL;DR block
 
 
 class Sentiment(StrEnum):
@@ -197,7 +198,12 @@ class DigestStatus(StrEnum):
 class Feedback:
     id: int
     user_id: int
-    video_id: str
+    # Exactly one of video_id / digest_id is set (CHECK constraint at
+    # the DB level). video_id anchors per-video feedback (summary,
+    # transcript, digest source item); digest_id anchors TL;DR feedback
+    # which doesn't have a single owning video.
+    video_id: str | None
+    digest_id: int | None
     source: FeedbackSource
     selected_text: str
     text_offset_start: int

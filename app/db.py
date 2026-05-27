@@ -214,18 +214,27 @@ CREATE TABLE IF NOT EXISTS mail_senders (
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-    source TEXT NOT NULL CHECK(source IN ('summary','transcript','digest')),
+    -- Exactly one of (video_id, digest_id) is non-NULL. The XOR is
+    -- enforced via the CHECK constraint below and at the route layer.
+    -- video_id anchors feedback to a specific video's summary /
+    -- transcript / digest-source entry. digest_id anchors feedback to
+    -- a digest's TL;DR block (which is LLM-synthesised across many
+    -- items and has no single owning video).
+    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+    digest_id INTEGER REFERENCES digests(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK(source IN ('summary','transcript','digest','digest_tldr')),
     selected_text TEXT NOT NULL,
     text_offset_start INTEGER NOT NULL,
     text_offset_end INTEGER NOT NULL,
     sentiment TEXT NOT NULL CHECK(sentiment IN ('interesting','not_interesting')),
     comment TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((video_id IS NOT NULL) <> (digest_id IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_user_created
     ON feedback(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_video ON feedback(video_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_digest ON feedback(digest_id);
 
 CREATE TABLE IF NOT EXISTS digests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -406,6 +415,47 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                     SELECT 1, key, value FROM settings;
                 DROP TABLE settings;
                 ALTER TABLE settings_new RENAME TO settings;
+                """
+            )
+
+    # feedback: TL;DR feedback (anchored to a digest_id instead of a
+    # video_id) needs nullable video_id and a new digest_id column.
+    # SQLite can't lower NOT NULL or add a CHECK via ALTER, so we
+    # rebuild the table if the legacy shape is in place. Idempotent:
+    # gated on `digest_id` already being a column.
+    if await _table_exists(conn, "feedback"):
+        feedback_cols = await _table_columns(conn, "feedback")
+        if "digest_id" not in feedback_cols:
+            await conn.executescript(
+                """
+                CREATE TABLE feedback_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+                    digest_id INTEGER REFERENCES digests(id) ON DELETE CASCADE,
+                    source TEXT NOT NULL CHECK(source IN (
+                        'summary','transcript','digest','digest_tldr'
+                    )),
+                    selected_text TEXT NOT NULL,
+                    text_offset_start INTEGER NOT NULL,
+                    text_offset_end INTEGER NOT NULL,
+                    sentiment TEXT NOT NULL CHECK(sentiment IN ('interesting','not_interesting')),
+                    comment TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    CHECK ((video_id IS NOT NULL) <> (digest_id IS NOT NULL))
+                );
+                INSERT INTO feedback_new (
+                    id, user_id, video_id, digest_id, source,
+                    selected_text, text_offset_start, text_offset_end,
+                    sentiment, comment, created_at
+                )
+                SELECT
+                    id, user_id, video_id, NULL, source,
+                    selected_text, text_offset_start, text_offset_end,
+                    sentiment, comment, created_at
+                FROM feedback;
+                DROP TABLE feedback;
+                ALTER TABLE feedback_new RENAME TO feedback;
                 """
             )
 

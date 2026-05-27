@@ -100,9 +100,9 @@ def test_user_dataclass():
     assert u.api_key_hash is None
 
 
-def test_feedback_dataclass():
+def test_feedback_dataclass_video_anchor():
     fb = Feedback(
-        id=1, user_id=2, video_id="v1",
+        id=1, user_id=2, video_id="v1", digest_id=None,
         source=FeedbackSource.SUMMARY,
         selected_text="some text",
         text_offset_start=0, text_offset_end=9,
@@ -111,7 +111,25 @@ def test_feedback_dataclass():
         created_at=datetime(2026, 5, 26, 12, 0),
     )
     assert fb.video_id == "v1"
+    assert fb.digest_id is None
     assert fb.sentiment == "interesting"
+
+
+def test_feedback_dataclass_digest_tldr_anchor():
+    """A digest-TLDR feedback row has digest_id set and video_id None.
+    The DB CHECK enforces XOR; the dataclass just stores both fields."""
+    fb = Feedback(
+        id=2, user_id=2, video_id=None, digest_id=5,
+        source=FeedbackSource.DIGEST_TLDR,
+        selected_text="tldr line",
+        text_offset_start=0, text_offset_end=9,
+        sentiment=Sentiment.INTERESTING,
+        comment=None,
+        created_at=datetime(2026, 5, 26, 12, 0),
+    )
+    assert fb.video_id is None
+    assert fb.digest_id == 5
+    assert fb.source == "digest_tldr"
 
 
 def test_digest_dataclass():

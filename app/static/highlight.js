@@ -27,16 +27,21 @@
     return null;
   }
 
-  function videoIdForTarget(target) {
-    // Resolution order:
-    // 1. data-video-id on the target itself (digest source items)
-    // 2. data-video-id on any ancestor (in case the target is the
-    //    inner prose and the wrapper carries the id)
-    // 3. window.__HIGHLIGHT_DATA__.video_id (video detail page)
-    if (target.dataset.videoId) return target.dataset.videoId;
-    const anc = target.closest('[data-video-id]');
-    if (anc && anc.dataset.videoId) return anc.dataset.videoId;
-    return defaultVideoId;
+  function anchorForTarget(target) {
+    // Returns { videoId, digestId } — exactly one is set.
+    // Resolution order: data-video-id on the target → data-digest-id
+    // on the target → default video_id from __HIGHLIGHT_DATA__ (video
+    // detail page only ever uses video_id).
+    if (target.dataset.videoId) {
+      return { videoId: target.dataset.videoId, digestId: null };
+    }
+    if (target.dataset.digestId) {
+      return { videoId: null, digestId: target.dataset.digestId };
+    }
+    if (defaultVideoId) {
+      return { videoId: defaultVideoId, digestId: null };
+    }
+    return { videoId: null, digestId: null };
   }
 
   function sourceForTarget(target) {
@@ -82,8 +87,8 @@
       hidePopover();
       return;
     }
-    const videoId = videoIdForTarget(target);
-    if (!videoId) {
+    const { videoId, digestId } = anchorForTarget(target);
+    if (!videoId && !digestId) {
       hidePopover();
       return;
     }
@@ -93,6 +98,7 @@
       start,
       end,
       videoId,
+      digestId,
       source: sourceForTarget(target),
     };
     showPopover(range.getBoundingClientRect());
@@ -100,18 +106,24 @@
 
   async function postFeedback(sentiment, comment) {
     if (!lastSelection) return;
+    const body = {
+      source: lastSelection.source,
+      selected_text: lastSelection.text,
+      text_offset_start: lastSelection.start,
+      text_offset_end: lastSelection.end,
+      sentiment: sentiment,
+      comment: comment || null,
+    };
+    // XOR: send video_id OR digest_id, never both.
+    if (lastSelection.videoId) {
+      body.video_id = lastSelection.videoId;
+    } else {
+      body.digest_id = parseInt(lastSelection.digestId, 10);
+    }
     const resp = await fetch('/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        video_id: lastSelection.videoId,
-        source: lastSelection.source,
-        selected_text: lastSelection.text,
-        text_offset_start: lastSelection.start,
-        text_offset_end: lastSelection.end,
-        sentiment: sentiment,
-        comment: comment || null,
-      }),
+      body: JSON.stringify(body),
     });
     if (resp.ok) {
       showToast('Saved · profile will update');
@@ -158,17 +170,19 @@
     t._h = setTimeout(() => { t.style.opacity = '0'; }, 2000);
   }
 
-  // Restore existing highlights on load. Each existing fb may carry a
-  // video_id (digest page) so we only restore it onto the matching
-  // target; the video detail page omits video_id from existing rows
-  // (single target, default applies).
+  // Restore existing highlights on load. Each existing fb carries
+  // either a video_id or a digest_id; pick the matching target. Video
+  // detail page omits both (single default target).
   if (Array.isArray(data.existing)) {
     data.existing.forEach((fb) => {
       let target = targets[0];
-      if (fb.video_id) {
-        const match = targets.find(
-          (t) => videoIdForTarget(t) === fb.video_id,
-        );
+      if (fb.video_id || fb.digest_id) {
+        const match = targets.find((t) => {
+          const a = anchorForTarget(t);
+          if (fb.video_id) return a.videoId === fb.video_id;
+          if (fb.digest_id) return String(a.digestId) === String(fb.digest_id);
+          return false;
+        });
         if (match) target = match;
         else return;  // no matching target → skip silently
       }

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.main import get_current_user_id, get_db
 from app.models import FeedbackSource, Sentiment
+from app.repos import digests as digests_repo
 from app.repos import feedback as feedback_repo
 from app.repos import videos as videos_repo
 from app.services import interest_profile as profile_service
@@ -31,7 +32,10 @@ _PENDING_CONSOLIDATES: set[asyncio.Task] = set()
 
 
 class FeedbackIn(BaseModel):
-    video_id: str
+    # Exactly one of video_id / digest_id is set. The route validates
+    # ownership of whichever is provided.
+    video_id: str | None = None
+    digest_id: int | None = None
     source: FeedbackSource
     selected_text: str = Field(..., min_length=1, max_length=1000)
     text_offset_start: int = Field(..., ge=0)
@@ -40,9 +44,13 @@ class FeedbackIn(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
-    def _check_offsets(self) -> FeedbackIn:
+    def _check(self) -> FeedbackIn:
         if self.text_offset_end <= self.text_offset_start:
             raise ValueError("text_offset_end must be > text_offset_start")
+        if (self.video_id is None) == (self.digest_id is None):
+            raise ValueError(
+                "exactly one of video_id / digest_id must be set"
+            )
         return self
 
 
@@ -52,15 +60,22 @@ async def create_feedback(
     db: aiosqlite.Connection = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> dict:
-    # Confirm the video belongs to this Profile.
-    video = await videos_repo.get(db, payload.video_id)
-    if video is None or video.user_id != user_id:
-        raise HTTPException(status_code=403, detail="not your video")
+    # Confirm the anchor (video OR digest) belongs to this Profile.
+    if payload.video_id is not None:
+        video = await videos_repo.get(db, payload.video_id)
+        if video is None or video.user_id != user_id:
+            raise HTTPException(status_code=403, detail="not your video")
+    else:
+        assert payload.digest_id is not None  # XOR guaranteed by validator
+        d = await digests_repo.get(db, payload.digest_id)
+        if d is None or d.user_id != user_id:
+            raise HTTPException(status_code=403, detail="not your digest")
 
     fb = await feedback_repo.create(
         db,
         user_id=user_id,
         video_id=payload.video_id,
+        digest_id=payload.digest_id,
         source=payload.source,
         selected_text=payload.selected_text,
         text_offset_start=payload.text_offset_start,

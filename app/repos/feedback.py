@@ -1,8 +1,14 @@
 """CRUD for the `feedback` table.
 
 A feedback row is one user highlighting a span of text in a summary,
-transcript, or digest and marking it interesting / not interesting,
-optionally with a comment. Scoped strictly by `user_id` (Profile).
+transcript, digest source-item, or digest TL;DR — marking it
+interesting / not interesting, optionally with a comment. Scoped
+strictly by `user_id` (Profile).
+
+Anchors: exactly one of `video_id` / `digest_id` is set on each row
+(enforced via DB CHECK). Per-video feedback anchors to a Video row;
+digest TL;DR feedback anchors to the Digest row instead (the TL;DR is
+LLM-synthesised across many items and has no single owning video).
 """
 from datetime import datetime
 
@@ -16,6 +22,7 @@ def _row_to_feedback(row: aiosqlite.Row) -> Feedback:
         id=row["id"],
         user_id=row["user_id"],
         video_id=row["video_id"],
+        digest_id=row["digest_id"],
         source=FeedbackSource(row["source"]),
         selected_text=row["selected_text"],
         text_offset_start=row["text_offset_start"],
@@ -30,7 +37,8 @@ async def create(
     db: aiosqlite.Connection,
     *,
     user_id: int,
-    video_id: str,
+    video_id: str | None = None,
+    digest_id: int | None = None,
     source: FeedbackSource,
     selected_text: str,
     text_offset_start: int,
@@ -38,18 +46,27 @@ async def create(
     sentiment: Sentiment,
     comment: str | None,
 ) -> Feedback:
+    """Create a feedback row. Pass either video_id OR digest_id — not
+    both, not neither. The DB CHECK enforces the XOR; we validate here
+    too so callers get a clear ValueError instead of an opaque
+    IntegrityError."""
+    if (video_id is None) == (digest_id is None):
+        raise ValueError(
+            "feedback.create requires exactly one of video_id / digest_id"
+        )
     cur = await db.execute(
         """
         INSERT INTO feedback (
-            user_id, video_id, source, selected_text,
+            user_id, video_id, digest_id, source, selected_text,
             text_offset_start, text_offset_end, sentiment, comment
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            user_id, video_id, source.value, selected_text,
+            user_id, video_id, digest_id, source.value, selected_text,
             text_offset_start, text_offset_end, sentiment.value, comment,
         ),
     )
+    # Note: 9 columns, 9 placeholders, 9 params — counted on purpose.
     await db.commit()
     fb_id = cur.lastrowid
     assert fb_id is not None
@@ -70,6 +87,20 @@ async def list_for_video(
         "SELECT * FROM feedback WHERE video_id=? AND user_id=? "
         "ORDER BY created_at ASC, id ASC",
         (video_id, user_id),
+    )
+    return [_row_to_feedback(r) for r in await cur.fetchall()]
+
+
+async def list_for_digest(
+    db: aiosqlite.Connection, *, digest_id: int, user_id: int,
+) -> list[Feedback]:
+    """Feedback rows anchored to this digest's TL;DR (NOT to its source
+    items — those are anchored to their respective video_ids and come
+    from list_for_video)."""
+    cur = await db.execute(
+        "SELECT * FROM feedback WHERE digest_id=? AND user_id=? "
+        "ORDER BY created_at ASC, id ASC",
+        (digest_id, user_id),
     )
     return [_row_to_feedback(r) for r in await cur.fetchall()]
 

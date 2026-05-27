@@ -4,7 +4,11 @@
 
 {% include "digest/_body.html" %}
 
-{% if digest.status.value == 'ready' and digest.item_count > 0 %}
+{% if digest.status.value == 'ready' %}
+  {# Show the popover machinery whenever the digest is rendered — even
+     for an empty pool we want the TL;DR ("Nothing noteworthy in...")
+     selectable so the user can give "uninteresting day" feedback if
+     they want to. #}
   {% include "partials/highlight_popover.html" %}
   <script>
     window.__HIGHLIGHT_DATA__ = {

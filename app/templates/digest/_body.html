@@ -20,7 +20,10 @@
     </form>
   </section>
 {% else %}
-  <section class="tldr">
+  <section class="tldr digest-source"
+           data-highlight-target
+           data-digest-id="{{ digest.id }}"
+           data-feedback-source="digest_tldr">
     <h2>TL;DR</h2>
     <p>{{ digest.tldr }}</p>
   </section>
