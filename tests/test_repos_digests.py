@@ -49,7 +49,12 @@ async def test_mark_failed_stores_error(db: aiosqlite.Connection):
 
 
 async def test_exists_for_today(db: aiosqlite.Connection):
-    today_start = datetime(2026, 5, 26, 0, 0)
+    # Use datetime.now() rather than a hard-coded date so the window
+    # aligns with the row's created_at = datetime('now') default
+    # regardless of the wall-clock day the test runs on.
+    today_start = datetime.now().replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
     today_end = today_start + timedelta(days=1)
     assert await digests_repo.exists_in_range(
         db, user_id=1,
