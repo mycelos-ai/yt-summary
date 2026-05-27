@@ -81,13 +81,11 @@ async def digest_index(
     )
 
 
-@router.get("/digest/{digest_id}", response_class=HTMLResponse)
-async def digest_show(
-    request: Request,
-    digest_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
-    user_id: int = Depends(get_current_user_id),
-) -> HTMLResponse:
+async def _fetch_digest_for_user(
+    db: aiosqlite.Connection, digest_id: int, user_id: int,
+) -> tuple[Digest, dict[str, Any]]:
+    """Load a digest scoped to the active Profile, plus the referenced
+    video metadata. Raises 404 for missing or cross-Profile."""
     d = await digests_repo.get(db, digest_id)
     if d is None or d.user_id != user_id:
         raise HTTPException(status_code=404)
@@ -101,9 +99,49 @@ async def digest_show(
             vid = e.get("video_id")
             if vid:
                 referenced[vid] = await videos_repo.get(db, vid)
+    return d, referenced
+
+
+@router.get("/digest/{digest_id}", response_class=HTMLResponse)
+async def digest_show(
+    request: Request,
+    digest_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    d, referenced = await _fetch_digest_for_user(db, digest_id, user_id)
     return templates.TemplateResponse(
         request,
         "digest/show.html",
+        {"digest": d, "videos": referenced},
+    )
+
+
+@router.get(
+    "/digest/{digest_id}/body-fragment", response_class=HTMLResponse,
+)
+async def digest_body_fragment(
+    request: Request,
+    digest_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    """Fragment endpoint for the HTMX poll while a digest is rendering.
+
+    Returns ONLY the inner body (pending spinner, failed retry, or the
+    final TL;DR + sources) — never wrapped in the base layout. Once the
+    digest reaches a terminal state, sends `HX-Refresh: true` so the
+    browser does a full reload of `/digest/<id>` (so the surrounding
+    chrome stays in sync), matching the pattern used by
+    /v/<id>/summary-fragment.
+    """
+    d, referenced = await _fetch_digest_for_user(db, digest_id, user_id)
+    is_htmx_poll = request.headers.get("HX-Request") == "true"
+    if is_htmx_poll and d.status.value in ("ready", "failed"):
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+    return templates.TemplateResponse(
+        request,
+        "digest/_body.html",
         {"digest": d, "videos": referenced},
     )
 

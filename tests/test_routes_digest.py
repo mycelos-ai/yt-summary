@@ -130,3 +130,76 @@ def test_post_digest_generate_rejects_invalid_period_hours(
             follow_redirects=False,
         )
     assert resp.status_code == 422
+
+
+def test_body_fragment_returns_just_the_body_no_layout(tmp_path, monkeypatch):
+    """The polling fragment endpoint must NOT wrap its response in the
+    base layout, otherwise HTMX nests the whole site chrome on every
+    tick (header + main + ...).
+    """
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=1, period_start=start, period_end=end,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/digest/{digest_id}/body-fragment")
+    assert resp.status_code == 200
+    # The polling spinner is present...
+    assert "Building digest" in resp.text
+    # ...but the base layout is NOT (no <html>, no site header).
+    assert "<html" not in resp.text.lower()
+    assert "site-header" not in resp.text
+
+
+def test_body_fragment_sends_hx_refresh_when_ready(tmp_path, monkeypatch):
+    """Once the digest is ready, the fragment endpoint asks HTMX to do
+    a full page reload (via HX-Refresh) so the surrounding chrome
+    re-syncs. The poll's inner content is replaced by an empty body."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=1, period_start=start, period_end=end,
+            )
+            await digests_repo.mark_ready(
+                app.state.db, digest_id=d.id, tldr="t",
+                top_items_json="[]", item_count=0,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+        # Simulate an HTMX poll with the right header.
+        resp = client.get(
+            f"/digest/{digest_id}/body-fragment",
+            headers={"HX-Request": "true"},
+        )
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Refresh") == "true"
+
+
+def test_body_fragment_404_for_foreign_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            await app.state.db.execute(
+                "INSERT INTO users (id, name) VALUES (2, 'other')"
+            )
+            await app.state.db.commit()
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=2, period_start=start, period_end=end,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/digest/{digest_id}/body-fragment")
+    assert resp.status_code == 404
