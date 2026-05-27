@@ -112,7 +112,11 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         id="openrouter",
         name="OpenRouter",
         litellm_provider="openrouter",
-        default_llm="openrouter/anthropic/claude-sonnet-4",
+        # DeepSeek V4 Pro: 1M context, ~$0.44/M in / $0.87/M out as of
+        # April 2026 — currently the best price/quality ratio on
+        # OpenRouter for summary workloads. Bump when something
+        # cheaper at comparable quality shows up.
+        default_llm="openrouter/deepseek/deepseek-v4-pro",
         default_llm_base_url="https://openrouter.ai/api/v1",
         api_key_url="https://openrouter.ai/keys",
         notes=(
@@ -165,12 +169,24 @@ CURATED_CHAT_MODELS: dict[str, list[str]] = {
         "groq/meta-llama/llama-4-scout-17b-16e-instruct",
     ],
     "openrouter": [
-        "openrouter/anthropic/claude-opus-4-7",
-        "openrouter/anthropic/claude-sonnet-4-6",
-        "openrouter/anthropic/claude-haiku-4-5",
-        "openrouter/openai/gpt-5.2",
-        "openrouter/google/gemini-3-pro-preview",
-        "openrouter/deepseek/deepseek-v3.2",
+        # Default: cheapest 1M-context flagship as of Apr 2026.
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/deepseek/deepseek-v4-flash",
+        # Anthropic — current generation (Apr 2026).
+        "openrouter/anthropic/claude-opus-4.7",
+        "openrouter/anthropic/claude-sonnet-4.6",
+        "openrouter/anthropic/claude-haiku-4.5",
+        # OpenAI — latest flagships.
+        "openrouter/openai/gpt-5.5",
+        "openrouter/openai/gpt-5.4",
+        "openrouter/openai/gpt-5.4-mini",
+        # Google — Gemini 3.x line.
+        "openrouter/google/gemini-3.5-flash",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3.1-flash-lite",
+        # xAI and Qwen — strong agentic / coding options.
+        "openrouter/x-ai/grok-4.3",
+        "openrouter/qwen/qwen3.7-max",
     ],
     # Ollama is dynamic (hits the user's server) — no curation here.
 }
