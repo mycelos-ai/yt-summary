@@ -2127,3 +2127,135 @@ button.section-download {
 @media (max-width: 600px) {
   .chat-form .chat-model-select { max-width: 7rem; }
 }
+
+/* ---- Highlight popover (Daily Digest feedback loop) -------------- */
+
+/* The popover floats at the cursor when the user selects ≥3 chars
+   inside [data-highlight-target]. JS positions it via inline
+   left/top; we control the look-and-feel here. */
+.highlight-popover {
+  position: absolute;
+  z-index: 9000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #1f2937;
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+  user-select: none;
+}
+.highlight-popover[hidden] { display: none; }
+.highlight-popover button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.highlight-popover button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.highlight-popover [data-comment-form] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-basis: 100%;
+  padding-top: 4px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.highlight-popover [data-comment-form][hidden] { display: none; }
+.highlight-popover [data-comment-form] textarea {
+  width: 220px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #111827;
+  color: #fff;
+}
+.highlight-popover [data-comment-form] button[type="submit"] {
+  align-self: flex-end;
+  background: var(--brand-green, #00d4a4);
+  color: #0a0a0a;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.highlight-popover [data-comment-form] button[type="submit"]:hover {
+  background: var(--brand-green-deep, #00b48a);
+}
+
+/* Restored highlights wrap the original text on page load. Color is
+   driven by data.sentiment ("interesting" / "not_interesting"). */
+mark.highlight-interesting {
+  background: #fff59d;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+mark.highlight-not_interesting {
+  background: #e5e7eb;
+  color: #6b7280;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Toast at the bottom-centre, shown after feedback save / copy. */
+#highlight-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 9999;
+  transition: opacity 200ms;
+}
+
+/* ---- Home digest teaser ----------------------------------------- */
+
+.digest-teaser {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #1f2937;
+  text-decoration: none;
+  font-size: 14px;
+  border: 1px solid #fbbf24;
+}
+.digest-teaser:hover { filter: brightness(0.97); }
+.digest-teaser strong { font-weight: 600; }
+.digest-teaser--pending,
+.digest-teaser--rendering {
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+  border-color: #6366f1;
+}
+.digest-teaser--failed {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  border-color: #ef4444;
+}
+.digest-hint {
+  padding: 8px 12px;
+  margin: 0 0 16px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 13px;
+  border: 1px dashed #d1d5db;
+}

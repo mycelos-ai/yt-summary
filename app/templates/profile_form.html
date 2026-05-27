@@ -373,47 +373,65 @@
 </style>
 
 {% if profile %}
-<section style="margin-top: 2rem;">
-  <h2>Interest profile</h2>
-  <p style="color: #6b7280;">
-    Distilled from your highlight feedback. Used as context for new
-    summaries and daily digests.
-  </p>
-  <form method="post" action="/profiles/{{ profile.id }}/interest-profile">
-    <input type="hidden" name="expected_version" value="{{ interest_profile_version }}">
-    <textarea name="markdown" rows="14" cols="80">{{ interest_profile_md }}</textarea>
-    <div style="display: flex; gap: 0.5rem;">
-      <button type="submit">Save profile</button>
+  {#- Interest profile + daily digest live on the profile page since
+      they're per-profile state. Same form/styling conventions as the
+      Newsletter (IMAP) card above. -#}
+  <form method="post"
+        action="/profiles/{{ profile.id }}/interest-profile"
+        class="profile-form profile-imap-form">
+    <h2 class="profile-imap-heading">🎯 Interest profile</h2>
+    <p class="profile-imap-sub">
+      Distilled from your highlight feedback on summaries. Used as
+      context for future summaries and the daily digest. Edit by hand
+      to seed it before you've given any feedback, or click "Rebuild"
+      to redistill it from scratch.
+    </p>
+
+    <input type="hidden" name="expected_version"
+           value="{{ interest_profile_version }}">
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Profile (Markdown)</span>
+      <textarea name="markdown" rows="14"
+                placeholder="- I care about LLM cost optimization&#10;- Not interested in crypto">{{ interest_profile_md }}</textarea>
+    </label>
+
+    <div class="profile-form-actions">
+      <button type="submit" class="btn btn-primary">Save profile</button>
+      <button type="submit" class="btn btn-secondary"
+              formaction="/profiles/{{ profile.id }}/interest-profile/rebuild"
+              formnovalidate>
+        Rebuild from feedback
+      </button>
     </div>
   </form>
-  <form method="post" action="/profiles/{{ profile.id }}/interest-profile/rebuild"
-        style="margin-top: 0.5rem;">
-    <button type="submit">Rebuild from feedback</button>
-  </form>
-</section>
 
-<section style="margin-top: 2rem;">
-  <h2>Daily digest</h2>
-  <p style="color: #6b7280;">
-    A daily curated summary of new items in your queue, shaped by your
-    interest profile.
-  </p>
-  <form method="post" action="/profiles/{{ profile.id }}/digest-prefs">
-    <p>
-      <label>
-        <input type="checkbox" name="digest_enabled" {% if digest_enabled %}checked{% endif %}>
-        Enable daily digest
-      </label>
+  <form method="post"
+        action="/profiles/{{ profile.id }}/digest-prefs"
+        class="profile-form profile-imap-form">
+    <h2 class="profile-imap-heading">📰 Daily digest</h2>
+    <p class="profile-imap-sub">
+      Once a day, yt-summary builds a TL;DR + Top-10 ranking of the
+      most relevant new items in this profile's queue, shaped by the
+      interest profile above.
     </p>
-    <p>
-      <label>
-        Hour of day (0–23):
-        <input type="number" name="digest_hour_local" min="0" max="23"
-               value="{{ digest_hour_local }}" style="width: 4rem;">
-      </label>
-    </p>
-    <button type="submit">Save digest settings</button>
+
+    <label class="profile-form-field profile-imap-check">
+      <input type="checkbox" name="digest_enabled" value="on"
+             {% if digest_enabled %}checked{% endif %}>
+      <span class="profile-form-label">Enable daily digest</span>
+    </label>
+
+    <label class="profile-form-field">
+      <span class="profile-form-label">Hour of day (0–23, local time)</span>
+      <input name="digest_hour_local" type="number" min="0" max="23"
+             value="{{ digest_hour_local }}" inputmode="numeric"
+             style="max-width: 6rem;">
+    </label>
+
+    <div class="profile-form-actions">
+      <button type="submit" class="btn btn-primary">Save digest settings</button>
+    </div>
   </form>
-</section>
 {% endif %}
 {% endblock %}
