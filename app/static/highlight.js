@@ -1,9 +1,6 @@
 (function () {
   const popover = document.getElementById('highlight-popover');
-  if (!popover) {
-    console.warn('[highlight.js] no #highlight-popover found, exiting');
-    return;
-  }
+  if (!popover) return;
 
   const data = window.__HIGHLIGHT_DATA__ || {};
   const defaultVideoId = data.video_id;
@@ -15,11 +12,7 @@
   // each with its own data-video-id attribute (so feedback lands on
   // the right Video row).
   const targets = Array.from(document.querySelectorAll(targetSelector));
-  console.log('[highlight.js] init, targets:', targets.length, 'data:', data);
-  if (targets.length === 0) {
-    console.warn('[highlight.js] no targets matched', targetSelector);
-    return;
-  }
+  if (targets.length === 0) return;
 
   let lastSelection = null;
   let pendingSentiment = null;
@@ -81,7 +74,6 @@
     const range = sel.getRangeAt(0);
     const target = targetForRange(range);
     if (!target) {
-      console.debug('[highlight.js] selection outside any target');
       hidePopover();
       return;
     }
@@ -92,7 +84,6 @@
     }
     const videoId = videoIdForTarget(target);
     if (!videoId) {
-      console.warn('[highlight.js] no video_id resolvable for target', target);
       hidePopover();
       return;
     }
@@ -104,7 +95,6 @@
       videoId,
       source: sourceForTarget(target),
     };
-    console.log('[highlight.js] selection:', lastSelection);
     showPopover(range.getBoundingClientRect());
   });
 
