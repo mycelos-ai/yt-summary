@@ -2269,3 +2269,19 @@ mark.highlight-not_interesting {
   width: 100%;
   border: 0;
 }
+
+/* Digest source items are highlightable — give them a subtle hover
+   affordance so users notice they can be marked. */
+.digest-source {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  transition: border-color 150ms, background 150ms;
+}
+.digest-source:hover {
+  border-left-color: #fbbf24;
+  background: #fefce8;
+}
+.digest-source strong a { text-decoration: none; }
+.digest-source strong a:hover { text-decoration: underline; }

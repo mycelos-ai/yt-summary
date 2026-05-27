@@ -28,7 +28,10 @@
     <h2>Sources ({{ digest.item_count }})</h2>
     <ol>
       {% for item in digest.top_items_json | from_json %}
-        <li>
+        <li class="digest-source"
+            data-highlight-target
+            data-video-id="{{ item.video_id }}"
+            data-feedback-source="digest">
           {% set v = videos.get(item.video_id) %}
           <strong>
             {% if v %}<a href="/v/{{ v.id }}">{{ v.title }}</a>{% else %}{{ item.video_id }}{% endif %}

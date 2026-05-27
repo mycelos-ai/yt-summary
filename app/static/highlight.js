@@ -3,15 +3,47 @@
   if (!popover) return;
 
   const data = window.__HIGHLIGHT_DATA__ || {};
-  const videoId = data.video_id;
-  const source = data.source || 'summary';
-  const target = document.querySelector(data.target_selector || '[data-highlight-target]');
-  if (!videoId || !target) return;
+  const defaultVideoId = data.video_id;
+  const defaultSource = data.source || 'summary';
+  const targetSelector = data.target_selector || '[data-highlight-target]';
+
+  // Multiple targets supported: video detail page has one summary
+  // target with the default video_id; digest page has N source items
+  // each with its own data-video-id attribute (so feedback lands on
+  // the right Video row).
+  const targets = Array.from(document.querySelectorAll(targetSelector));
+  if (targets.length === 0) return;
 
   let lastSelection = null;
   let pendingSentiment = null;
 
-  function getOffsets(range) {
+  function targetForRange(range) {
+    // The closest target containing the selection — that's the one
+    // we anchor feedback to. If the selection straddles two targets
+    // (shouldn't happen in practice) we ignore it.
+    for (const t of targets) {
+      if (t.contains(range.commonAncestorContainer)) return t;
+    }
+    return null;
+  }
+
+  function videoIdForTarget(target) {
+    // Resolution order:
+    // 1. data-video-id on the target itself (digest source items)
+    // 2. data-video-id on any ancestor (in case the target is the
+    //    inner prose and the wrapper carries the id)
+    // 3. window.__HIGHLIGHT_DATA__.video_id (video detail page)
+    if (target.dataset.videoId) return target.dataset.videoId;
+    const anc = target.closest('[data-video-id]');
+    if (anc && anc.dataset.videoId) return anc.dataset.videoId;
+    return defaultVideoId;
+  }
+
+  function sourceForTarget(target) {
+    return target.dataset.feedbackSource || defaultSource;
+  }
+
+  function getOffsets(target, range) {
     const pre = document.createRange();
     pre.selectNodeContents(target);
     pre.setEnd(range.startContainer, range.startOffset);
@@ -40,7 +72,8 @@
       return;
     }
     const range = sel.getRangeAt(0);
-    if (!target.contains(range.commonAncestorContainer)) {
+    const target = targetForRange(range);
+    if (!target) {
       hidePopover();
       return;
     }
@@ -49,8 +82,19 @@
       hidePopover();
       return;
     }
-    const [start, end] = getOffsets(range);
-    lastSelection = { text, start, end };
+    const videoId = videoIdForTarget(target);
+    if (!videoId) {
+      hidePopover();
+      return;
+    }
+    const [start, end] = getOffsets(target, range);
+    lastSelection = {
+      text,
+      start,
+      end,
+      videoId,
+      source: sourceForTarget(target),
+    };
     showPopover(range.getBoundingClientRect());
   });
 
@@ -60,8 +104,8 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        video_id: videoId,
-        source: source,
+        video_id: lastSelection.videoId,
+        source: lastSelection.source,
         selected_text: lastSelection.text,
         text_offset_start: lastSelection.start,
         text_offset_end: lastSelection.end,
@@ -114,11 +158,22 @@
     t._h = setTimeout(() => { t.style.opacity = '0'; }, 2000);
   }
 
-  // Restore existing highlights on load.
+  // Restore existing highlights on load. Each existing fb may carry a
+  // video_id (digest page) so we only restore it onto the matching
+  // target; the video detail page omits video_id from existing rows
+  // (single target, default applies).
   if (Array.isArray(data.existing)) {
-    const fullText = target.textContent;
     data.existing.forEach((fb) => {
-      const idx = fullText.indexOf(fb.selected_text, fb.text_offset_start);
+      let target = targets[0];
+      if (fb.video_id) {
+        const match = targets.find(
+          (t) => videoIdForTarget(t) === fb.video_id,
+        );
+        if (match) target = match;
+        else return;  // no matching target → skip silently
+      }
+      const fullText = target.textContent;
+      const idx = fullText.indexOf(fb.selected_text, fb.text_offset_start || 0);
       if (idx === -1) return;
       const html = target.innerHTML;
       const escaped = fb.selected_text

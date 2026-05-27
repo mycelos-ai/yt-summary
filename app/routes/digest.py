@@ -102,6 +102,40 @@ async def _fetch_digest_for_user(
     return d, referenced
 
 
+async def _existing_feedback_for_digest(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    video_ids: list[str],
+) -> str:
+    """Render JSON of this Profile's digest-source feedback rows, so the
+    highlight.js restore-pass can re-mark them on page load.
+
+    Only includes feedback rows whose source='digest' AND whose video_id
+    appears in the digest's source list — keeps the embedded JSON tight
+    and avoids leaking feedback from other digests."""
+    from app.repos import feedback as feedback_repo
+
+    rows: list[dict] = []
+    for vid in video_ids:
+        fbs = await feedback_repo.list_for_video(
+            db, video_id=vid, user_id=user_id,
+        )
+        for fb in fbs:
+            if fb.source.value != "digest":
+                continue
+            rows.append({
+                "id": fb.id,
+                "video_id": fb.video_id,
+                "selected_text": fb.selected_text,
+                "text_offset_start": fb.text_offset_start,
+                "text_offset_end": fb.text_offset_end,
+                "sentiment": fb.sentiment.value,
+                "comment": fb.comment,
+            })
+    return json.dumps(rows)
+
+
 @router.get("/digest/{digest_id}", response_class=HTMLResponse)
 async def digest_show(
     request: Request,
@@ -110,10 +144,17 @@ async def digest_show(
     user_id: int = Depends(get_current_user_id),
 ) -> HTMLResponse:
     d, referenced = await _fetch_digest_for_user(db, digest_id, user_id)
+    feedbacks_json = await _existing_feedback_for_digest(
+        db, user_id=user_id, video_ids=list(referenced.keys()),
+    )
     return templates.TemplateResponse(
         request,
         "digest/show.html",
-        {"digest": d, "videos": referenced},
+        {
+            "digest": d,
+            "videos": referenced,
+            "feedbacks_json": feedbacks_json,
+        },
     )
 
 
