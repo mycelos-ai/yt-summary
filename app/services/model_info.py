@@ -1,10 +1,18 @@
 """Detect a model's effective context window.
 
 LiteLLM's get_max_tokens only knows the models in its built-in catalogue,
-which excludes arbitrary local Ollama tags. For ollama / ollama_chat models
-we ask the Ollama server itself via /api/show and parse the architecture-
-specific context_length field. Other providers fall back to LiteLLM's
-catalogue, then to a conservative 8k default.
+which lags weeks-to-months behind upstream releases and excludes arbitrary
+local Ollama tags. We use a layered strategy:
+
+  - Ollama tags → ask the Ollama server via /api/show.
+  - OpenRouter slugs → ask OpenRouter's /api/v1/models (free, no key needed,
+    always current). One snapshot is fetched per process and cached.
+  - Everything else → LiteLLM's static catalogue.
+  - Unknown → conservative 8k default.
+
+Without the OpenRouter lookup, brand-new slugs like deepseek-v4-pro
+(real context 1M) fall through to the 8k default and the summarizer
+chunks transcripts unnecessarily.
 """
 
 from __future__ import annotations
@@ -21,6 +29,12 @@ DEFAULT_CONTEXT = 8000
 # Per-process cache: (model, base_url) -> tokens. Cleared on restart, which
 # is fine — the Ollama server might pull a new model variant between runs.
 _CACHE: dict[tuple[str, str | None], int] = {}
+
+# OpenRouter catalogue snapshot: slug-without-prefix -> context_length.
+# None = not yet fetched; {} = fetched but empty (treated as "no data").
+# Populated lazily on first lookup, kept for the lifetime of the process.
+_OPENROUTER_CATALOGUE: dict[str, int] | None = None
+_OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 
 def _strip_provider(model: str) -> str:
@@ -79,14 +93,67 @@ def _from_litellm(model: str) -> int | None:
     return None
 
 
+async def _fetch_openrouter_catalogue() -> dict[str, int]:
+    """One-shot fetch of OpenRouter's full model catalogue.
+
+    Returns a slug -> context_length map. On any failure returns {} so we
+    don't keep retrying for the rest of the process. ~355 models, ~250KB
+    JSON as of mid-2026 — small enough to keep in memory.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(_OPENROUTER_MODELS_URL)
+            r.raise_for_status()
+            body = r.json()
+    except Exception as e:
+        log.warning(
+            "OpenRouter /api/v1/models fetch failed: %s: %s",
+            type(e).__name__, e,
+        )
+        return {}
+
+    out: dict[str, int] = {}
+    for m in body.get("data") or []:
+        slug = m.get("id")
+        ctx = m.get("context_length")
+        if isinstance(slug, str) and isinstance(ctx, int) and ctx > 0:
+            out[slug] = ctx
+    log.info("Fetched OpenRouter catalogue: %d models", len(out))
+    return out
+
+
+async def _from_openrouter(model: str) -> int | None:
+    """Resolve an `openrouter/<provider>/<slug>` model via OpenRouter's API.
+
+    The catalogue is fetched lazily on first call and cached for the
+    lifetime of the process. Returns None for non-openrouter models or
+    when the slug isn't in OpenRouter's catalogue.
+    """
+    if not model.startswith("openrouter/"):
+        return None
+
+    global _OPENROUTER_CATALOGUE
+    if _OPENROUTER_CATALOGUE is None:
+        _OPENROUTER_CATALOGUE = await _fetch_openrouter_catalogue()
+    if not _OPENROUTER_CATALOGUE:
+        return None
+
+    # `openrouter/deepseek/deepseek-v4-pro` → `deepseek/deepseek-v4-pro`,
+    # which is the form OpenRouter uses as its `id`.
+    slug = _strip_provider(model)
+    ctx = _OPENROUTER_CATALOGUE.get(slug)
+    return ctx if isinstance(ctx, int) and ctx > 0 else None
+
+
 async def get_context_window(model: str, base_url: str | None) -> int:
     """Return the model's context window in tokens.
 
     Order of resolution:
     1. Cached value from a previous lookup in this process.
     2. For ollama / ollama_chat: Ollama's /api/show output.
-    3. LiteLLM's built-in catalogue.
-    4. DEFAULT_CONTEXT (8000).
+    3. For openrouter/*: OpenRouter's /api/v1/models catalogue.
+    4. LiteLLM's built-in catalogue.
+    5. DEFAULT_CONTEXT (8000).
     """
     cache_key = (model, base_url)
     if cache_key in _CACHE:
@@ -99,6 +166,15 @@ async def get_context_window(model: str, base_url: str | None) -> int:
             log.info("Context for %s via Ollama: %d tokens", model, ollama_value)
             _CACHE[cache_key] = ollama_value
             return ollama_value
+
+    openrouter_value = await _from_openrouter(model)
+    if openrouter_value:
+        log.info(
+            "Context for %s via OpenRouter catalogue: %d tokens",
+            model, openrouter_value,
+        )
+        _CACHE[cache_key] = openrouter_value
+        return openrouter_value
 
     catalogue_value = _from_litellm(model)
     if catalogue_value:
@@ -113,4 +189,6 @@ async def get_context_window(model: str, base_url: str | None) -> int:
 
 def clear_cache() -> None:
     """Test helper."""
+    global _OPENROUTER_CATALOGUE
     _CACHE.clear()
+    _OPENROUTER_CATALOGUE = None
