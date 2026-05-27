@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 # before we reach into app.routes.home for the monkeypatch target.
 from app.main import create_app  # isort: skip
 from app.repos import digests as digests_repo
-from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.routes import home as home_routes
 
@@ -360,7 +359,23 @@ def test_home_card_renders_tag_pills(tmp_path, monkeypatch):
     assert 'href="/?tag=python"' in resp.text
 
 
-def test_home_shows_teaser_when_today_digest_ready(tmp_path, monkeypatch):
+def test_home_shows_digests_strip_with_add_card_when_empty(tmp_path, monkeypatch):
+    """No digests yet: only the '+ Generate your first digest' card is
+    rendered in the Digests strip, alongside the Queues & playlists
+    strip."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Digests" in resp.text
+    # The "+ generate digest" form lives in the strip.
+    assert 'action="/digest/generate"' in resp.text
+    assert "Generate your first digest" in resp.text
+
+
+def test_home_shows_recent_digest_cards(tmp_path, monkeypatch):
+    """Recent digests render as cards in the strip with status-aware copy."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
@@ -379,11 +394,16 @@ def test_home_shows_teaser_when_today_digest_ready(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(seed())
         resp = client.get("/")
     assert resp.status_code == 200
-    assert "Daily digest" in resp.text
+    # Card with item_count is rendered in the strip
     assert "3 items" in resp.text
+    # Add-card label switches once at least one digest exists
+    assert "New digest" in resp.text
+    # "All digests →" archive link appears
+    assert 'href="/digest"' in resp.text
 
 
-def test_home_shows_pending_teaser_while_rendering(tmp_path, monkeypatch):
+def test_home_shows_pending_pill_on_card_while_rendering(tmp_path, monkeypatch):
+    """A pending digest in the strip wears a 'building…' pill."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
@@ -397,11 +417,12 @@ def test_home_shows_pending_teaser_while_rendering(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(seed())
         resp = client.get("/")
     assert resp.status_code == 200
-    assert "Daily digest" in resp.text
     assert "building" in resp.text
+    assert "digest-card--pending" in resp.text
 
 
-def test_home_shows_failed_teaser_when_failed(tmp_path, monkeypatch):
+def test_home_shows_failed_pill_on_card(tmp_path, monkeypatch):
+    """A failed digest in the strip wears a 'failed' pill and offers retry copy."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
@@ -418,37 +439,6 @@ def test_home_shows_failed_teaser_when_failed(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(seed())
         resp = client.get("/")
     assert resp.status_code == 200
-    assert "Daily digest" in resp.text
     assert "failed" in resp.text
-
-
-def test_home_shows_hint_when_digest_disabled_and_no_digest(
-    tmp_path, monkeypatch,
-):
-    """Default profile starts with digest_enabled=0 and no digest row.
-    The teaser partial should render the dismissible hint."""
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.get("/")
-    assert resp.status_code == 200
-    assert "Tip:" in resp.text or "Tipp:" in resp.text
-
-
-def test_home_no_teaser_when_enabled_but_no_digest_today(tmp_path, monkeypatch):
-    """digest_enabled=1 but no digest row for today → no teaser, no hint.
-    (User is set up but the cron hasn't fired yet today.)"""
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        async def seed():
-            await users_repo.set_digest_prefs(
-                app.state.db, user_id=1,
-                digest_enabled=True, digest_hour_local=7,
-            )
-        asyncio.get_event_loop().run_until_complete(seed())
-        resp = client.get("/")
-    assert resp.status_code == 200
-    # No teaser link (no today's digest) and no hint (digest is enabled).
-    assert "📰 Daily digest" not in resp.text
-    assert "Tip:" not in resp.text
+    assert "Click to retry" in resp.text
+    assert "digest-card--failed" in resp.text

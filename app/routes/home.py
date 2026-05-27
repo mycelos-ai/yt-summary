@@ -116,33 +116,13 @@ async def home(
     playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
     video_tags = await tags_repo.tags_for_videos(db, video_ids)
 
-    # Daily-digest teaser: fetch today's digest (if any) and the
-    # digest-enabled preference so the partial can pick the right
-    # variant (ready/pending/failed link, dismissible hint, or nothing).
-    # We use datetime() on BOTH sides of the comparison to bridge the
-    # space-vs-T separator mismatch between SQLite's datetime('now')
-    # column default ("YYYY-MM-DD HH:MM:SS") and Python's isoformat()
-    # ("YYYY-MM-DDTHH:MM:SS"). Lexicographic comparison would silently
-    # fail (space < T).
-    from datetime import UTC, datetime, timedelta
-
-    today_start = datetime.now(UTC).replace(
-        hour=0, minute=0, second=0, microsecond=0,
-    )
-    today_end = today_start + timedelta(days=1)
-    cur = await db.execute(
-        """
-        SELECT * FROM digests
-        WHERE user_id = ?
-          AND datetime(created_at) >= datetime(?)
-          AND datetime(created_at) <  datetime(?)
-        ORDER BY created_at DESC LIMIT 1
-        """,
-        (current_user_id, today_start.isoformat(), today_end.isoformat()),
-    )
-    row = await cur.fetchone()
-    todays_digest = (
-        digests_repo._row_to_digest(row) if row else None  # noqa: SLF001
+    # Recent digests strip alongside the Queues & playlists strip. We
+    # fetch a few past digests so the home page tells a story ("you
+    # had one yesterday, one the day before") rather than only
+    # surfacing today's. Limit small — the dedicated /digest archive
+    # is where you go for the full history.
+    recent_digests = await digests_repo.list_for_user(
+        db, user_id=current_user_id, limit=4,
     )
     digest_enabled, _ = await users_repo.get_digest_prefs(
         db, user_id=current_user_id,
@@ -163,7 +143,7 @@ async def home(
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
             "onboarding_done": onboarding_done,
-            "todays_digest": todays_digest,
+            "recent_digests": recent_digests,
             "digest_enabled": digest_enabled,
         },
     )

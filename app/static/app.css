@@ -2224,38 +2224,48 @@ mark.highlight-not_interesting {
   transition: opacity 200ms;
 }
 
-/* ---- Home digest teaser ----------------------------------------- */
+/* ---- Home digest strip ------------------------------------------ */
 
-.digest-teaser {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  margin: 0 0 16px;
-  border-radius: 8px;
+/* Digest cards reuse .playlist-card layout (placeholder + body) and
+   only differ in the status pill + an accent on the placeholder. */
+.digest-card .playlist-card-placeholder {
   background: linear-gradient(135deg, #fef3c7, #fde68a);
-  color: #1f2937;
-  text-decoration: none;
-  font-size: 14px;
-  border: 1px solid #fbbf24;
+  color: #92400e;
 }
-.digest-teaser:hover { filter: brightness(0.97); }
-.digest-teaser strong { font-weight: 600; }
-.digest-teaser--pending,
-.digest-teaser--rendering {
+.digest-card--pending .playlist-card-placeholder,
+.digest-card--rendering .playlist-card-placeholder {
   background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
-  border-color: #6366f1;
+  color: #4338ca;
 }
-.digest-teaser--failed {
+.digest-card--failed .playlist-card-placeholder {
   background: linear-gradient(135deg, #fee2e2, #fecaca);
-  border-color: #ef4444;
+  color: #b91c1c;
 }
-.digest-hint {
-  padding: 8px 12px;
-  margin: 0 0 16px;
-  border-radius: 6px;
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 13px;
-  border: 1px dashed #d1d5db;
+.digest-card-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  background: #e0e7ff;
+  color: #4338ca;
+  vertical-align: middle;
+}
+.digest-card-pill--failed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* The "+ Generate digest" card is a <form>, but the inner <button>
+   reuses .playlist-card to look exactly like the playlist add-card.
+   Reset the button defaults so it renders flat. */
+.playlist-card-wrap button.playlist-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  border: 0;
 }
