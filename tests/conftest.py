@@ -11,16 +11,18 @@ from app.config import Config
 from app.db import connect, init_schema
 
 
-def pytest_configure(config) -> None:  # noqa: ARG001
+@pytest.fixture(autouse=True)
+def _ensure_event_loop() -> None:
     """Make `asyncio.get_event_loop()` work in synchronous test bodies.
 
-    Python 3.12 deprecated implicit loop creation: `get_event_loop()`
-    raises RuntimeError when called from a thread that doesn't already
-    have one. Several tests in this suite drive async setup from
-    synchronous functions via `asyncio.get_event_loop().run_until_complete(...)`
-    — that's the established pattern, but it needs a loop to exist
-    first. We install one here at session start so every test sees
-    the same loop regardless of platform / Python patch version.
+    Python 3.12 raises RuntimeError when get_event_loop() is called
+    from a thread that doesn't already have one (and pytest-asyncio's
+    auto mode closes the loop between tests). Several tests in this
+    suite drive async setup from sync functions via
+    `asyncio.get_event_loop().run_until_complete(...)` — the
+    established pattern — so we re-create a loop for each test
+    function that needs it. autouse=True so individual tests don't
+    have to opt in.
     """
     try:
         asyncio.get_event_loop()
