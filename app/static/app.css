@@ -2127,3 +2127,161 @@ button.section-download {
 @media (max-width: 600px) {
   .chat-form .chat-model-select { max-width: 7rem; }
 }
+
+/* ---- Highlight popover (Daily Digest feedback loop) -------------- */
+
+/* The popover floats at the cursor when the user selects ≥3 chars
+   inside [data-highlight-target]. JS positions it via inline
+   left/top; we control the look-and-feel here. */
+.highlight-popover {
+  position: absolute;
+  z-index: 9000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #1f2937;
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+  user-select: none;
+}
+.highlight-popover[hidden] { display: none; }
+.highlight-popover button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.highlight-popover button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.highlight-popover [data-comment-form] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-basis: 100%;
+  padding-top: 4px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.highlight-popover [data-comment-form][hidden] { display: none; }
+.highlight-popover [data-comment-form] textarea {
+  width: 220px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #111827;
+  color: #fff;
+}
+.highlight-popover [data-comment-form] button[type="submit"] {
+  align-self: flex-end;
+  background: var(--brand-green, #00d4a4);
+  color: #0a0a0a;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.highlight-popover [data-comment-form] button[type="submit"]:hover {
+  background: var(--brand-green-deep, #00b48a);
+}
+
+/* Restored highlights wrap the original text on page load. Color is
+   driven by data.sentiment ("interesting" / "not_interesting"). */
+mark.highlight-interesting {
+  background: #fff59d;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+mark.highlight-not_interesting {
+  background: #e5e7eb;
+  color: #6b7280;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Toast at the bottom-centre, shown after feedback save / copy. */
+#highlight-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 9999;
+  transition: opacity 200ms;
+}
+
+/* ---- Home digest strip ------------------------------------------ */
+
+/* Digest cards reuse .playlist-card layout (placeholder + body) and
+   only differ in the status pill + an accent on the placeholder. */
+.digest-card .playlist-card-placeholder {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+.digest-card--pending .playlist-card-placeholder,
+.digest-card--rendering .playlist-card-placeholder {
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+  color: #4338ca;
+}
+.digest-card--failed .playlist-card-placeholder {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #b91c1c;
+}
+.digest-card-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  background: #e0e7ff;
+  color: #4338ca;
+  vertical-align: middle;
+}
+.digest-card-pill--failed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* The "+ Generate digest" card is a <form>, but the inner <button>
+   reuses .playlist-card to look exactly like the playlist add-card.
+   Reset the button defaults so it renders flat. */
+.playlist-card-wrap button.playlist-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  border: 0;
+}
+
+/* Digest source items are highlightable — give them a subtle hover
+   affordance so users notice they can be marked. */
+.digest-source {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  transition: border-color 150ms, background 150ms;
+}
+.digest-source:hover {
+  border-left-color: #fbbf24;
+  background: #fefce8;
+}
+.digest-source strong a { text-decoration: none; }
+.digest-source strong a:hover { text-decoration: underline; }

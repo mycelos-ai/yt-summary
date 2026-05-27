@@ -4,6 +4,7 @@ from typing import Any
 
 import litellm
 
+from app.services.highlight_parser import HIGHLIGHTS_SCHEMA_HINT, parse_summary_payload
 from app.services.model_info import get_context_window
 from app.services.transcript_format import format_timestamp
 
@@ -123,6 +124,8 @@ def build_system_prompt(
     with_timestamps: bool = False,
     additional_prompt: str | None = None,
     content_kind: str = "youtube",
+    interest_profile_md: str | None = None,
+    with_highlights: bool = False,
 ) -> str:
     """Build the system prompt for single-shot summarization.
 
@@ -140,11 +143,34 @@ def build_system_prompt(
         THIS RUN:`` header. Used by the Re-summarize panel to bias the
         next single run without persisting anything. None/blank → no
         block rendered.
+    interest_profile_md: optional Markdown blob describing the active
+        Profile's stated interests. When provided, it's appended as an
+        ``Interest profile`` block so the LLM can bias which points it
+        emphasises and which moments it highlights. None/blank → no
+        block rendered.
+    with_highlights: when True, append the structured-highlights schema
+        hint (from ``app.services.highlight_parser``) so the LLM
+        returns a ``{"summary": ..., "highlights": [...]}`` JSON
+        envelope instead of plain Markdown. Used by the Daily Digest
+        path.
     """
     custom = (custom_system_prompt or "").strip()
     timestamp_block = _TIMESTAMP_INSTRUCTION if with_timestamps else ""
     override_block = _additional_prompt_block(additional_prompt)
     override_suffix = f"\n\n{override_block}" if override_block else ""
+
+    profile_block = ""
+    if interest_profile_md and interest_profile_md.strip():
+        profile_block = (
+            "\n\nInterest profile (the active Profile's stated interests — "
+            "use this to shape which points you emphasize in the summary "
+            "and which highlights you surface):\n"
+            f"{interest_profile_md.strip()}\n"
+        )
+
+    highlights_block = ""
+    if with_highlights:
+        highlights_block = "\n\n" + HIGHLIGHTS_SCHEMA_HINT
 
     if custom:
         return (
@@ -154,11 +180,18 @@ def build_system_prompt(
             "proper HTML tables.\n\n"
             f"{custom}\n\n"
             f"{timestamp_block}"
-        ).rstrip() + "\n" + override_suffix
+        ).rstrip() + "\n" + override_suffix + profile_block + highlights_block
     if content_kind == "email":
         # Newsletters have no timestamps; the newsletter prompt is
-        # self-contained, so we only append the one-shot override.
-        return _newsletter_system_prompt(language) + override_suffix
+        # self-contained, so we only append the one-shot override
+        # plus the optional interest-profile + highlights blocks so
+        # the daily-digest path works for newsletter items too.
+        return (
+            _newsletter_system_prompt(language)
+            + override_suffix
+            + profile_block
+            + highlights_block
+        )
     return (
         "You analyze YouTube videos and extract their substance for someone "
         "who doesn't have time to watch.\n\n"
@@ -246,7 +279,7 @@ def build_system_prompt(
         "- Self-promotion (\"subscribe\", \"like the video\", merch, "
         "Patreon plugs).\n"
         "- Filler words and repeated transitions.\n"
-    ) + override_suffix
+    ) + override_suffix + profile_block + highlights_block
 
 
 def _newsletter_reduce_prompt(language: str | None) -> str:
@@ -276,6 +309,8 @@ def build_reduce_prompt(
     with_timestamps: bool = False,
     additional_prompt: str | None = None,
     content_kind: str = "youtube",
+    interest_profile_md: str | None = None,
+    with_highlights: bool = False,
 ) -> str:
     """Reduce prompt is intentionally NOT user-customizable — it's an
     internal map-reduce mechanic, not a user-facing summary style. The
@@ -286,6 +321,15 @@ def build_reduce_prompt(
     additional_prompt: see build_system_prompt — the same one-shot
         override block is appended at the end of the reduce prompt so
         chunked videos honour the user's per-run tweak too.
+    interest_profile_md: optional Markdown blob describing the active
+        Profile's stated interests; appended as an ``Interest profile``
+        block so the reduce step biases the merged summary toward those
+        interests too. None/blank → no block rendered.
+    with_highlights: when True, append the structured-highlights schema
+        hint so the reduce step also returns a
+        ``{"summary": ..., "highlights": [...]}`` JSON envelope; required
+        for long transcripts that take the map-reduce path under the
+        Daily Digest feature.
     """
     timestamp_block = (
         "PRESERVE INLINE TIMESTAMP LINKS:\n"
@@ -297,8 +341,28 @@ def build_reduce_prompt(
     )
     override_block = _additional_prompt_block(additional_prompt)
     override_suffix = f"\n\n{override_block}" if override_block else ""
+
+    profile_block = ""
+    if interest_profile_md and interest_profile_md.strip():
+        profile_block = (
+            "\n\nInterest profile (the active Profile's stated interests — "
+            "use this to shape which points you emphasize in the summary "
+            "and which highlights you surface):\n"
+            f"{interest_profile_md.strip()}\n"
+        )
+
+    highlights_block = ""
+    if with_highlights:
+        highlights_block = "\n\n" + HIGHLIGHTS_SCHEMA_HINT
+
     if content_kind == "email":
-        return _newsletter_reduce_prompt(language) + override_suffix
+        return (
+            _newsletter_reduce_prompt(language)
+            + override_suffix
+            + profile_block
+            + highlights_block
+        )
+
     return (
         "You merge several partial summaries of a single YouTube video into "
         "one cohesive Markdown summary.\n\n"
@@ -348,7 +412,7 @@ def build_reduce_prompt(
         "summary mentions sponsors, do not surface them in the final "
         "result.\n\n"
         f"{timestamp_block}"
-    ).rstrip() + override_suffix
+    ).rstrip() + override_suffix + profile_block + highlights_block
 
 
 def _build_user_message(
@@ -499,6 +563,8 @@ async def summarize(
     content_kind: str = "youtube",
     progress: ProgressCb | None = None,
     on_partial: Callable[[str], Awaitable[None]] | None = None,
+    interest_profile_md: str | None = None,
+    with_highlights: bool = False,
 ) -> str:
     """Summarize a transcript.
 
@@ -530,6 +596,13 @@ async def summarize(
         in the map-reduce path. Receives a Markdown-formatted "live"
         summary that combines the partial summaries produced so far.
         Not called in the single-shot path (no intermediate state).
+    interest_profile_md: optional Markdown blob describing the active
+        Profile's stated interests; threaded into ``build_system_prompt``
+        so the LLM biases the summary toward those interests.
+    with_highlights: when True, instructs the LLM (via
+        ``build_system_prompt``) to return a JSON envelope with
+        structured highlights alongside the summary; consumed by
+        ``summarize_with_highlights``.
     """
     progress = progress or _noop
     has_segments = bool(transcript_segments)
@@ -539,12 +612,16 @@ async def summarize(
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
         content_kind=content_kind,
+        interest_profile_md=interest_profile_md,
+        with_highlights=with_highlights,
     )
     reduce_prompt = build_reduce_prompt(
         language=language,
         with_timestamps=has_segments,
         additional_prompt=additional_prompt,
         content_kind=content_kind,
+        interest_profile_md=interest_profile_md,
+        with_highlights=with_highlights,
     )
 
     max_tokens = await get_context_window(model, base_url)
@@ -652,3 +729,56 @@ def _render_live_summary(partials: list[str], *, total: int) -> str:
     for idx, part in enumerate(partials, start=1):
         body_blocks.append(f"### Section {idx} / {total}\n\n{part}")
     return header + "\n\n".join(body_blocks)
+
+
+async def summarize_with_highlights(
+    *,
+    transcript: str,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+    title: str = "",
+    description: str = "",
+    language: str | None = None,
+    custom_system_prompt: str | None = None,
+    content_kind: str = "youtube",
+    interest_profile_md: str | None = None,
+    playlist_context: list[str] | None = None,
+    transcript_segments: list[dict] | None = None,
+    additional_prompt: str | None = None,
+    progress: ProgressCb | None = None,
+    on_partial: Callable[[str], Awaitable[None]] | None = None,
+) -> tuple[str, list[dict] | None]:
+    """Like `summarize()`, but asks the LLM for a JSON envelope with
+    structured highlights alongside the summary.
+
+    Returns (summary_markdown, highlights_or_none). `highlights` is a
+    list of `{text, rank, reason}` dicts, an empty list (LLM said
+    "nothing noteworthy"), or None (LLM didn't follow the JSON shape —
+    pipeline falls back to legacy behaviour).
+
+    Implementation: re-uses `summarize()` with `with_highlights=True`
+    and `interest_profile_md` threaded through `build_system_prompt`,
+    then parses the JSON envelope from the resulting string. Map-reduce
+    path discards highlights from intermediate chunks and only honours
+    the final reduce LLM's response.
+    """
+    raw = await summarize(
+        transcript=transcript,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        title=title,
+        description=description,
+        language=language,
+        custom_system_prompt=custom_system_prompt,
+        content_kind=content_kind,
+        interest_profile_md=interest_profile_md,
+        with_highlights=True,
+        playlist_context=playlist_context,
+        transcript_segments=transcript_segments,
+        additional_prompt=additional_prompt,
+        progress=progress,
+        on_partial=on_partial,
+    )
+    return parse_summary_payload(raw)

@@ -1,3 +1,4 @@
+import asyncio
 import urllib.request
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -8,6 +9,25 @@ import pytest_asyncio
 
 from app.config import Config
 from app.db import connect, init_schema
+
+
+@pytest.fixture(autouse=True)
+def _ensure_event_loop() -> None:
+    """Make `asyncio.get_event_loop()` work in synchronous test bodies.
+
+    Python 3.12 raises RuntimeError when get_event_loop() is called
+    from a thread that doesn't already have one (and pytest-asyncio's
+    auto mode closes the loop between tests). Several tests in this
+    suite drive async setup from sync functions via
+    `asyncio.get_event_loop().run_until_complete(...)` — the
+    established pattern — so we re-create a loop for each test
+    function that needs it. autouse=True so individual tests don't
+    have to opt in.
+    """
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
 # Test voice cache. Lives outside the repo so the 60 MB binary never
 # enters git history. First run on a machine downloads the model from

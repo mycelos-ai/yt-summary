@@ -1,6 +1,18 @@
 from datetime import datetime
 
-from app.models import ChatMessage, Job, JobState, TranscriptSource, Video
+from app.models import (
+    ChatMessage,
+    Digest,
+    DigestStatus,
+    Feedback,
+    FeedbackSource,
+    Highlight,
+    Job,
+    JobState,
+    Sentiment,
+    TranscriptSource,
+    Video,
+)
 
 
 def test_video_dataclass():
@@ -86,3 +98,54 @@ def test_user_dataclass():
     assert u.id == 1
     assert u.name == "admin"
     assert u.api_key_hash is None
+
+
+def test_feedback_dataclass_video_anchor():
+    fb = Feedback(
+        id=1, user_id=2, video_id="v1", digest_id=None,
+        source=FeedbackSource.SUMMARY,
+        selected_text="some text",
+        text_offset_start=0, text_offset_end=9,
+        sentiment=Sentiment.INTERESTING,
+        comment=None,
+        created_at=datetime(2026, 5, 26, 12, 0),
+    )
+    assert fb.video_id == "v1"
+    assert fb.digest_id is None
+    assert fb.sentiment == "interesting"
+
+
+def test_feedback_dataclass_digest_tldr_anchor():
+    """A digest-TLDR feedback row has digest_id set and video_id None.
+    The DB CHECK enforces XOR; the dataclass just stores both fields."""
+    fb = Feedback(
+        id=2, user_id=2, video_id=None, digest_id=5,
+        source=FeedbackSource.DIGEST_TLDR,
+        selected_text="tldr line",
+        text_offset_start=0, text_offset_end=9,
+        sentiment=Sentiment.INTERESTING,
+        comment=None,
+        created_at=datetime(2026, 5, 26, 12, 0),
+    )
+    assert fb.video_id is None
+    assert fb.digest_id == 5
+    assert fb.source == "digest_tldr"
+
+
+def test_digest_dataclass():
+    d = Digest(
+        id=1, user_id=2,
+        period_start=datetime(2026, 5, 25),
+        period_end=datetime(2026, 5, 26),
+        tldr="t", top_items_json="[]",
+        item_count=0,
+        status=DigestStatus.READY,
+        error=None,
+        created_at=datetime(2026, 5, 26, 7, 0),
+    )
+    assert d.status == "ready"
+
+
+def test_highlight_dataclass():
+    h = Highlight(text="key insight", rank=1, reason="matters")
+    assert h.rank == 1

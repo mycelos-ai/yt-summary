@@ -232,6 +232,19 @@
   </script>
 </article>
 
+{% if video.summary %}
+  {% include "partials/highlight_popover.html" %}
+  <script>
+    window.__HIGHLIGHT_DATA__ = {
+      video_id: {{ video.id | tojson }},
+      source: "summary",
+      target_selector: "[data-highlight-target]",
+      existing: {{ feedbacks_json | safe }}
+    };
+  </script>
+  <script src="/static/highlight.js" defer></script>
+{% endif %}
+
 {% if video.kind.value == 'youtube' %}
 <script>
   (function () {

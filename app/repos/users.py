@@ -277,3 +277,76 @@ async def find_by_api_key_hash(
     )
     row = await cursor.fetchone()
     return _row_to_user(row) if row else None
+
+
+async def get_interest_profile(
+    db: aiosqlite.Connection, *, user_id: int,
+) -> tuple[str | None, int]:
+    """Return (markdown, version). Missing row → (None, 0)."""
+    cur = await db.execute(
+        "SELECT interest_profile_md, interest_profile_version "
+        "FROM users WHERE id=?",
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return (None, 0)
+    # interest_profile_version is NOT NULL DEFAULT 0 (see app/db.py SCHEMA);
+    # trust the schema rather than defending the read path.
+    return (row[0], row[1])
+
+
+async def set_interest_profile(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    markdown: str,
+    expected_version: int,
+) -> bool:
+    """Optimistic lock: writes only if the current version matches
+    `expected_version`. Returns True on success, False on conflict.
+    Successful writes increment the version by 1.
+    """
+    cur = await db.execute(
+        """
+        UPDATE users
+        SET interest_profile_md = ?,
+            interest_profile_version = interest_profile_version + 1
+        WHERE id = ?
+          AND interest_profile_version = ?
+        """,
+        (markdown, user_id, expected_version),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def get_digest_prefs(
+    db: aiosqlite.Connection, *, user_id: int,
+) -> tuple[bool, int]:
+    cur = await db.execute(
+        "SELECT digest_enabled, digest_hour_local FROM users WHERE id=?",
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return (False, 7)
+    # Both columns are NOT NULL DEFAULT in SCHEMA (db.py); trust the
+    # schema rather than coalescing here.
+    return (bool(row[0]), int(row[1]))
+
+
+async def set_digest_prefs(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    digest_enabled: bool,
+    digest_hour_local: int,
+) -> None:
+    if not 0 <= digest_hour_local <= 23:
+        raise ValueError("digest_hour_local must be 0..23")
+    await db.execute(
+        "UPDATE users SET digest_enabled=?, digest_hour_local=? WHERE id=?",
+        (1 if digest_enabled else 0, digest_hour_local, user_id),
+    )
+    await db.commit()

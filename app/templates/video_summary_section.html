@@ -30,7 +30,7 @@
         {{ job.step or 'working' }}{% if elapsed_s is not none %} · {{ elapsed_s }}s{% endif %}…
       </p>
     {% endif %}
-    {{ summary_html | safe }}
+    <div data-highlight-target>{{ summary_html | safe }}</div>
   {% else %}
     {% include "video_status.html" %}
   {% endif %}

@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-
 {% if onboarding_done %}
   {# One-shot banner after the onboarding wizard completes / is
      skipped. Doesn't track dismissal — a refresh or any other
@@ -56,6 +55,33 @@
     </p>
     <a href="/playlists/new" class="btn btn-accent">+ Set up your queue</a>
   </section>
+{% endif %}
+
+<p class="section-title">Digests</p>
+<section class="playlist-strip digest-strip">
+  {% for digest in recent_digests %}
+    {% include "digest_card.html" %}
+  {% endfor %}
+  <form method="post" action="/digest/generate" class="digest-card-add-wrap">
+    <input type="hidden" name="period_hours" value="24">
+    <button type="submit" class="playlist-card playlist-card-add"
+            title="Generate a fresh digest of the last 24 hours">
+      <div class="playlist-card-placeholder">+</div>
+      <div class="playlist-card-body">
+        <h4>
+          {% if recent_digests %}New digest{% else %}Generate your first digest{% endif %}
+        </h4>
+        <p class="caption">
+          A TL;DR + Top-10 of new items, shaped by your interest profile
+        </p>
+      </div>
+    </button>
+  </form>
+</section>
+{% if recent_digests %}
+  <p class="playlist-strip-more">
+    <a href="/digest">All digests →</a>
+  </p>
 {% endif %}
 
 <form method="get" action="/" class="search-form">

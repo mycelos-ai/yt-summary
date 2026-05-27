@@ -86,3 +86,79 @@ async def test_delete_user_removes_tts_audio_files(
 
     assert not mp3.exists()
     assert not (config.tts_audio_dir / "vidu").exists()
+
+
+async def test_set_and_get_interest_profile(db: aiosqlite.Connection):
+    # User 1 is seeded by init_schema (default profile).
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="my interests", expected_version=0,
+    )
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "my interests"
+    assert version == 1
+
+
+async def test_interest_profile_optimistic_lock_conflict(db: aiosqlite.Connection):
+    await users_repo.set_interest_profile(
+        db, user_id=1, markdown="v1", expected_version=0,
+    )
+    # Second writer thinks the profile is still at version 0 → conflict.
+    ok = await users_repo.set_interest_profile(
+        db, user_id=1, markdown="v2", expected_version=0,
+    )
+    assert ok is False
+    md, version = await users_repo.get_interest_profile(db, user_id=1)
+    assert md == "v1"
+    assert version == 1
+
+
+async def test_set_digest_prefs(db: aiosqlite.Connection):
+    await users_repo.set_digest_prefs(
+        db, user_id=1, digest_enabled=True, digest_hour_local=8,
+    )
+    prefs = await users_repo.get_digest_prefs(db, user_id=1)
+    assert prefs == (True, 8)
+
+
+async def test_set_digest_prefs_round_trips_false(db: aiosqlite.Connection):
+    # Verify the False path: 1→0 SQLite write then 0→False Python read.
+    await users_repo.set_digest_prefs(
+        db, user_id=1, digest_enabled=True, digest_hour_local=10,
+    )
+    await users_repo.set_digest_prefs(
+        db, user_id=1, digest_enabled=False, digest_hour_local=10,
+    )
+    enabled, hour = await users_repo.get_digest_prefs(db, user_id=1)
+    assert enabled is False
+    assert hour == 10
+
+
+async def test_set_digest_prefs_rejects_out_of_range_hour(
+    db: aiosqlite.Connection,
+):
+    import pytest
+
+    with pytest.raises(ValueError):
+        await users_repo.set_digest_prefs(
+            db, user_id=1, digest_enabled=True, digest_hour_local=24,
+        )
+    with pytest.raises(ValueError):
+        await users_repo.set_digest_prefs(
+            db, user_id=1, digest_enabled=True, digest_hour_local=-1,
+        )
+
+
+async def test_get_interest_profile_returns_defaults_for_missing_user(
+    db: aiosqlite.Connection,
+):
+    # User 999 doesn't exist.
+    md, version = await users_repo.get_interest_profile(db, user_id=999)
+    assert md is None
+    assert version == 0
+
+
+async def test_get_digest_prefs_returns_defaults_for_missing_user(
+    db: aiosqlite.Connection,
+):
+    prefs = await users_repo.get_digest_prefs(db, user_id=999)
+    assert prefs == (False, 7)

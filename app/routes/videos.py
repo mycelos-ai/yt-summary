@@ -1,3 +1,5 @@
+import json
+
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -7,6 +9,7 @@ from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
 from app.models import VideoKind
 from app.repos import chat as chat_repo
+from app.repos import feedback as feedback_repo
 from app.repos import jobs as jobs_repo
 from app.repos import llm_models as llm_models_repo
 from app.repos import tags as tags_repo
@@ -399,6 +402,20 @@ async def video_detail(
     transcript_blocks = _parse_transcript_blocks(video)
     audio_renderings = await tts_jobs_repo.list_for_video(db, video_id)
     llm_models = await llm_models_repo.list_all(db)
+    fbs = await feedback_repo.list_for_video(
+        db, video_id=video.id, user_id=current_user_id,
+    )
+    feedbacks_json = json.dumps([
+        {
+            "id": fb.id,
+            "selected_text": fb.selected_text,
+            "text_offset_start": fb.text_offset_start,
+            "text_offset_end": fb.text_offset_end,
+            "sentiment": fb.sentiment.value,
+            "comment": fb.comment,
+        }
+        for fb in fbs
+    ])
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -413,6 +430,7 @@ async def video_detail(
             "current_user": current_user,
             "renderings": audio_renderings,
             "llm_models": llm_models,
+            "feedbacks_json": feedbacks_json,
         },
     )
 

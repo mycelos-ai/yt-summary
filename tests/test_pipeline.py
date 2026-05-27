@@ -34,8 +34,8 @@ async def test_pipeline_writes_transcript_and_summary(db, tmp_path):
             AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
         ),
         patch(
-            "app.pipeline.summarize",
-            AsyncMock(return_value="THE SUMMARY"),
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("THE SUMMARY", None)),
         ),
     ):
         from app.pipeline import process_video
@@ -67,7 +67,7 @@ async def test_pipeline_transcript_only_when_llm_unset(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
         ),
-        patch("app.pipeline.summarize") as summarize_mock,
+        patch("app.pipeline.summarize_with_highlights") as summarize_mock,
     ):
         from app.pipeline import process_video
         await process_video(db, config, "v1", set_step)
@@ -106,7 +106,13 @@ async def test_pipeline_skips_transcript_when_already_present(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript") as obtain_mock,
-        patch("app.pipeline.summarize", AsyncMock(return_value="NEW SUMMARY")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("NEW SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "v1", set_step)
@@ -149,7 +155,13 @@ async def test_pipeline_uses_reader_for_web_kind(db, tmp_path):
     with (
         patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
         patch("app.pipeline.obtain_transcript") as obtain_mock,
-        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "web-cafe1234567", set_step)
@@ -197,7 +209,7 @@ async def test_pipeline_passes_playlist_context_to_summarizer(db, tmp_path):
 
     async def fake_summarize(**kwargs):
         captured.update(kwargs)
-        return "S"
+        return ("S", None)
 
     async def set_step(_: str) -> None:
         return None
@@ -207,7 +219,7 @@ async def test_pipeline_passes_playlist_context_to_summarizer(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS, None)),
         ),
-        patch("app.pipeline.summarize", side_effect=fake_summarize),
+        patch("app.pipeline.summarize_with_highlights", side_effect=fake_summarize),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vctx", set_step)
@@ -239,7 +251,7 @@ async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path
 
     async def fake_summarize(**kwargs):
         captured.update(kwargs)
-        return "S"
+        return ("S", None)
 
     async def set_step(_: str) -> None:
         return None
@@ -249,7 +261,7 @@ async def test_pipeline_no_playlist_context_when_video_unaffiliated(db, tmp_path
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("text", [], TranscriptSource.AUTO_SUBS, None)),
         ),
-        patch("app.pipeline.summarize", side_effect=fake_summarize),
+        patch("app.pipeline.summarize_with_highlights", side_effect=fake_summarize),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vsolo", set_step)
@@ -301,7 +313,13 @@ async def test_pipeline_refetches_when_segments_missing(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript", obtain_mock),
-        patch("app.pipeline.summarize", AsyncMock(return_value="S")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("S", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vlegacy", set_step)
@@ -344,14 +362,14 @@ async def test_pipeline_passes_segments_to_summarizer_for_youtube(db, tmp_path):
 
     async def fake_summarize(**kwargs):
         captured.update(kwargs)
-        return "OUT"
+        return ("OUT", None)
 
     async def set_step(_: str) -> None:
         return None
 
     with (
         patch("app.pipeline.obtain_transcript") as obtain_mock,
-        patch("app.pipeline.summarize", side_effect=fake_summarize),
+        patch("app.pipeline.summarize_with_highlights", side_effect=fake_summarize),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vseg", set_step)
@@ -396,14 +414,14 @@ async def test_pipeline_does_not_pass_segments_for_web_kind(db, tmp_path):
 
     async def fake_summarize(**kwargs):
         captured.update(kwargs)
-        return "OUT"
+        return ("OUT", None)
 
     async def set_step(_: str) -> None:
         return None
 
     with (
         patch("app.pipeline.fetch_article", AsyncMock(return_value=article)),
-        patch("app.pipeline.summarize", side_effect=fake_summarize),
+        patch("app.pipeline.summarize_with_highlights", side_effect=fake_summarize),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "web-aaaaaaa1111", set_step)
@@ -442,7 +460,13 @@ async def test_pipeline_reports_timestamp_verification_step(db, tmp_path):
     summary = "Look at [00:00](#t=0) and [01:00](#t=60)."
     with (
         patch("app.pipeline.obtain_transcript"),
-        patch("app.pipeline.summarize", AsyncMock(return_value=summary)),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=(summary, None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vverify", set_step)
@@ -482,7 +506,13 @@ async def test_pipeline_skips_fetch_when_segments_already_present(db, tmp_path):
 
     with (
         patch("app.pipeline.obtain_transcript", obtain_mock),
-        patch("app.pipeline.summarize", AsyncMock(return_value="S")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("S", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vfresh", set_step)
@@ -516,8 +546,8 @@ async def test_pipeline_writes_source_language_on_video(db, tmp_path):
             AsyncMock(return_value=("hello world", [], TranscriptSource.AUTO_SUBS, "en")),
         ),
         patch(
-            "app.pipeline.summarize",
-            AsyncMock(return_value="THE SUMMARY"),
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("THE SUMMARY", None)),
         ),
     ):
         from app.pipeline import process_video
@@ -554,7 +584,13 @@ async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
         ),
-        patch("app.pipeline.summarize", AsyncMock(return_value="ZUSAMMENFASSUNG")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("ZUSAMMENFASSUNG", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vauto", set_step)
@@ -576,7 +612,13 @@ async def test_pipeline_writes_summary_language_matching_setting(db, tmp_path):
             "app.pipeline.obtain_transcript",
             AsyncMock(return_value=("hallo welt", [], TranscriptSource.AUTO_SUBS, "de")),
         ),
-        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
     ):
         from app.pipeline import process_video
         await process_video(db, config, "vfixed", set_step)
@@ -626,7 +668,13 @@ async def test_pipeline_preserves_detected_source_lang_when_summary_lang_explici
                 "le contenu", [], TranscriptSource.AUTO_SUBS, None,
             )),
         ),
-        patch("app.pipeline.summarize", AsyncMock(return_value="THE SUMMARY")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("THE SUMMARY", None)),
+
+        ),
         patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
     ):
         from app.pipeline import process_video
@@ -677,7 +725,13 @@ async def test_pipeline_falls_back_to_llm_language_detect_when_no_signal(db, tmp
 
     with (
         patch("app.pipeline.fetch_article", AsyncMock(return_value=fake_article)),
-        patch("app.pipeline.summarize", AsyncMock(return_value="LE RÉSUMÉ")),
+        patch(
+
+            "app.pipeline.summarize_with_highlights",
+
+            AsyncMock(return_value=("LE RÉSUMÉ", None)),
+
+        ),
         patch("app.pipeline.detect_language", AsyncMock(side_effect=fake_detect)),
     ):
         from app.pipeline import process_video
@@ -726,12 +780,12 @@ async def test_pipeline_uses_override_model_when_set(
 
     async def fake_summarize(**kw):
         captured.update(kw)
-        return "S"
+        return ("S", None)
 
     async def fake_detect(_text, *, complete):
         return None
 
-    monkeypatch.setattr(pipeline_mod, "summarize", fake_summarize)
+    monkeypatch.setattr(pipeline_mod, "summarize_with_highlights", fake_summarize)
     monkeypatch.setattr(pipeline_mod, "detect_language", fake_detect)
 
     async def noop_step(_: str) -> None: ...
@@ -775,12 +829,12 @@ async def test_pipeline_falls_back_to_default_when_no_override(
 
     async def fake_summarize(**kw):
         captured.update(kw)
-        return "S"
+        return ("S", None)
 
     async def fake_detect(_text, *, complete):
         return None
 
-    monkeypatch.setattr(pipeline_mod, "summarize", fake_summarize)
+    monkeypatch.setattr(pipeline_mod, "summarize_with_highlights", fake_summarize)
     monkeypatch.setattr(pipeline_mod, "detect_language", fake_detect)
 
     async def noop_step(_: str) -> None: ...
@@ -816,15 +870,18 @@ async def test_pipeline_email_uses_newsletter_content_kind(db, tmp_path):
 
     captured: dict = {}
 
-    async def fake_summarize(**kwargs):
+    async def fake_summarize_with_highlights(**kwargs):
         captured.update(kwargs)
-        return "NEWSLETTER SUMMARY"
+        return ("NEWSLETTER SUMMARY", None)
 
     async def noop_step(_s: str) -> None:
         pass
 
     with (
-        patch("app.pipeline.summarize", fake_summarize),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            fake_summarize_with_highlights,
+        ),
         patch("app.pipeline.obtain_transcript", AsyncMock(side_effect=AssertionError(
             "email pipeline must not fetch a transcript"))),
     ):
@@ -836,3 +893,125 @@ async def test_pipeline_email_uses_newsletter_content_kind(db, tmp_path):
     assert captured["transcript_segments"] is None
     v = await videos_repo.get(db, "1:mail-abc")
     assert v is not None and v.summary == "NEWSLETTER SUMMARY"
+
+
+async def test_pipeline_persists_highlights_when_present(
+    db, tmp_path,
+):
+    """When the summarizer returns highlights, pipeline writes the JSON
+    blob to videos.highlights_json."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="https://youtu.be/v1", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await llm_models_repo.insert(
+        db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+    await settings_repo.set(db, "whisper_model", "small")
+
+    async def set_step(s: str) -> None:
+        pass
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
+        ),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=(
+                "## TL;DR\nA summary.",
+                [{"text": "important", "rank": 1, "reason": "why"}],
+            )),
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "v1", set_step)
+
+    import json
+    stored = await videos_repo.get_highlights(db, "v1")
+    assert stored is not None
+    parsed = json.loads(stored)
+    assert parsed == [{"text": "important", "rank": 1, "reason": "why"}]
+
+
+async def test_pipeline_stores_empty_array_when_llm_says_nothing_noteworthy(
+    db, tmp_path,
+):
+    """LLM may explicitly return [] (nothing noteworthy). Pipeline must
+    persist that as '[]' — distinct from NULL — so the digest knows the
+    item was processed but has no highlights to contribute."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="v2", url="https://youtu.be/v2", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await llm_models_repo.insert(
+        db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+    await settings_repo.set(db, "whisper_model", "small")
+
+    async def set_step(s: str) -> None:
+        pass
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
+        ),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("## TL;DR\nFiller.", [])),
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "v2", set_step)
+
+    stored = await videos_repo.get_highlights(db, "v2")
+    assert stored == "[]"
+
+
+async def test_pipeline_leaves_highlights_null_when_parser_returns_none(
+    db, tmp_path,
+):
+    """Fallback path: LLM returned plain markdown, parse_summary_payload
+    returned (raw, None). Pipeline must NOT write '[]' — must leave
+    highlights_json as NULL so digest_service excludes this item."""
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+
+    await videos_repo.upsert_metadata(
+        db, video_id="v3", url="https://youtu.be/v3", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await llm_models_repo.insert(
+        db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+    await settings_repo.set(db, "whisper_model", "small")
+
+    async def set_step(s: str) -> None:
+        pass
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("the transcript", [], TranscriptSource.AUTO_SUBS, None)),
+        ),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("## TL;DR\nA summary.", None)),
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "v3", set_step)
+
+    stored = await videos_repo.get_highlights(db, "v3")
+    assert stored is None

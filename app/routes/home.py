@@ -6,10 +6,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.main import _onboarding_status, get_current_user, get_current_user_id, get_db
+from app.repos import digests as digests_repo
 from app.repos import embeddings as embeddings_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
+from app.repos import users as users_repo
 from app.repos import videos as videos_repo
 from app.services.embeddings import embed_text
 from app.template_filters import register_filters
@@ -113,6 +115,19 @@ async def home(
     video_ids = [v.id for v in videos]
     playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
     video_tags = await tags_repo.tags_for_videos(db, video_ids)
+
+    # Recent digests strip alongside the Queues & playlists strip. We
+    # fetch a few past digests so the home page tells a story ("you
+    # had one yesterday, one the day before") rather than only
+    # surfacing today's. Limit small — the dedicated /digest archive
+    # is where you go for the full history.
+    recent_digests = await digests_repo.list_for_user(
+        db, user_id=current_user_id, limit=4,
+    )
+    digest_enabled, _ = await users_repo.get_digest_prefs(
+        db, user_id=current_user_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -128,6 +143,8 @@ async def home(
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
             "onboarding_done": onboarding_done,
+            "recent_digests": recent_digests,
+            "digest_enabled": digest_enabled,
         },
     )
 

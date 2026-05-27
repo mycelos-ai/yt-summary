@@ -64,6 +64,9 @@ class Video:
     source_language: str | None = None
     summary_language: str | None = None
     transcript_language: str | None = None
+    # JSON-encoded list of {text, rank, reason}. NULL = not yet extracted
+    # (pre-feature backlog). "[]" = LLM said "nothing noteworthy".
+    highlights_json: str | None = None
 
 
 @dataclass
@@ -137,6 +140,10 @@ class User:
     # curated library; the emoji input is a fallback / quick option.
     avatar_image: str = ""
     custom_summary_prompt: str | None = None
+    interest_profile_md: str | None = None
+    interest_profile_version: int = 0
+    digest_enabled: bool = False
+    digest_hour_local: int = 7
 
 
 @dataclass
@@ -166,3 +173,69 @@ class LlmModel:
     is_default: bool
     created_at: datetime
     updated_at: datetime
+
+
+class FeedbackSource(StrEnum):
+    SUMMARY = "summary"
+    TRANSCRIPT = "transcript"
+    DIGEST = "digest"  # Feedback on a digest's source-item (hook/reason)
+    DIGEST_TLDR = "digest_tldr"  # Feedback on a digest's TL;DR block
+
+
+class Sentiment(StrEnum):
+    INTERESTING = "interesting"
+    NOT_INTERESTING = "not_interesting"
+
+
+class DigestStatus(StrEnum):
+    PENDING = "pending"
+    RENDERING = "rendering"
+    READY = "ready"
+    FAILED = "failed"
+
+
+@dataclass
+class Feedback:
+    id: int
+    user_id: int
+    # Exactly one of video_id / digest_id is set (CHECK constraint at
+    # the DB level). video_id anchors per-video feedback (summary,
+    # transcript, digest source item); digest_id anchors TL;DR feedback
+    # which doesn't have a single owning video.
+    video_id: str | None
+    digest_id: int | None
+    source: FeedbackSource
+    selected_text: str
+    text_offset_start: int
+    text_offset_end: int
+    sentiment: Sentiment
+    comment: str | None
+    created_at: datetime
+
+
+@dataclass
+class Digest:
+    id: int
+    user_id: int
+    period_start: datetime
+    period_end: datetime
+    tldr: str | None
+    # JSON-encoded list of {video_id, rank, hook, reason}. NULL while
+    # the digest is pending/rendering; "[]" when status='ready' but
+    # the pool was empty.
+    top_items_json: str | None
+    item_count: int
+    status: DigestStatus
+    error: str | None
+    created_at: datetime
+
+
+@dataclass
+class Highlight:
+    """One LLM-extracted noteworthy point from a summary.
+
+    Not a DB row — serialised inside `videos.highlights_json` as a list.
+    """
+    text: str
+    rank: int  # 1..5 (1 = most noteworthy)
+    reason: str

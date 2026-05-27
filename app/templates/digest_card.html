@@ -1,0 +1,28 @@
+<div class="playlist-card-wrap digest-card-wrap">
+  <a href="/digest/{{ digest.id }}" class="playlist-card digest-card digest-card--{{ digest.status.value }}">
+    <div class="playlist-card-placeholder">📰</div>
+    <div class="playlist-card-body">
+      <h4>
+        {{ digest.created_at.strftime('%a, %d %b') }}
+        {% if digest.status.value == 'pending' or digest.status.value == 'rendering' %}
+          <span class="digest-card-pill">building…</span>
+        {% elif digest.status.value == 'failed' %}
+          <span class="digest-card-pill digest-card-pill--failed">failed</span>
+        {% endif %}
+      </h4>
+      <p class="caption">
+        {% if digest.status.value == 'ready' %}
+          {% if digest.item_count == 0 %}
+            Quiet day · nothing noteworthy
+          {% else %}
+            {{ digest.item_count }} item{{ '' if digest.item_count == 1 else 's' }} ranked
+          {% endif %}
+        {% elif digest.status.value == 'failed' %}
+          Click to retry
+        {% else %}
+          Rendering, refresh in a moment
+        {% endif %}
+      </p>
+    </div>
+  </a>
+</div>

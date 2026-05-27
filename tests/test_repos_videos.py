@@ -218,3 +218,31 @@ async def test_search_with_vector_ids_fuses_results(db: aiosqlite.Connection):
     ids = {r.id for r in rows}
     assert "vfts" in ids  # FTS hit
     assert "vvec" in ids  # vector hit, even though FTS missed it
+
+
+async def test_set_and_get_highlights(db: aiosqlite.Connection):
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.set_highlights(db, "v1", '[{"text":"x","rank":1,"reason":"y"}]')
+    got = await videos_repo.get_highlights(db, "v1")
+    assert got == '[{"text":"x","rank":1,"reason":"y"}]'
+
+
+async def test_get_highlights_returns_none_when_unset(db: aiosqlite.Connection):
+    await videos_repo.upsert_metadata(
+        db, video_id="v2", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    assert await videos_repo.get_highlights(db, "v2") is None
+
+
+async def test_set_highlights_to_empty_array(db: aiosqlite.Connection):
+    """An empty array means 'LLM had nothing noteworthy' — distinct from NULL."""
+    await videos_repo.upsert_metadata(
+        db, video_id="v3", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.set_highlights(db, "v3", "[]")
+    assert await videos_repo.get_highlights(db, "v3") == "[]"

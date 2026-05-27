@@ -25,6 +25,7 @@ from app.main import (
 from app.repos import mail_senders as mail_senders_repo
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
+from app.services.interest_profile import rebuild as rebuild_profile
 from app.services.mail_sync import _own_addresses_from_settings
 from app.services.mailbox import ImapConfig, check_connection
 from app.template_filters import register_filters
@@ -156,6 +157,10 @@ async def profile_edit_form(
     imap_raw = await settings_repo.get_all_for_user(db, user_id)
     has_imap_password = bool(imap_raw.get("imap_password"))
     imap = {k: v for k, v in imap_raw.items() if k != "imap_password"}
+    md, version = await users_repo.get_interest_profile(db, user_id=user_id)
+    digest_enabled, digest_hour_local = await users_repo.get_digest_prefs(
+        db, user_id=user_id,
+    )
     return templates.TemplateResponse(
         request,
         "profile_form.html",
@@ -167,6 +172,10 @@ async def profile_edit_form(
             "submit_label": "Save changes",
             "imap": imap,
             "has_imap_password": has_imap_password,
+            "interest_profile_md": md or "",
+            "interest_profile_version": version,
+            "digest_enabled": digest_enabled,
+            "digest_hour_local": digest_hour_local,
         },
     )
 
@@ -308,6 +317,63 @@ async def profile_test_imap(
     return HTMLResponse(
         f'<p class="status status-done">✓ Connected to {host} — '
         f'{count} message(s) in {cfg.folder}.</p>'
+    )
+
+
+@router.post("/profiles/{user_id}/interest-profile")
+async def update_interest_profile(
+    user_id: int,
+    markdown: str = Form(...),
+    expected_version: int = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> RedirectResponse:
+    if user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="not your profile")
+    ok = await users_repo.set_interest_profile(
+        db, user_id=user_id,
+        markdown=markdown[:8000],
+        expected_version=expected_version,
+    )
+    if not ok:
+        raise HTTPException(status_code=409, detail="profile changed; reload")
+    return RedirectResponse(
+        url=f"/profiles/{user_id}/edit", status_code=303,
+    )
+
+
+@router.post("/profiles/{user_id}/interest-profile/rebuild")
+async def rebuild_interest_profile(
+    user_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> RedirectResponse:
+    if user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="not your profile")
+    await rebuild_profile(db, user_id=user_id)
+    return RedirectResponse(
+        url=f"/profiles/{user_id}/edit", status_code=303,
+    )
+
+
+@router.post("/profiles/{user_id}/digest-prefs")
+async def update_digest_prefs(
+    user_id: int,
+    digest_enabled: str | None = Form(default=None),
+    digest_hour_local: int = Form(default=7),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> RedirectResponse:
+    if user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="not your profile")
+    enabled = digest_enabled is not None  # checkbox: present → True
+    await users_repo.set_digest_prefs(
+        db, user_id=user_id,
+        digest_enabled=enabled,
+        digest_hour_local=digest_hour_local,
+    )
+    return RedirectResponse(
+        url=f"/profiles/{user_id}/edit", status_code=303,
     )
 
 

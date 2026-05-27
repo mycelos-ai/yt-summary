@@ -21,7 +21,7 @@ from app.services.reader import fetch_article
 from app.services.summarizer import (
     _completion,
     _verify_summary_timestamps,
-    summarize,
+    summarize_with_highlights,
 )
 from app.services.transcript import obtain_transcript
 from app.services.transcript_format import group_segments
@@ -218,12 +218,15 @@ async def process_video(
     # itself — what's stored on the user IS the prompt.
     profile = await users_repo.get_by_id(db, video.user_id)
     custom_prompt = profile.custom_summary_prompt if profile else None
+    profile_md, _profile_version = await users_repo.get_interest_profile(
+        db, user_id=video.user_id,
+    )
 
     summary_language_setting = (settings.get("summary_language") or "").strip()
     # Email-kind items get the newsletter-tuned prompt (triage + drop
     # ad/tracking/footer cruft); everything else uses the standard path.
     content_kind = "email" if video.kind == VideoKind.EMAIL else "youtube"
-    summary = await summarize(
+    summary, highlights = await summarize_with_highlights(
         transcript=text,
         model=model,
         api_key=api_key or "",
@@ -232,6 +235,7 @@ async def process_video(
         description=video.description,
         language=summary_language_setting or None,
         custom_system_prompt=custom_prompt,
+        interest_profile_md=profile_md,
         playlist_context=playlist_context or None,
         transcript_segments=segments,
         additional_prompt=additional_prompt,
@@ -239,6 +243,15 @@ async def process_video(
         progress=set_step,
         on_partial=_persist_partial,
     )
+
+    if highlights is not None:
+        await videos_repo.set_highlights(
+            db, video_id, json.dumps(highlights, ensure_ascii=False),
+        )
+    # When highlights is None (LLM didn't follow the JSON envelope, or
+    # transcript was below the highlights threshold), we leave
+    # highlights_json untouched (NULL). The Digest service filters
+    # NULL items out of its pool.
 
     # Resolve the language metadata to stamp on the final write:
     #   * If source_language is still NULL and we have nothing better

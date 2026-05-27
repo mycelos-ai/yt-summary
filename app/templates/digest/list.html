@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Daily digest</h1>
+<form hx-post="/digest/generate" hx-trigger="submit" method="post">
+  <button type="submit">Generate now</button>
+</form>
+<ul>
+  {% for d in digests %}
+    <li>
+      <a href="/digest/{{ d.id }}">{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</a>
+      — status: {{ d.status.value }}
+      ({{ d.item_count }} items)
+    </li>
+  {% else %}
+    <li>No digests yet. <button hx-post="/digest/generate">Generate the first one</button></li>
+  {% endfor %}
+</ul>
+{% endblock %}

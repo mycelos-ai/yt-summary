@@ -494,3 +494,31 @@ async def find_other_with_transcript_by_url(
     )
     row = await cursor.fetchone()
     return _row_to_video(row) if row else None
+
+
+async def set_highlights(
+    db: aiosqlite.Connection, video_id: str, highlights_json: str,
+) -> None:
+    """Set the highlights JSON blob.
+
+    Pass `"[]"` for "LLM explicitly returned no noteworthy highlights".
+    Pass a NULL only by not calling this function at all (pre-feature
+    backlog stays NULL).
+    """
+    await db.execute(
+        "UPDATE videos SET highlights_json=? WHERE id=?",
+        (highlights_json, video_id),
+    )
+    await db.commit()
+
+
+async def get_highlights(
+    db: aiosqlite.Connection, video_id: str,
+) -> str | None:
+    cur = await db.execute(
+        "SELECT highlights_json FROM videos WHERE id=?", (video_id,)
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return row[0]

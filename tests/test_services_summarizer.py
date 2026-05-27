@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services import model_info
+from app.services import summarizer as summarizer_mod
 from app.services.summarizer import build_reduce_prompt, build_system_prompt
 
 
@@ -663,3 +664,129 @@ def test_build_system_prompt_with_custom_appends_override_block():
     assert "USER OVERRIDE FOR THIS RUN:" in out
     assert "be specific" in out
     assert out.rstrip().endswith("be specific")
+
+
+# ---------------------------------------------------------------------------
+# Interest profile + structured highlights envelope
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_embeds_interest_profile():
+    prompt = build_system_prompt(
+        language=None,
+        interest_profile_md="I care about LLM cost optimization.",
+    )
+    assert "LLM cost optimization" in prompt
+    assert "Interest profile" in prompt
+
+
+def test_system_prompt_skips_profile_block_when_none():
+    prompt = build_system_prompt(language=None, interest_profile_md=None)
+    assert "Interest profile" not in prompt
+
+
+def test_system_prompt_requests_json_envelope_when_highlights_enabled():
+    prompt = build_system_prompt(
+        language=None, with_highlights=True,
+    )
+    assert "highlights" in prompt
+    assert '"summary"' in prompt
+
+
+def test_system_prompt_omits_highlights_block_when_disabled():
+    prompt = build_system_prompt(language=None, with_highlights=False)
+    assert '"summary"' not in prompt
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_parses_json_envelope(monkeypatch):
+    async def fake_summarize(**kwargs):
+        return (
+            '{"summary": "## TL;DR\\nGood video.",'
+            ' "highlights": [{"text":"x","rank":1,"reason":"y"}]}'
+        )
+    monkeypatch.setattr(summarizer_mod, "summarize", fake_summarize)
+    summary, highlights = await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+    )
+    assert "Good video" in summary
+    assert highlights == [{"text": "x", "rank": 1, "reason": "y"}]
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_falls_back_when_not_json(monkeypatch):
+    async def fake_summarize(**kwargs):
+        return "## TL;DR\nSome plain markdown summary."
+    monkeypatch.setattr(summarizer_mod, "summarize", fake_summarize)
+    summary, highlights = await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+    )
+    assert summary.startswith("## TL;DR")
+    assert highlights is None
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_highlights_threads_kwargs_to_summarize(monkeypatch):
+    """Verify the wrapper passes interest_profile_md, with_highlights, and
+    custom_system_prompt through to summarize() rather than handling them
+    out-of-band."""
+    captured = {}
+
+    async def capturing_summarize(**kwargs):
+        captured.update(kwargs)
+        return '{"summary":"ok","highlights":[]}'
+
+    monkeypatch.setattr(summarizer_mod, "summarize", capturing_summarize)
+    await summarizer_mod.summarize_with_highlights(
+        transcript="t", model="m", api_key="k", base_url=None,
+        interest_profile_md="my interests",
+        custom_system_prompt="my custom prompt",
+    )
+    assert captured["with_highlights"] is True
+    assert captured["interest_profile_md"] == "my interests"
+    assert captured["custom_system_prompt"] == "my custom prompt"
+
+
+def test_build_system_prompt_custom_branch_embeds_interest_profile():
+    prompt = build_system_prompt(
+        language=None,
+        custom_system_prompt="My custom instructions.",
+        interest_profile_md="I care about X.",
+    )
+    assert "My custom instructions." in prompt
+    assert "Interest profile" in prompt
+    assert "I care about X." in prompt
+
+
+def test_build_system_prompt_custom_branch_includes_highlights_schema():
+    prompt = build_system_prompt(
+        language=None,
+        custom_system_prompt="My custom instructions.",
+        with_highlights=True,
+    )
+    assert "My custom instructions." in prompt
+    assert '"summary"' in prompt
+    assert '"highlights"' in prompt
+
+
+def test_build_reduce_prompt_embeds_interest_profile():
+    prompt = build_reduce_prompt(
+        language=None,
+        interest_profile_md="I care about LLM cost optimization.",
+    )
+    assert "LLM cost optimization" in prompt
+    assert "Interest profile" in prompt
+
+
+def test_build_reduce_prompt_includes_highlights_schema_when_enabled():
+    prompt = build_reduce_prompt(
+        language=None, with_highlights=True,
+    )
+    assert "highlights" in prompt
+    assert '"summary"' in prompt
+
+
+def test_build_reduce_prompt_omits_blocks_by_default():
+    prompt = build_reduce_prompt(language=None)
+    assert "Interest profile" not in prompt
+    assert '"summary"' not in prompt

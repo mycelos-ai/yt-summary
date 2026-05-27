@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,7 +25,7 @@ PROFILE_COOKIE = "yts_user_id"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.pipeline import process_video
-    from app.scheduler import PlaylistScheduler
+    from app.scheduler import DigestScheduler, PlaylistScheduler
     from app.services.heartbeat import HeartbeatRegistry
     from app.services.log_buffer import RingBufferHandler
     from app.services.mail_sync import sync_mailbox
@@ -119,6 +120,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         scheduler_task = asyncio.create_task(scheduler.run())
 
+        digest_scheduler = DigestScheduler(db, config)
+        digest_scheduler_task = asyncio.create_task(digest_scheduler.run())
+        app.state.digest_scheduler = digest_scheduler
+        app.state.digest_scheduler_task = digest_scheduler_task
+
         app.state.config = config
         app.state.db = db
         app.state.worker = worker
@@ -134,6 +140,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             worker.stop()
         if tts_worker is not None:
             tts_worker.stop()
+        digest_scheduler = getattr(app.state, "digest_scheduler", None)
+        digest_scheduler_task = getattr(
+            app.state, "digest_scheduler_task", None,
+        )
+        if digest_scheduler is not None:
+            digest_scheduler.stop()
+        if digest_scheduler_task is not None:
+            with contextlib.suppress(BaseException):
+                await digest_scheduler_task
         if scheduler_task is not None:
             await scheduler_task
         if worker_task is not None:
@@ -260,6 +275,10 @@ def create_app() -> FastAPI:
     app.include_router(audio_router)
     from app.routes.api import router as api_router
     app.include_router(api_router)
+    from app.routes.feedback import router as feedback_router
+    app.include_router(feedback_router)
+    from app.routes.digest import router as digest_router
+    app.include_router(digest_router)
     from app.routes.mcp import build_mcp_server
     mcp_server = build_mcp_server(app.state)
     app.mount("/mcp", mcp_server.sse_app())

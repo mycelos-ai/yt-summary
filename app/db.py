@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS videos (
     summary_language TEXT,
     transcript_language TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    highlights_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -120,7 +121,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- place; new installs get it directly from this CREATE TABLE.
     avatar_image TEXT NOT NULL DEFAULT '',
     custom_summary_prompt TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    interest_profile_md TEXT,
+    interest_profile_version INTEGER NOT NULL DEFAULT 0,
+    digest_enabled INTEGER NOT NULL DEFAULT 0,
+    digest_hour_local INTEGER NOT NULL DEFAULT 7
 );
 
 CREATE TABLE IF NOT EXISTS llm_models (
@@ -205,6 +210,46 @@ CREATE TABLE IF NOT EXISTS mail_senders (
     last_subject TEXT,
     PRIMARY KEY (user_id, sender_addr)
 );
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    -- Exactly one of (video_id, digest_id) is non-NULL. The XOR is
+    -- enforced via the CHECK constraint below and at the route layer.
+    -- video_id anchors feedback to a specific video's summary /
+    -- transcript / digest-source entry. digest_id anchors feedback to
+    -- a digest's TL;DR block (which is LLM-synthesised across many
+    -- items and has no single owning video).
+    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+    digest_id INTEGER REFERENCES digests(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK(source IN ('summary','transcript','digest','digest_tldr')),
+    selected_text TEXT NOT NULL,
+    text_offset_start INTEGER NOT NULL,
+    text_offset_end INTEGER NOT NULL,
+    sentiment TEXT NOT NULL CHECK(sentiment IN ('interesting','not_interesting')),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((video_id IS NOT NULL) <> (digest_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user_created
+    ON feedback(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_video ON feedback(video_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_digest ON feedback(digest_id);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    tldr TEXT,
+    top_items_json TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK(status IN ('pending','rendering','ready','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_digests_user_created
+    ON digests(user_id, created_at DESC);
 """
 
 
@@ -283,6 +328,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "source_language",     "TEXT")
         await _ensure_column(conn, "videos", "summary_language",    "TEXT")
         await _ensure_column(conn, "videos", "transcript_language", "TEXT")
+        await _ensure_column(conn, "videos", "highlights_json", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
@@ -319,6 +365,19 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             await conn.execute(
                 "ALTER TABLE users ADD COLUMN custom_summary_prompt TEXT"
             )
+        await _ensure_column(conn, "users", "interest_profile_md", "TEXT")
+        await _ensure_column(
+            conn, "users", "interest_profile_version",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        await _ensure_column(
+            conn, "users", "digest_enabled",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        await _ensure_column(
+            conn, "users", "digest_hour_local",
+            "INTEGER NOT NULL DEFAULT 7",
+        )
 
         # Seed the standard summarizer prompt onto every existing
         # profile. After this migration runs, every user has a
@@ -356,6 +415,47 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                     SELECT 1, key, value FROM settings;
                 DROP TABLE settings;
                 ALTER TABLE settings_new RENAME TO settings;
+                """
+            )
+
+    # feedback: TL;DR feedback (anchored to a digest_id instead of a
+    # video_id) needs nullable video_id and a new digest_id column.
+    # SQLite can't lower NOT NULL or add a CHECK via ALTER, so we
+    # rebuild the table if the legacy shape is in place. Idempotent:
+    # gated on `digest_id` already being a column.
+    if await _table_exists(conn, "feedback"):
+        feedback_cols = await _table_columns(conn, "feedback")
+        if "digest_id" not in feedback_cols:
+            await conn.executescript(
+                """
+                CREATE TABLE feedback_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+                    digest_id INTEGER REFERENCES digests(id) ON DELETE CASCADE,
+                    source TEXT NOT NULL CHECK(source IN (
+                        'summary','transcript','digest','digest_tldr'
+                    )),
+                    selected_text TEXT NOT NULL,
+                    text_offset_start INTEGER NOT NULL,
+                    text_offset_end INTEGER NOT NULL,
+                    sentiment TEXT NOT NULL CHECK(sentiment IN ('interesting','not_interesting')),
+                    comment TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    CHECK ((video_id IS NOT NULL) <> (digest_id IS NOT NULL))
+                );
+                INSERT INTO feedback_new (
+                    id, user_id, video_id, digest_id, source,
+                    selected_text, text_offset_start, text_offset_end,
+                    sentiment, comment, created_at
+                )
+                SELECT
+                    id, user_id, video_id, NULL, source,
+                    selected_text, text_offset_start, text_offset_end,
+                    sentiment, comment, created_at
+                FROM feedback;
+                DROP TABLE feedback;
+                ALTER TABLE feedback_new RENAME TO feedback;
                 """
             )
 
