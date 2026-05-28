@@ -21,6 +21,16 @@
 
   <!-- ════════════════ YouTube ════════════════ -->
   <div x-show="tab === 'youtube'" x-cloak>
+    {% if playlist_error %}
+      {# Re-rendered after a failed POST /playlists. We don't know which
+         of the two forms the user submitted from, but the privacy hint
+         applies to both — show one banner at the top of the YouTube
+         tab. The submitted URL is preserved in both <input value="..">
+         attributes below so the user doesn't have to retype it. #}
+      <p class="status status-failed playlist-new-error" role="alert">
+        ⚠ {{ playlist_error }}
+      </p>
+    {% endif %}
     <!-- ── Personal queue (primary use case) ──────────────────── -->
     <section class="playlist-new-card playlist-new-card-primary">
       <header class="playlist-new-card-head">
@@ -52,6 +62,7 @@
           <span class="playlist-new-label">Your queue's playlist URL</span>
           <input id="queue-url" name="url" type="url"
                  placeholder="https://www.youtube.com/playlist?list=PL..."
+                 value="{{ submitted_url or '' }}"
                  required>
         </label>
         <div class="playlist-new-actions">
@@ -78,6 +89,7 @@
           <span class="playlist-new-label">Public playlist URL</span>
           <input id="public-url" name="url" type="url"
                  placeholder="https://www.youtube.com/playlist?list=PL..."
+                 value="{{ submitted_url or '' }}"
                  required>
         </label>
 

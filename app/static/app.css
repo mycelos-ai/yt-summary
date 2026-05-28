@@ -1643,6 +1643,19 @@ button.section-download {
   border-radius: var(--rounded-xs);
 }
 .playlist-new-form { display: block; }
+/* Re-rendered after a failed POST /playlists — banner sits above both
+   the personal-queue form and the public-playlist form. Uses .status
+   .status-failed for the red text colour; this rule adds padding and
+   a subtle background so the banner reads as a block, not body copy. */
+.playlist-new-error {
+  margin: 0 0 20px 0;
+  padding: 12px 14px;
+  background: rgba(229, 62, 62, 0.06);
+  border: 1px solid rgba(229, 62, 62, 0.2);
+  border-radius: var(--rounded-md);
+  font-size: 14px;
+  line-height: 1.5;
+}
 .playlist-new-field {
   display: block;
   margin-bottom: 16px;

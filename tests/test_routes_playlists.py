@@ -46,11 +46,51 @@ def test_post_playlists_imports_and_redirects(tmp_path, monkeypatch):
 
 
 def test_post_playlists_invalid_url_returns_400(tmp_path, monkeypatch):
+    """An unparseable URL re-renders the form with an inline error (and
+    the bad value preserved), not a JSON-detail 400."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         resp = client.post("/playlists", data={"url": "not-a-url"})
     assert resp.status_code == 400
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "not-a-url" in resp.text
+
+
+def test_post_playlists_ytdlp_failure_returns_400_not_500(tmp_path, monkeypatch):
+    """A URL with a syntactically valid `list=` parameter but a playlist
+    yt-dlp can't fetch (deleted, private, region-locked, etc.) should
+    re-render the form as HTML with status 400 — not a generic 500 or
+    a raw JSON detail body."""
+    from yt_dlp.utils import DownloadError
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    err = DownloadError(
+        "ERROR: [youtube:tab] PLmissing: YouTube said: The playlist does not exist."
+    )
+    with (
+        patch("app.routes.playlists.fetch_playlist", AsyncMock(side_effect=err)),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/playlists",
+            data={"url": "https://www.youtube.com/playlist?list=PLmissing"},
+        )
+    assert resp.status_code == 400
+    # HTML page, not JSON — so the user sees an inline error, not a
+    # raw `{"detail": "..."}` blob.
+    assert resp.headers["content-type"].startswith("text/html")
+    # Upstream reason must reach the user — that's the whole point of
+    # catching, not just swallowing.
+    assert "playlist does not exist" in resp.text.lower()
+    # And we must tell the user *why* this commonly happens, so they
+    # can fix their playlist privacy setting on YouTube.
+    assert "private" in resp.text.lower()
+    assert "unlisted" in resp.text.lower()
+    # The URL the user submitted should be preserved in the form, so
+    # they don't have to retype it after fixing the playlist privacy.
+    assert "PLmissing" in resp.text
 
 
 def test_get_playlist_detail_renders(tmp_path, monkeypatch):

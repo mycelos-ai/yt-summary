@@ -5,6 +5,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from yt_dlp.utils import YoutubeDLError
 
 from app.config import Config
 from app.main import get_config, get_current_user, get_current_user_id, get_db
@@ -35,6 +36,53 @@ def _parse_playlist_id(url: str) -> str:
     return match.group(1)
 
 
+def _clean_ytdlp_error(exc: YoutubeDLError) -> str:
+    """yt-dlp prefixes messages with `ERROR: [extractor] id: ...`. Strip
+    those framing bits so the user sees the actual reason ("The playlist
+    does not exist.", "Private playlist", etc.) rather than the noise."""
+    msg = str(exc).strip()
+    if msg.startswith("ERROR:"):
+        msg = msg[len("ERROR:"):].strip()
+    # Drop a leading "[youtube:tab] PLfoo: " style prefix if present.
+    if msg.startswith("["):
+        _, sep, rest = msg.partition(": ")
+        if sep:
+            msg = rest
+    return msg or "YouTube could not load that playlist."
+
+
+# Phrases yt-dlp uses for playlists yt-summary can't reach. When we see
+# one, we surface the privacy-setting hint — that's overwhelmingly the
+# real reason (private playlist), even when YouTube returns the more
+# generic "does not exist" message for private URLs.
+_PRIVACY_HINT_TRIGGERS = (
+    "does not exist",
+    "private",
+    "sign in",
+    "login required",
+    "not available",
+    "unavailable",
+)
+
+
+def _playlist_error_message(exc: YoutubeDLError) -> str:
+    """Build the user-facing error string. For the common "private or
+    missing" case, append the privacy-setting hint — Stefan hit this
+    himself by submitting a private playlist; the bare yt-dlp message
+    ("The playlist does not exist.") doesn't tell the user that
+    changing the privacy to Unlisted is the fix."""
+    cleaned = _clean_ytdlp_error(exc)
+    lower = cleaned.lower()
+    if any(trigger in lower for trigger in _PRIVACY_HINT_TRIGGERS):
+        return (
+            f"{cleaned} yt-summary can only see public and unlisted "
+            "playlists — private playlists are invisible to yt-dlp. "
+            "On YouTube, open the playlist's settings and switch the "
+            "privacy from Private to Unlisted, then try again."
+        )
+    return cleaned
+
+
 @router.get("/playlists", response_class=HTMLResponse)
 async def list_playlists(
     request: Request,
@@ -55,16 +103,12 @@ async def list_playlists(
     )
 
 
-@router.get("/playlists/new", response_class=HTMLResponse)
-async def new_playlist_form(
-    request: Request,
-    db: aiosqlite.Connection = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    # The "Add a source" page is tabbed: YouTube playlists + Email
-    # newsletters. The Email tab needs to know whether THIS profile has a
-    # mailbox connected (config lives on the profile page) and which
-    # senders it already knows about.
+async def _build_new_playlist_context(
+    db: aiosqlite.Connection, current_user
+) -> dict:
+    """Shared context for the "Add a source" page. Used by the GET form
+    handler and the POST handler when it re-renders the page with an
+    inline error — both need the IMAP + sender state for the email tab."""
     imap_settings = await settings_repo.get_all_for_user(db, current_user.id)
     # "Connected" = valid credentials saved (independent of the polling
     # toggle), so a saved-but-not-enabled mailbox isn't falsely reported
@@ -75,16 +119,26 @@ async def new_playlist_form(
     )
     imap_polling_enabled = bool(imap_settings.get("imap_enabled"))
     senders = await mail_senders_repo.list_for_user(db, current_user.id)
-    return templates.TemplateResponse(
-        request,
-        "playlist_new.html",
-        {
-            "current_user": current_user,
-            "imap_configured": imap_configured,
-            "imap_polling_enabled": imap_polling_enabled,
-            "senders": senders,
-        },
-    )
+    return {
+        "current_user": current_user,
+        "imap_configured": imap_configured,
+        "imap_polling_enabled": imap_polling_enabled,
+        "senders": senders,
+    }
+
+
+@router.get("/playlists/new", response_class=HTMLResponse)
+async def new_playlist_form(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    # The "Add a source" page is tabbed: YouTube playlists + Email
+    # newsletters. The Email tab needs to know whether THIS profile has a
+    # mailbox connected (config lives on the profile page) and which
+    # senders it already knows about.
+    ctx = await _build_new_playlist_context(db, current_user)
+    return templates.TemplateResponse(request, "playlist_new.html", ctx)
 
 
 @router.post("/playlists/new/mail/scan", response_class=HTMLResponse)
@@ -169,21 +223,67 @@ async def subscribe_mail_senders(
     return RedirectResponse("/playlists/new", status_code=303)
 
 
+async def _render_new_playlist_error(
+    request: Request,
+    db: aiosqlite.Connection,
+    current_user,
+    *,
+    submitted_url: str,
+    error_message: str,
+) -> HTMLResponse:
+    """Re-render the "Add a source" page with an inline error banner and
+    the URL the user submitted preserved, so they don't have to retype
+    it after fixing whatever was wrong (e.g. switching their playlist
+    from Private to Unlisted on YouTube)."""
+    ctx = await _build_new_playlist_context(db, current_user)
+    ctx["playlist_error"] = error_message
+    ctx["submitted_url"] = submitted_url
+    return templates.TemplateResponse(
+        request, "playlist_new.html", ctx, status_code=400
+    )
+
+
 @router.post("/playlists")
 async def submit_playlist(
+    request: Request,
     url: str = Form(...),
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
 ):
     try:
         _parse_playlist_id(url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError:
+        # Not a parseable YouTube playlist URL. Don't try to surface the
+        # raw ValueError message ("Could not extract playlist id from
+        # 'not-a-url'") — give the user a directly actionable hint.
+        return await _render_new_playlist_error(
+            request, db, current_user,
+            submitted_url=url,
+            error_message=(
+                "That doesn't look like a YouTube playlist URL. Paste a "
+                "link that contains `list=PL...` from "
+                "youtube.com/playlist."
+            ),
+        )
 
     cookies_exists = await asyncio.to_thread(config.cookies_path.exists)
     cookies = config.cookies_path if cookies_exists else None
-    meta = await fetch_playlist(url, cookies_path=cookies)
+    # yt-dlp raises DownloadError (a YoutubeDLError subclass) when a
+    # playlist is missing, private, region-locked, or YouTube refuses to
+    # serve it. Without this, the failure becomes a bare 500; the user
+    # has no way to know they pasted a dead URL. Re-render the form with
+    # an inline error and a privacy-setting hint (the most common cause
+    # is the user creating a Private playlist instead of an Unlisted one).
+    try:
+        meta = await fetch_playlist(url, cookies_path=cookies)
+    except YoutubeDLError as e:
+        return await _render_new_playlist_error(
+            request, db, current_user,
+            submitted_url=url,
+            error_message=_playlist_error_message(e),
+        )
 
     thumb_target = config.thumbnails_dir / f"playlist_{meta.id}.jpg"
     await download_thumbnail(meta.thumbnail_url, thumb_target)
