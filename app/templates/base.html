@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}yt-summary{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', path='icons/favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', path='icons/favicon-32x32.png') }}?v={{ asset_version() }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', path='icons/favicon-16x16.png') }}?v={{ asset_version() }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', path='icons/apple-touch-icon.png') }}?v={{ asset_version() }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
