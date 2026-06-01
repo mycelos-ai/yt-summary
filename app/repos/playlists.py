@@ -187,3 +187,37 @@ async def playlists_for_videos(
     for video_id, playlist_id, title in rows:
         out.setdefault(video_id, []).append((playlist_id, title))
     return out
+
+
+async def latest_video_ids(
+    db: aiosqlite.Connection, playlist_ids: list[str]
+) -> dict[str, str]:
+    """Map each playlist id to the id of its most-recently-added video.
+
+    "Newest" = greatest ``playlist_videos.added_at`` (tie-break
+    ``video_id DESC``, matching ``videos_for_playlist``). Playlists with no
+    linked videos are absent from the result. Single window-function query,
+    no N+1.
+    """
+    if not playlist_ids:
+        return {}
+    placeholders = ",".join("?" * len(playlist_ids))
+    cursor = await db.execute(
+        f"""
+        SELECT playlist_id, video_id FROM (
+            SELECT
+                playlist_id,
+                video_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY playlist_id
+                    ORDER BY added_at DESC, video_id DESC
+                ) AS rn
+            FROM playlist_videos
+            WHERE playlist_id IN ({placeholders})
+        )
+        WHERE rn = 1
+        """,
+        tuple(playlist_ids),
+    )
+    rows = await cursor.fetchall()
+    return {row["playlist_id"]: row["video_id"] for row in rows}

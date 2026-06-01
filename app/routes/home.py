@@ -111,6 +111,9 @@ async def home(
     )
     has_more_playlists = len(playlists_plus_one) > HOME_PLAYLIST_LIMIT
     playlists = playlists_plus_one[:HOME_PLAYLIST_LIMIT]
+    latest_video_ids = await playlists_repo.latest_video_ids(
+        db, [p.id for p in playlists]
+    )
 
     video_ids = [v.id for v in videos]
     playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
@@ -136,6 +139,7 @@ async def home(
             "q": q,
             "active_tag": tag,
             "playlists": playlists,
+            "latest_video_ids": latest_video_ids,
             "playlist_links": playlist_links,
             "video_tags": video_tags,
             "has_more_videos": has_more_videos,

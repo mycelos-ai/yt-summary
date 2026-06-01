@@ -96,10 +96,13 @@ async def list_playlists(
     so the page scales with N playlists, not N+1 queries.
     """
     rows = await playlists_repo.list_with_stats(db, current_user_id)
+    latest = await playlists_repo.latest_video_ids(
+        db, [p.id for p, _ in rows]
+    )
     return templates.TemplateResponse(
         request,
         "playlists.html",
-        {"rows": rows, "current_user": current_user},
+        {"rows": rows, "current_user": current_user, "latest_video_ids": latest},
     )
 
 
