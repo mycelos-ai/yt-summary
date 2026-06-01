@@ -185,3 +185,50 @@ async def test_list_with_stats_empty_for_no_playlists(
     db: aiosqlite.Connection,
 ):
     assert await playlists_repo.list_with_stats(db, 1) == []
+
+
+async def test_latest_video_ids_returns_most_recent_per_playlist(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "p1")
+    await _make_video(db, "v1")
+    await _make_video(db, "v2")
+    await playlists_repo.link_video(db, "p1", "v1")
+    await playlists_repo.link_video(db, "p1", "v2")
+    # Same-second added_at → tie-break video_id DESC → "v2" wins.
+    result = await playlists_repo.latest_video_ids(db, ["p1"])
+    assert result == {"p1": "v2"}
+
+
+async def test_latest_video_ids_uses_added_at_over_tiebreak(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "p1")
+    await _make_video(db, "v_aaa")
+    await _make_video(db, "v_bbb")
+    await playlists_repo.link_video(db, "p1", "v_bbb")
+    await playlists_repo.link_video(db, "p1", "v_aaa")
+    # Force v_aaa to be the newest by added_at even though its id sorts lower.
+    await db.execute(
+        "UPDATE playlist_videos SET added_at='2099-01-01 00:00:00' "
+        "WHERE playlist_id='p1' AND video_id='v_aaa'"
+    )
+    await db.commit()
+    result = await playlists_repo.latest_video_ids(db, ["p1"])
+    assert result == {"p1": "v_aaa"}
+
+
+async def test_latest_video_ids_omits_playlists_without_videos(
+    db: aiosqlite.Connection,
+):
+    await _make_playlist(db, "p1")
+    await _make_playlist(db, "p2")
+    await _make_video(db, "v1")
+    await playlists_repo.link_video(db, "p1", "v1")
+    result = await playlists_repo.latest_video_ids(db, ["p1", "p2"])
+    assert result == {"p1": "v1"}
+    assert "p2" not in result
+
+
+async def test_latest_video_ids_empty_input(db: aiosqlite.Connection):
+    assert await playlists_repo.latest_video_ids(db, []) == {}
