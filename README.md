@@ -35,6 +35,12 @@ It also works on:
   senders to follow, and it pulls, de-cruds, and summarizes their issues
   automatically)
 
+And it learns. Highlight a passage in any summary and mark it 👍 / 👎 —
+each profile builds an **interest profile** that shapes future summaries
+and feeds a **daily digest** of the day's most relevant highlights.
+Multiple profiles share one box, Netflix-style, each with its own queue,
+interests, and digest.
+
 ## Quick start
 
 One command, no git clone, no manual editing:
@@ -128,8 +134,12 @@ That's it — Caddy sets the forwarded headers correctly out of the box.
 | Web articles | trafilatura-based readability extractor for any article URL |
 | Newsletters (IMAP) | Per-profile mailbox polled on the scheduler tick. Strictly opt-in: scan the recent senders and subscribe to the ones you want (the rest, incl. spam, are ignored). HTML is pre-cleaned (tracking pixels, hidden pre-headers, footers stripped) before a newsletter-tuned summary; sender becomes a filter tag. Connect the mailbox on the profile page; pick senders under "Add a source" → Newsletter. Register your own addresses on the profile page to **forward** any newsletter (or one-off article) into the mailbox: it's always summarized and unwrapped to the original sender, which then shows up as a subscribe candidate. |
 | Personal queue / playlist subscriptions | Scheduler re-checks every hour for new videos in subscribed playlists |
+| Daily digest | Per-profile, scheduled (and on-demand): a TL;DR of the day's thematic clusters plus the Top 10 highlights, each with a "why this matters for you" line. Surfaced as a card strip on the home page |
+| Highlight feedback → interest profile | Select text in any summary / transcript / digest, mark 👍 / 👎 or leave a comment. A per-profile Markdown interest profile is consolidated from the feedback trail and folded into every future summary and digest. Editable by hand on the profile page |
+| Multiple profiles | Netflix-style profiles on one box — each with its own queue, sources, interest profile, digest, and settings |
 | Hybrid search | SQLite FTS5 + vector embeddings via `sqlite-vec`, ranked with Reciprocal Rank Fusion |
-| Chat over a video | Ask follow-up questions; the transcript is the context |
+| Chat over a video | Ask follow-up questions; the transcript is the context. Compact model selector to retry an answer with a stronger model |
+| Multi-model re-summarize | Configure N LLM models in Settings, mark one default. Re-summarize any item with a different model and an optional one-shot instruction ("shorter", "focus on the frameworks") without touching the global default |
 | Tags | Pulled from yt-dlp metadata, surfaced as filterable pills |
 | REST API + MCP server | One API key gates both. Use it from Claude Desktop, scripts, anything |
 | Settings test buttons | Round-trip a real request to LLM / Whisper / embedding backend before kicking off a job |
@@ -242,7 +252,8 @@ For Claude Desktop:
 
 Claude Code and other MCP-over-HTTP-capable hosts connect directly,
 no `mcp-remote` needed. Tools exposed: `submit_url`, `search`,
-`get_summary`, `get_transcript`, `ask_video`, `list_recent`.
+`get_summary`, `get_transcript`, `ask_video`, `list_recent`,
+`list_models`, `resummarize`.
 
 ## Development
 
@@ -269,7 +280,8 @@ multi-arch (amd64 + arm64) Docker image to GHCR.
 Specs live under `docs/superpowers/specs/`. The
 [core design spec](docs/superpowers/specs/2026-05-05-yt-summary-design.md)
 is the place to start; later specs cover playlists, the API, embedding
-search, and the Quick Setup wizard.
+search, the Quick Setup wizard, newsletter aggregation, multi-model
+re-summary, and the daily digest + interest-profile feedback loop.
 
 ## License
 
