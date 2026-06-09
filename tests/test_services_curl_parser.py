@@ -3,6 +3,66 @@ from pathlib import Path
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+# --- parse_curl: URL + cookies + headers out of a pasted curl command ---
+
+
+def test_parse_curl_extracts_url_cookies_and_headers():
+    """A full 'Copy as cURL' yields the target URL, the cookie dict, and
+    the remaining request headers (cookie header excluded — it lives in
+    .cookies, not .headers)."""
+    from app.services.curl_parser import parse_curl
+    text = (FIXTURES / "curl_youtube.txt").read_text()
+    parsed = parse_curl(text)
+    assert parsed.url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert parsed.cookies == {
+        "VISITOR_INFO1_LIVE": "abc",
+        "YSC": "def",
+        "LOGIN_INFO": "xyz",
+    }
+    assert parsed.headers["accept"] == "text/html"
+    assert parsed.headers["user-agent"] == "Mozilla/5.0"
+    assert "cookie" not in {k.lower() for k in parsed.headers}
+
+
+def test_parse_curl_url_without_quotes():
+    """curl variants emit the URL bare (no surrounding quotes)."""
+    from app.services.curl_parser import parse_curl
+    parsed = parse_curl("curl https://example.com/a -H 'accept: text/html'")
+    assert parsed.url == "https://example.com/a"
+
+
+def test_parse_curl_double_quoted_headers():
+    """Windows 'Copy as cURL' uses double quotes throughout."""
+    from app.services.curl_parser import parse_curl
+    text = 'curl "https://example.com/x" -H "Cookie: a=1" -H "Referer: https://example.com/"'
+    parsed = parse_curl(text)
+    assert parsed.url == "https://example.com/x"
+    assert parsed.cookies == {"a": "1"}
+    assert parsed.headers["referer"] == "https://example.com/"
+
+
+def test_parse_curl_b_flag_cookies():
+    """curl's -b/--cookie flag is an alternative to a cookie header."""
+    from app.services.curl_parser import parse_curl
+    parsed = parse_curl("curl 'https://example.com/y' -b 'a=1; b=2'")
+    assert parsed.cookies == {"a": "1", "b": "2"}
+
+
+def test_parse_curl_returns_none_url_when_absent():
+    """No recognisable URL -> url is None, so callers can reject it."""
+    from app.services.curl_parser import parse_curl
+    parsed = parse_curl("curl -H 'accept: text/html'")
+    assert parsed.url is None
+
+
+def test_looks_like_curl_detects_command():
+    from app.services.curl_parser import looks_like_curl
+    assert looks_like_curl("curl 'https://x' -H 'a: b'")
+    assert looks_like_curl("  curl https://x")
+    assert not looks_like_curl("https://example.com/article")
+    assert not looks_like_curl("not a curl at all")
+
+
 def test_parse_curl_extracts_cookies():
     from app.services.curl_parser import extract_cookies
     text = (FIXTURES / "curl_youtube.txt").read_text()

@@ -55,16 +55,21 @@ def _pick_og_image(html: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _fetch_html(url: str) -> tuple[str, str]:
-    """Fetch HTML with a browser-like User-Agent.
-
-    Returns (canonical_url, html). canonical_url is whatever the chain
-    of redirects landed on. Raises ValueError on any failure with a
-    user-readable message.
-    """
+def _fetch_html_once(
+    url: str,
+    *,
+    cookies: dict[str, str] | None,
+    headers: dict[str, str] | None,
+) -> tuple[str, str]:
+    """Single HTTP fetch. Browser defaults, overlaid with any curl-supplied
+    headers, plus optional cookies. Raises ValueError on any failure."""
+    merged_headers = dict(_BROWSER_HEADERS)
+    if headers:
+        merged_headers.update(headers)
     try:
         with httpx.Client(
-            headers=_BROWSER_HEADERS,
+            headers=merged_headers,
+            cookies=cookies or {},
             follow_redirects=True,
             timeout=15.0,
         ) as client:
@@ -101,8 +106,41 @@ def _fetch_html(url: str) -> tuple[str, str]:
     return str(resp.url), resp.text
 
 
-def _extract_sync(url: str) -> ArticleMetadata:
-    canonical_url, html = _fetch_html(url)
+def _is_5xx_error(exc: ValueError) -> bool:
+    """True if the ValueError reports a 5xx server status."""
+    msg = str(exc)
+    return any(f"HTTP 5{d}" in msg or f" 5{d} " in msg for d in range(10))
+
+
+def _fetch_html(
+    url: str,
+    *,
+    cookies: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Fetch HTML, with an optional two-stage strategy for curl imports.
+
+    When extra (curl-supplied) headers are present and the first attempt
+    fails with a 5xx, retry once with cookies only — some paywalled sites
+    reject the full forwarded header set but accept a clean request that
+    still carries the subscription cookie. Returns (canonical_url, html).
+    """
+    try:
+        return _fetch_html_once(url, cookies=cookies, headers=headers)
+    except ValueError as e:
+        if headers and cookies and _is_5xx_error(e):
+            # Retry with cookies only — drop the forwarded headers.
+            return _fetch_html_once(url, cookies=cookies, headers=None)
+        raise
+
+
+def _extract_sync(
+    url: str,
+    *,
+    cookies: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> ArticleMetadata:
+    canonical_url, html = _fetch_html(url, cookies=cookies, headers=headers)
 
     body = trafilatura.extract(
         html,
@@ -134,5 +172,18 @@ def _extract_sync(url: str) -> ArticleMetadata:
     )
 
 
-async def fetch_article(url: str) -> ArticleMetadata:
-    return await asyncio.to_thread(_extract_sync, url)
+async def fetch_article(
+    url: str,
+    *,
+    cookies: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> ArticleMetadata:
+    """Fetch and extract an article.
+
+    `cookies` / `headers` are optional and come from a pasted curl
+    command, letting the reader fetch pages behind a subscription
+    paywall the user is logged into. They are used for this one fetch
+    only and never persisted."""
+    return await asyncio.to_thread(
+        _extract_sync, url, cookies=cookies, headers=headers
+    )

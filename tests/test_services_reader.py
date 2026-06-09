@@ -136,3 +136,93 @@ async def test_fetch_article_uses_canonical_url_after_redirect():
         article = await fetch_article("https://example.com/short")
 
     assert article.url == "https://example.com/canonical-after-redirect"
+
+
+# --- curl-supplied cookies + headers (paywall-behind-a-subscription) ---
+
+
+def _capturing_client(response):
+    """An httpx.Client mock that records the kwargs it was constructed
+    with and the url passed to .get(), so tests can assert on what the
+    reader actually sent."""
+    captured = {}
+    client_cm = MagicMock()
+    client_cm.__enter__ = MagicMock(return_value=client_cm)
+    client_cm.__exit__ = MagicMock(return_value=False)
+    client_cm.get = MagicMock(return_value=response)
+
+    def factory(**kwargs):
+        captured["client_kwargs"] = kwargs
+        return client_cm
+
+    return factory, captured
+
+
+async def test_fetch_article_sends_cookies_and_headers():
+    """Cookies and headers parsed from a curl command are passed into the
+    httpx client so a subscribed paywall page comes back."""
+    from app.services.reader import fetch_article
+
+    resp = _fake_response(html=SAMPLE_HTML, url="https://heise.de/article")
+    factory, captured = _capturing_client(resp)
+    with patch("app.services.reader.httpx.Client", side_effect=factory):
+        await fetch_article(
+            "https://heise.de/article",
+            cookies={"sso": "tok"},
+            headers={"referer": "https://heise.de/"},
+        )
+
+    kwargs = captured["client_kwargs"]
+    assert kwargs["cookies"] == {"sso": "tok"}
+    # curl headers are merged on top of the browser defaults.
+    assert kwargs["headers"]["referer"] == "https://heise.de/"
+
+
+async def test_fetch_article_retries_cookies_only_on_5xx():
+    """First attempt (cookies + headers) hits a 5xx; the reader retries
+    with cookies only and succeeds."""
+    from app.services.reader import fetch_article
+
+    bad = _fake_response(status_code=500, html="")
+    good = _fake_response(html=SAMPLE_HTML, url="https://heise.de/article")
+
+    calls = []
+
+    client_cm = MagicMock()
+    client_cm.__enter__ = MagicMock(return_value=client_cm)
+    client_cm.__exit__ = MagicMock(return_value=False)
+    client_cm.get = MagicMock(return_value=bad)
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        # Second construction (cookies-only retry) returns the good resp.
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=cm)
+        cm.__exit__ = MagicMock(return_value=False)
+        cm.get = MagicMock(return_value=good if len(calls) >= 2 else bad)
+        return cm
+
+    with patch("app.services.reader.httpx.Client", side_effect=factory):
+        article = await fetch_article(
+            "https://heise.de/article",
+            cookies={"sso": "tok"},
+            headers={"referer": "https://heise.de/"},
+        )
+
+    assert "first paragraph" in article.body
+    assert len(calls) == 2
+    # First attempt carried the curl headers; the retry dropped them but
+    # kept the cookies.
+    assert "referer" in calls[0]["headers"]
+    assert "referer" not in calls[1]["headers"]
+    assert calls[1]["cookies"] == {"sso": "tok"}
+
+
+async def test_fetch_article_no_retry_when_no_headers():
+    """With no extra curl headers there's nothing to strip, so a 5xx is
+    surfaced directly rather than retried."""
+    from app.services.reader import fetch_article
+
+    resp = _fake_response(status_code=503, html="")
+    with _patch_httpx_get(resp), pytest.raises(ValueError, match="HTTP 503"):
+        await fetch_article("https://example.com/down", cookies={"a": "1"})

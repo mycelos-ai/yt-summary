@@ -549,11 +549,68 @@ def test_post_videos_with_web_url_creates_web_kind(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(check())
 
 
+def test_post_videos_accepts_curl_command_with_cookies(tmp_path, monkeypatch):
+    """Pasting a 'Copy as cURL' command imports the URL inside it and
+    forwards the parsed cookies + headers to the reader, so a paywalled
+    article the user is subscribed to can be fetched."""
+    from app.services.reader import ArticleMetadata
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    fake_article = ArticleMetadata(
+        url="https://www.heise.de/article-1.html",
+        title="Paywalled Article",
+        description="Behind a subscription.",
+        body="The subscriber-only body text. " * 5,
+        thumbnail_url=None,
+    )
+    fetch_mock = AsyncMock(return_value=fake_article)
+    curl = (
+        "curl 'https://www.heise.de/article-1.html' "
+        "-H 'accept: text/html' "
+        "-H 'cookie: ssohls=secret; acc_segment=95' "
+        "-H 'referer: https://www.heise.de/'"
+    )
+    app = create_app()
+    with (
+        patch("app.routes.videos.fetch_article", fetch_mock),
+        patch("app.routes.videos.download_thumbnail", AsyncMock(return_value=None)),
+        TestClient(app) as client,
+    ):
+        resp = client.post(
+            "/videos",
+            data={"url": curl},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/v/1:web-")
+
+    # The reader was called with the URL from the curl, plus the parsed
+    # cookies and (non-cookie) headers.
+    assert fetch_mock.await_count == 1
+    call = fetch_mock.await_args
+    assert call.args[0] == "https://www.heise.de/article-1.html"
+    assert call.kwargs["cookies"] == {"ssohls": "secret", "acc_segment": "95"}
+    assert call.kwargs["headers"]["referer"] == "https://www.heise.de/"
+    assert "cookie" not in call.kwargs["headers"]
+
+
+def test_post_videos_curl_without_url_renders_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/videos",
+            data={"url": "curl -H 'accept: text/html'"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 200
+    assert "find a URL" in resp.text
+
+
 def test_post_videos_with_unfetchable_url_renders_error_page(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
 
-    async def boom(url):
+    async def boom(url, **kwargs):
         raise ValueError("The page does not exist (404 Not Found).")
 
     with (

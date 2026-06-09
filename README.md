@@ -131,7 +131,7 @@ That's it — Caddy sets the forwarded headers correctly out of the box.
 | Feature | Notes |
 |---|---|
 | YouTube → transcript → summary | Tries YouTube subtitles first, falls back to Whisper if unavailable |
-| Web articles | trafilatura-based readability extractor for any article URL |
+| Web articles | trafilatura-based readability extractor for any article URL. For a paywalled article you subscribe to, paste a "Copy as cURL" command instead of the URL — yt-summary reads the URL, cookies, and headers out of it and fetches the page with your session. Cookies are used for that one fetch only, never stored |
 | Newsletters (IMAP) | Per-profile mailbox polled on the scheduler tick. Strictly opt-in: scan the recent senders and subscribe to the ones you want (the rest, incl. spam, are ignored). HTML is pre-cleaned (tracking pixels, hidden pre-headers, footers stripped) before a newsletter-tuned summary; sender becomes a filter tag. Connect the mailbox on the profile page; pick senders under "Add a source" → Newsletter. Register your own addresses on the profile page to **forward** any newsletter (or one-off article) into the mailbox: it's always summarized and unwrapped to the original sender, which then shows up as a subscribe candidate. |
 | Personal queue / playlist subscriptions | Scheduler re-checks every hour for new videos in subscribed playlists |
 | Daily digest | Per-profile, scheduled (and on-demand): a TL;DR of the day's thematic clusters plus the Top 10 highlights, each with a "why this matters for you" line. Surfaced as a card strip on the home page |

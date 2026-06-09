@@ -15,6 +15,7 @@ from app.repos import llm_models as llm_models_repo
 from app.repos import tags as tags_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
+from app.services.curl_parser import looks_like_curl, parse_curl
 from app.services.markdown import render_markdown
 from app.services.reader import fetch_article
 from app.services.url_classify import classify_url, web_id_from_url
@@ -60,7 +61,32 @@ async def submit_video(
     current_user_id: int = Depends(get_current_user_id),
 ):
     submitted = url
-    url = url.strip().strip("'\"")
+    cookies: dict[str, str] = {}
+    headers: dict[str, str] = {}
+
+    # The user can paste a full "Copy as cURL" command instead of a bare
+    # URL. We pull the URL, cookies, and headers out of it, so an article
+    # behind a subscription paywall the user is logged into can be fetched
+    # with their session. The cookies are used for this one fetch only —
+    # never stored.
+    if looks_like_curl(submitted):
+        parsed = parse_curl(submitted)
+        if not parsed.url:
+            return _import_error_response(
+                request,
+                submitted_url=submitted,
+                error_title="Couldn't find a URL in that curl command",
+                error_message=(
+                    "Paste a 'Copy as cURL' command that contains an "
+                    "http(s) URL, or just paste the URL itself."
+                ),
+            )
+        url = parsed.url
+        cookies = parsed.cookies
+        headers = parsed.headers
+    else:
+        url = submitted.strip().strip("'\"")
+
     if not url.startswith(("http://", "https://")):
         return _import_error_response(
             request,
@@ -76,7 +102,11 @@ async def submit_video(
         if kind == "youtube":
             item_id = await _import_youtube(url, db, config, current_user_id)
         else:
-            item_id = await _import_web(url, db, config, current_user_id)
+            item_id = await _import_web(
+                url, db, config, current_user_id,
+                cookies=cookies or None,
+                headers=headers or None,
+            )
     except ValueError as e:
         return _import_error_response(
             request,
@@ -151,11 +181,19 @@ async def _import_web(
     db: aiosqlite.Connection,
     config: Config,
     user_id: int,
+    *,
+    cookies: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> str:
     """Fetch the article body up-front so the user gets a fast 400 if
     extraction fails, rather than a confusing 'queued' state followed
-    by a failed job."""
-    article = await fetch_article(url)
+    by a failed job.
+
+    cookies/headers (from a pasted curl command) let us fetch pages
+    behind a subscription paywall. Because we persist the body below,
+    the background pipeline never refetches — so the one-time cookies
+    are enough and never need to be stored."""
+    article = await fetch_article(url, cookies=cookies, headers=headers)
     base_id = web_id_from_url(article.url)
     item_id = _composite_id(user_id, base_id)
 
