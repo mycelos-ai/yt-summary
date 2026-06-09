@@ -21,7 +21,7 @@
   <h1>Summarize any video or article</h1>
   <p>Paste a YouTube link or any web article URL, get a clean summary. Self-hosted, with chat over the content.</p>
   <form method="post" action="/videos" class="submit-form">
-    <input type="url" name="url" placeholder="Paste a YouTube or article URL" required>
+    <input type="text" name="url" inputmode="url" autocomplete="off" placeholder="Paste a YouTube or article URL (or a curl command for paywalled articles)" required>
     <button type="submit">Summarize</button>
   </form>
 </section>

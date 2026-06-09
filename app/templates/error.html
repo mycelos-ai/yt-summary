@@ -5,7 +5,7 @@
   <h1>{{ error_title or "Couldn't add that" }}</h1>
   <p>{{ error_message }}</p>
   <form method="post" action="/videos" class="submit-form">
-    <input type="url" name="url" value="{{ submitted_url or '' }}" placeholder="Paste a YouTube or article URL" required>
+    <input type="text" name="url" inputmode="url" autocomplete="off" value="{{ submitted_url or '' }}" placeholder="Paste a YouTube or article URL (or a curl command for paywalled articles)" required>
     <button type="submit">Try again</button>
   </form>
   <p style="margin-top: 24px;">

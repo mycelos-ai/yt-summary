@@ -23,6 +23,20 @@ def _skip_onboarding(monkeypatch):
     monkeypatch.setattr(home_routes, "_onboarding_status", _not_pending)
 
 
+def test_home_submit_field_allows_curl_paste(tmp_path, monkeypatch):
+    """The submit input must not be type=url, or the browser would
+    reject a pasted 'Copy as cURL' command before it ever reaches the
+    server (where the curl is parsed for paywall cookies)."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/")
+    assert resp.status_code == 200
+    # The one input inside the submit-form is the url field.
+    assert 'class="submit-form"' in resp.text
+    assert 'type="url" name="url"' not in resp.text
+
+
 def test_home_lists_videos(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
