@@ -144,6 +144,9 @@ class User:
     interest_profile_version: int = 0
     digest_enabled: bool = False
     digest_hour_local: int = 7
+    # Part B: capability token for the personal podcast feed. None →
+    # feed disabled. Plaintext (the settings page re-displays the URL).
+    podcast_token: str | None = None
 
 
 @dataclass

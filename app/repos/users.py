@@ -23,6 +23,10 @@ def _row_to_user(row: aiosqlite.Row) -> User:
         custom_prompt = row["custom_summary_prompt"]
     except (IndexError, KeyError):
         custom_prompt = None
+    try:
+        podcast_token = row["podcast_token"]
+    except (IndexError, KeyError):
+        podcast_token = None
     return User(
         id=row["id"],
         name=row["name"],
@@ -33,6 +37,7 @@ def _row_to_user(row: aiosqlite.Row) -> User:
         avatar_emoji=avatar,
         avatar_image=avatar_img,
         custom_summary_prompt=custom_prompt,
+        podcast_token=podcast_token,
     )
 
 
@@ -267,6 +272,40 @@ async def clear_api_key(db: aiosqlite.Connection, user_id: int) -> None:
         (user_id,),
     )
     await db.commit()
+
+
+async def set_podcast_token(db: aiosqlite.Connection, user_id: int) -> str:
+    """Generate (or regenerate) the profile's podcast-feed token and
+    return the plaintext. Regenerating invalidates any old feed URL.
+    Stored in plaintext deliberately — see the column comment in db.py."""
+    import secrets
+    token = secrets.token_urlsafe(24)  # ~32 urlsafe chars
+    await db.execute(
+        "UPDATE users SET podcast_token = ? WHERE id = ?", (token, user_id),
+    )
+    await db.commit()
+    return token
+
+
+async def clear_podcast_token(db: aiosqlite.Connection, user_id: int) -> None:
+    await db.execute(
+        "UPDATE users SET podcast_token = NULL WHERE id = ?", (user_id,),
+    )
+    await db.commit()
+
+
+async def get_by_podcast_token(
+    db: aiosqlite.Connection, token: str
+) -> User | None:
+    """Resolve a profile by its podcast token. None for unknown/empty
+    tokens (the feed routes 404 on a miss — no information leak)."""
+    if not token:
+        return None
+    cursor = await db.execute(
+        "SELECT * FROM users WHERE podcast_token = ?", (token,)
+    )
+    row = await cursor.fetchone()
+    return _row_to_user(row) if row else None
 
 
 async def find_by_api_key_hash(

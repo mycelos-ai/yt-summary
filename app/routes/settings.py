@@ -621,6 +621,26 @@ async def revoke_api_key_route(
     return RedirectResponse("/settings", status_code=303)
 
 
+@router.post("/settings/podcast/enable")
+async def enable_podcast_route(
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Generate (or regenerate) the active profile's podcast-feed token.
+    Regenerating invalidates the old feed URL."""
+    await users_repo.set_podcast_token(db, user_id)
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/podcast/disable")
+async def disable_podcast_route(
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    await users_repo.clear_podcast_token(db, user_id)
+    return RedirectResponse("/settings", status_code=303)
+
+
 @router.get("/settings/diagnostics", response_class=HTMLResponse)
 async def diagnostics_page(
     request: Request,

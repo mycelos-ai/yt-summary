@@ -288,6 +288,8 @@ def create_app() -> FastAPI:
     app.include_router(export_api_router)
     from app.routes.ask import router as ask_router
     app.include_router(ask_router)
+    from app.routes.podcast import router as podcast_router
+    app.include_router(podcast_router)
     from app.routes.mcp import build_mcp_server
     mcp_server = build_mcp_server(app.state)
     app.mount("/mcp", mcp_server.sse_app())

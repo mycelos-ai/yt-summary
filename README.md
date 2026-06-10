@@ -232,6 +232,14 @@ terminology consistent across long transcripts.
 Cloud TTS providers are not (yet) supported — Piper is good
 enough for the use case and removes a second API-key dependency.
 
+### Podcast feed
+
+Enable a personal podcast feed under Settings → "Podcast feed" to
+listen to your renderings in any podcast app. It's a standard RSS feed
+over your existing 🔊 audio outputs, gated by a capability token baked
+into the URL (podcast clients can't send auth headers). Anyone with the
+URL can listen, so keep it private — regenerate to revoke an old one.
+
 ## Programmatic access
 
 Generate an API key in Settings → "API access". The same key gates

@@ -125,7 +125,10 @@ CREATE TABLE IF NOT EXISTS users (
     interest_profile_md TEXT,
     interest_profile_version INTEGER NOT NULL DEFAULT 0,
     digest_enabled INTEGER NOT NULL DEFAULT 0,
-    digest_hour_local INTEGER NOT NULL DEFAULT 7
+    digest_hour_local INTEGER NOT NULL DEFAULT 7,
+    -- Part B: per-profile podcast-feed capability token (nullable,
+    -- plaintext). Mirrored in the migration below for existing installs.
+    podcast_token TEXT
 );
 
 CREATE TABLE IF NOT EXISTS llm_models (
@@ -391,6 +394,11 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             conn, "users", "digest_hour_local",
             "INTEGER NOT NULL DEFAULT 7",
         )
+        # Part B: per-profile podcast-feed capability token. Nullable;
+        # stored in plaintext (deliberate — the settings page must be
+        # able to re-display the feed URL, and the token gates a
+        # read-only, audio-only surface).
+        await _ensure_column(conn, "users", "podcast_token", "TEXT")
 
         # Seed the standard summarizer prompt onto every existing
         # profile. After this migration runs, every user has a

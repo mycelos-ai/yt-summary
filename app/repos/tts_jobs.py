@@ -181,6 +181,26 @@ async def reset_orphaned_active(db: aiosqlite.Connection) -> int:
     return cursor.rowcount or 0
 
 
+async def list_done_for_user(
+    db: aiosqlite.Connection, *, user_id: int, limit: int = 100,
+) -> list[TtsJob]:
+    """Done TTS jobs belonging to a Profile's videos, newest finished
+    first. Powers the personal podcast feed (Part B). Joins over
+    videos.user_id since tts_jobs has no user_id of its own."""
+    cursor = await db.execute(
+        """
+        SELECT tj.* FROM tts_jobs tj
+        JOIN videos v ON v.id = tj.video_id
+        WHERE v.user_id = ? AND tj.status = 'done'
+        ORDER BY tj.finished_at DESC, tj.id DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_tts_job(r) for r in rows]
+
+
 async def list_for_video(db: aiosqlite.Connection, video_id: str) -> list[TtsJob]:
     """Return all tts_jobs for a video. Done rows come first (boolean DESC
     treats true=1 / false=0), newest first within each group."""

@@ -162,3 +162,37 @@ async def test_get_digest_prefs_returns_defaults_for_missing_user(
 ):
     prefs = await users_repo.get_digest_prefs(db, user_id=999)
     assert prefs == (False, 7)
+
+
+async def test_set_and_get_podcast_token(db: aiosqlite.Connection):
+    token = await users_repo.set_podcast_token(db, user_id=1)
+    assert isinstance(token, str) and len(token) >= 20
+    user = await users_repo.get_by_id(db, 1)
+    assert user is not None
+    assert user.podcast_token == token
+    # Look up by the token round-trips to the same user.
+    found = await users_repo.get_by_podcast_token(db, token)
+    assert found is not None
+    assert found.id == 1
+
+
+async def test_regenerate_podcast_token_replaces_old(db: aiosqlite.Connection):
+    first = await users_repo.set_podcast_token(db, user_id=1)
+    second = await users_repo.set_podcast_token(db, user_id=1)
+    assert first != second
+    # The old token no longer resolves.
+    assert await users_repo.get_by_podcast_token(db, first) is None
+    assert (await users_repo.get_by_podcast_token(db, second)).id == 1
+
+
+async def test_clear_podcast_token(db: aiosqlite.Connection):
+    token = await users_repo.set_podcast_token(db, user_id=1)
+    await users_repo.clear_podcast_token(db, user_id=1)
+    user = await users_repo.get_by_id(db, 1)
+    assert user is not None
+    assert user.podcast_token is None
+    assert await users_repo.get_by_podcast_token(db, token) is None
+
+
+async def test_get_by_podcast_token_none_for_unknown(db: aiosqlite.Connection):
+    assert await users_repo.get_by_podcast_token(db, "nope") is None
