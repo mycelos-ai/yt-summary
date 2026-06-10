@@ -102,14 +102,11 @@ async def _fetch_for_user(
     return s
 
 
-@router.get("/ask/{synthesis_id}", response_class=HTMLResponse)
-async def ask_show(
-    request: Request,
-    synthesis_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
-    user_id: int = Depends(get_current_user_id),
-) -> HTMLResponse:
-    s = await _fetch_for_user(db, synthesis_id, user_id)
+async def _body_context(
+    db: aiosqlite.Connection, s: Synthesis,
+) -> dict:
+    """Shared template context for the full page and the poll fragment:
+    the rendered answer HTML and the ordered source Video rows."""
     result_html = render_markdown(s.result_md) if s.result_md else ""
     sources = []
     if s.status.value == "ready":
@@ -120,12 +117,38 @@ async def ask_show(
             ids = []
         by_id = await videos_repo.get_many(db, ids)
         sources = [by_id[i] for i in ids if i in by_id]
-    return templates.TemplateResponse(
-        request,
-        "ask/show.html",
-        {
-            "synthesis": s,
-            "result_html": result_html,
-            "sources": sources,
-        },
-    )
+    return {"synthesis": s, "result_html": result_html, "sources": sources}
+
+
+@router.get("/ask/{synthesis_id}", response_class=HTMLResponse)
+async def ask_show(
+    request: Request,
+    synthesis_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    s = await _fetch_for_user(db, synthesis_id, user_id)
+    ctx = await _body_context(db, s)
+    return templates.TemplateResponse(request, "ask/show.html", ctx)
+
+
+@router.get("/ask/{synthesis_id}/fragment", response_class=HTMLResponse)
+async def ask_fragment(
+    request: Request,
+    synthesis_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    """Fragment endpoint for the HTMX poll while a synthesis runs.
+
+    Returns ONLY the inner body (pending spinner / failed / answer +
+    sources) — never the base layout, so hx-swap=outerHTML doesn't nest
+    the whole page into itself on every tick. On reaching a terminal
+    state, sends HX-Refresh so the browser reloads /ask/<id> once and the
+    surrounding chrome stays in sync. Mirrors digest_body_fragment."""
+    s = await _fetch_for_user(db, synthesis_id, user_id)
+    is_htmx_poll = request.headers.get("HX-Request") == "true"
+    if is_htmx_poll and s.status.value in ("ready", "failed"):
+        return HTMLResponse("", headers={"HX-Refresh": "true"})
+    ctx = await _body_context(db, s)
+    return templates.TemplateResponse(request, "ask/_body.html", ctx)
