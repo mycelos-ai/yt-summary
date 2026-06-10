@@ -593,6 +593,60 @@
     </ul>
   </section>
 
+  <!-- ── Export ────────────────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">⬇</span>
+      <div class="settings-card-head-text">
+        <h2>Export</h2>
+        <p class="settings-card-sub">
+          Download this profile's library as a ZIP — one
+          Obsidian-friendly Markdown (or JSON) file per item, plus a
+          <code>manifest.json</code>. Leave the filters empty to export
+          everything.
+        </p>
+      </div>
+    </header>
+
+    <form method="get" action="/export.zip" class="settings-form">
+      <label class="settings-field">
+        <span class="settings-label">Format</span>
+        <select name="format">
+          <option value="md">Markdown (.md)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Kind</span>
+        <select name="kind">
+          <option value="">All</option>
+          <option value="youtube">YouTube</option>
+          <option value="web">Web articles</option>
+          <option value="email">Newsletters</option>
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Tag (optional)</span>
+        <input type="text" name="tag" placeholder="exact tag name">
+      </label>
+
+      <div class="settings-field-row">
+        <label class="settings-field">
+          <span class="settings-label">Since</span>
+          <input type="date" name="since">
+        </label>
+        <label class="settings-field">
+          <span class="settings-label">Until</span>
+          <input type="date" name="until">
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-accent">Download ZIP</button>
+    </form>
+  </section>
+
   <!-- ── Diagnostics link ──────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">

@@ -15,6 +15,10 @@
       <span class="section-controls">
         <a class="section-download" href="/v/{{ video.id }}/summary.md"
            title="Download summary as Markdown">↓ .md</a>
+        <a class="section-download" href="/v/{{ video.id }}/export.md"
+           title="Export with frontmatter, tags &amp; playlists (Obsidian-friendly Markdown)">⬇ Export .md</a>
+        <a class="section-download" href="/v/{{ video.id }}/export.json"
+           title="Export as a self-contained JSON document">⬇ Export .json</a>
         <button type="button" class="section-download"
                 hx-get="/v/{{ video.id }}/audio?source=summary"
                 hx-target="#audio-modal-content"
