@@ -56,10 +56,21 @@ async def _enqueue_digest_job(
                 db, digest_id=digest_id, user_id=user_id,
                 period_hours=period_hours,
             )
-        except Exception:
+        except Exception as e:
             log.exception(
                 "on-demand digest job crashed for user %s", user_id,
             )
+            # Safety net: don't leave the row stuck pending/rendering if
+            # the job raised before marking its own failure.
+            try:
+                await digests_repo.mark_failed(
+                    db, digest_id=digest_id,
+                    error=f"{type(e).__name__}: {e}",
+                )
+            except Exception:
+                log.exception(
+                    "digest job: could not mark digest %s failed", digest_id,
+                )
 
     task = asyncio.create_task(_run(d.id))
     _PENDING_JOBS.add(task)

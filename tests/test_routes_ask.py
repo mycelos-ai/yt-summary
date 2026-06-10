@@ -44,6 +44,36 @@ def test_post_ask_enqueues_and_redirects(tmp_path, monkeypatch):
     assert resp.headers["location"].startswith("/ask/")
 
 
+def test_enqueue_marks_failed_when_run_crashes(tmp_path, monkeypatch):
+    """Safety net: if the background synthesis task raises (e.g. a setup
+    error before run()'s own try/except can mark it failed), the row must
+    still end up 'failed' — never stuck forever on 'pending'."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.repos import syntheses as syntheses_repo
+    from app.routes import ask as ask_route
+    from app.services import ask as ask_service
+
+    async def boom(db, *, synthesis_id, user_id):
+        raise RuntimeError("simulated crash")
+    monkeypatch.setattr(ask_service, "run", boom)
+
+    with TestClient(app):
+        async def scenario():
+            s = await ask_route._enqueue_ask_job(
+                app.state.db, user_id=1, query="q",
+            )
+            # Let the background task run to completion.
+            for t in list(ask_route._PENDING_JOBS):
+                await t
+            return await syntheses_repo.get(app.state.db, s.id)
+        got = asyncio.get_event_loop().run_until_complete(scenario())
+    assert got is not None
+    assert got.status.value == "failed"
+    assert "simulated crash" in (got.error or "")
+
+
 def test_post_ask_rejects_blank_query(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

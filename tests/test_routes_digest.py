@@ -7,6 +7,33 @@ from app.main import create_app
 from app.repos import digests as digests_repo
 
 
+def test_enqueue_marks_digest_failed_when_run_crashes(tmp_path, monkeypatch):
+    """Safety net (mirrors the ask flow): a crashing background digest job
+    must leave the row 'failed', not stuck 'pending'/'rendering'."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.routes import digest as digest_route
+    from app.services import digest as digest_service
+
+    async def boom(db, *, digest_id, user_id, period_hours):
+        raise RuntimeError("simulated digest crash")
+    monkeypatch.setattr(digest_service, "run_for_existing_digest", boom)
+
+    with TestClient(app):
+        async def scenario():
+            d = await digest_route._enqueue_digest_job(
+                app.state.db, user_id=1, period_hours=24,
+            )
+            for t in list(digest_route._PENDING_JOBS):
+                await t
+            return await digests_repo.get(app.state.db, d.id)
+        got = asyncio.get_event_loop().run_until_complete(scenario())
+    assert got is not None
+    assert got.status.value == "failed"
+    assert "simulated digest crash" in (got.error or "")
+
+
 def test_get_digest_list_renders(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

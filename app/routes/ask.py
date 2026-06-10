@@ -45,8 +45,22 @@ async def _enqueue_ask_job(
     async def _run(synthesis_id: int) -> None:
         try:
             await ask_service.run(db, synthesis_id=synthesis_id, user_id=user_id)
-        except Exception:
+        except Exception as e:
             log.exception("ask job crashed for user %s", user_id)
+            # Safety net: run() marks its own failures, but if it raised
+            # before reaching that point the row would be stuck on
+            # 'pending' forever (the UI would poll "Synthesising…"
+            # endlessly). Force it to 'failed' so the user sees an error.
+            try:
+                await syntheses_repo.mark_failed(
+                    db, synthesis_id=synthesis_id,
+                    error=f"{type(e).__name__}: {e}",
+                )
+            except Exception:
+                log.exception(
+                    "ask job: could not mark synthesis %s failed",
+                    synthesis_id,
+                )
 
     task = asyncio.create_task(_run(s.id))
     _PENDING_JOBS.add(task)
