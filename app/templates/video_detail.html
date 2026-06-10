@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ video.title }} — yt-summary{% endblock %}
 {% block content %}
+{% import "macros/export_menu.html" as exp %}
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
@@ -127,9 +128,7 @@
           {% endif %}
         </span>
         <span class="section-controls">
-          <a class="section-download" href="/v/{{ video.id }}/transcript.md"
-             title="Download {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %} as Markdown"
-             onclick="event.stopPropagation()">↓ .md</a>
+          {{ exp.export_menu("/v/" ~ video.id ~ "/transcript.md", label="Export") }}
           <button type="button" class="section-download"
                   hx-get="/v/{{ video.id }}/audio?source=transcript"
                   hx-target="#audio-modal-content"

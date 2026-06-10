@@ -57,3 +57,24 @@ def test_export_menu_script_included(tmp_path, monkeypatch):
         _seed_video_with_summary(app, "em4")
         resp = client.get("/v/em4")
     assert "/static/export-menu.js" in resp.text
+
+
+def test_transcript_renders_export_menu(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+        _seed_video_with_summary(app, "tm1")
+
+        async def add_transcript():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.set_transcript(
+                app.state.db, "tm1", "the transcript",
+                TranscriptSource.AUTO_SUBS, language="en",
+            )
+        asyncio.get_event_loop().run_until_complete(add_transcript())
+        resp = client.get("/v/tm1")
+    assert resp.status_code == 200
+    assert 'data-md-url="/v/tm1/transcript.md"' in resp.text
+    assert '>↓ .md</a>' not in resp.text
