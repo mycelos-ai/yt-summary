@@ -48,3 +48,12 @@ def test_export_menu_has_nojs_download_link(tmp_path, monkeypatch):
         _seed_video_with_summary(app, "em3")
         resp = client.get("/v/em3")
     assert 'href="/v/em3/export.md"' in resp.text
+
+
+def test_export_menu_script_included(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video_with_summary(app, "em4")
+        resp = client.get("/v/em4")
+    assert "/static/export-menu.js" in resp.text
