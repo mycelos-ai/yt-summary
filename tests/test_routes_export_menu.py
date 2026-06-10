@@ -25,7 +25,7 @@ def test_summary_renders_one_export_menu(tmp_path, monkeypatch):
         _seed_video_with_summary(app, "em1")
         resp = client.get("/v/em1")
     assert resp.status_code == 200
-    assert resp.text.count('data-export-menu') >= 1
+    assert resp.text.count('class="export-menu" data-export-menu') == 1
     assert 'data-md-url="/v/em1/export.md"' in resp.text
     assert 'data-json-url="/v/em1/export.json"' in resp.text
 
