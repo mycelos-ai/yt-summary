@@ -37,6 +37,39 @@ def test_get_digest_show_renders_ready_digest(tmp_path, monkeypatch):
     assert "Hello world" in resp.text
 
 
+def test_digest_feedback_json_escapes_script_breakout(tmp_path, monkeypatch):
+    """Digest feedback selected_text is embedded in a <script> block; a
+    `</script><script>…` payload must be escaped so it can't break out."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    payload = "</script><script>window.__pwned=1</script>"
+    with TestClient(app) as client:
+        async def setup():
+            from app.models import FeedbackSource, Sentiment
+            from app.repos import feedback as feedback_repo
+            end = datetime.now(UTC).replace(microsecond=0)
+            start = end - timedelta(hours=24)
+            d = await digests_repo.create_pending(
+                app.state.db, user_id=1, period_start=start, period_end=end,
+            )
+            await digests_repo.mark_ready(
+                app.state.db, digest_id=d.id, tldr="hi",
+                top_items_json="[]", item_count=0,
+            )
+            await feedback_repo.create(
+                app.state.db, user_id=1, digest_id=d.id,
+                source=FeedbackSource.DIGEST,
+                selected_text=payload,
+                text_offset_start=0, text_offset_end=len(payload),
+                sentiment=Sentiment.INTERESTING, comment=None,
+            )
+            return d.id
+        digest_id = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/digest/{digest_id}")
+    assert resp.status_code == 200
+    assert "</script><script>window.__pwned" not in resp.text
+
+
 def test_get_digest_show_polls_when_pending(tmp_path, monkeypatch):
     """While the digest is pending, the template should render the
     HTMX-polling div so the browser refreshes until ready."""

@@ -143,6 +143,43 @@ def test_video_detail_renders(tmp_path, monkeypatch):
     assert "TL;DR" in resp.text
 
 
+def test_video_detail_feedback_json_escapes_script_breakout(tmp_path, monkeypatch):
+    """A feedback row's selected_text comes from an LLM-generated summary,
+    which a video uploader can prompt-inject. If we embed it in a <script>
+    block without escaping, a `</script><script>…` payload breaks out and
+    executes. The serialized JSON must escape the closing tag."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    payload = "</script><script>window.__pwned=1</script>"
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import FeedbackSource, Sentiment
+            from app.repos import feedback as feedback_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="xss1", url="u", title="T",
+                description="d", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(
+                app.state.db, "xss1", "## TL;DR\n" + payload, "model",
+            )
+            await feedback_repo.create(
+                app.state.db, user_id=1, video_id="xss1",
+                source=FeedbackSource.SUMMARY,
+                selected_text=payload,
+                text_offset_start=0, text_offset_end=len(payload),
+                sentiment=Sentiment.INTERESTING, comment=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/xss1")
+    assert resp.status_code == 200
+    # The raw breakout sequence must NOT appear verbatim inside the page —
+    # tojson renders `<`/`>` as < / >.
+    assert "</script><script>window.__pwned" not in resp.text
+
+
 def test_video_detail_404_unknown(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

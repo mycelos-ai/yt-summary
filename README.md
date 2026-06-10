@@ -126,6 +126,24 @@ yt-summary.example.com {
 
 That's it — Caddy sets the forwarded headers correctly out of the box.
 
+### Data & secrets
+
+Everything yt-summary knows lives under `~/yt-summary/data/` (the
+`app.db` SQLite file plus the thumbnail/audio caches). That database
+holds your secrets **in plaintext** — LLM/Whisper API keys, the IMAP
+mailbox password, and any YouTube cookies. There's no separate
+keystore; the app is a single-tenant LAN tool.
+
+Treat the `data/` directory accordingly:
+
+- keep filesystem permissions tight (it's readable as whoever runs the
+  container),
+- if you back it up, the backup contains those secrets — encrypt or
+  scope it,
+- rotate a key by re-entering it in Settings (the field is write-only:
+  blank submission keeps the existing key, so the page never echoes a
+  stored key back to the browser).
+
 ## What it does
 
 | Feature | Notes |

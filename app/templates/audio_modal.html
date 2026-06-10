@@ -33,7 +33,7 @@
     {# Cached (source, target_language, voice, quality) tuples for the
        live "instant render" badge. Read by the inline script below. #}
     <script type="application/json" id="audio-cached-keys">
-      {{ done_keys_json | default('[]') | safe }}
+      {{ done_keys_data | default([]) | tojson }}
     </script>
 
     {% if preselected_source %}

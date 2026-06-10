@@ -90,7 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _user is None or _user.api_key_hash is None:
             logging.getLogger("yt_summary.boot").warning(
                 "No API key configured — /api/v1 and /mcp/sse are open to "
-                "anyone on the LAN. Generate one at /settings."
+                "anyone on the LAN. Generate one at /settings. "
+                "(While no key is set, the MCP DNS-rebinding host-check "
+                "stays enabled to limit drive-by access; it relaxes once "
+                "a key exists.)"
             )
 
         worker = Worker(

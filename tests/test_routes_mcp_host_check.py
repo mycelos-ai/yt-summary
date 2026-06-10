@@ -1,16 +1,23 @@
-"""Regression tests for the MCP DNS-rebinding host check.
+"""Tests for the MCP DNS-rebinding host check.
 
-FastMCP's transport-security middleware defaults to host validation
-with an empty allowlist (when host is "127.0.0.1"), which rejects every
-non-localhost request with 421 "Invalid Host header". yt-summary is a
-LAN tool with its own API-key auth — DNS-rebinding protection is both
-redundant and a foot-gun, so we disable it by default.
+FastMCP's transport-security middleware validates the Host header. For a
+LAN tool with its own API-key auth that protection is redundant — but
+only *once a key exists*. The dangerous compose is the out-of-the-box
+state: no API key (auth disabled) AND host-check disabled means a
+malicious website can DNS-rebind to http://<lan-host>:8200 and drive the
+MCP surface from a victim's browser.
+
+So the default is coupled to API-key presence:
+  * no key configured  -> host-check ENABLED (protection on)
+  * key configured     -> host-check relaxed (protection off; the key
+                          gates every request anyway)
+The explicit env var YTS_MCP_DISABLE_HOST_CHECK overrides both ways.
 
 We can't easily drive a real GET /mcp/sse request to completion from
 TestClient — when the host check passes, SSE keeps the connection open
-indefinitely and TestClient has no first-class request timeout. So we
-exercise FastMCP's wiring directly: build the server the same way the
-app does, then inspect the resulting `transport_security` settings.
+indefinitely. So we exercise FastMCP's wiring directly: build the server
+the same way the app does, then inspect the resulting
+`transport_security` settings.
 """
 
 import os
@@ -18,7 +25,7 @@ import os
 import pytest
 
 
-def _build_server():
+def _build_server(config=None):
     """Re-import the route module fresh so it picks up env vars set by
     monkeypatch — `os.environ.get(...)` is read at build time."""
     import importlib
@@ -30,94 +37,89 @@ def _build_server():
         db = None
         config = None
 
-    return mcp_route.build_mcp_server(_StubState()), mcp_route
+    state = _StubState()
+    state.config = config
+    return mcp_route.build_mcp_server(state), mcp_route
 
 
-def test_default_disables_dns_rebinding_protection(monkeypatch):
-    """With no env override, host validation must be off so a curl
-    against http://<lan-ip>:8200/mcp/sse doesn't 421."""
+def _config_with_key(tmp_path, *, with_key: bool):
+    """Create a Config whose app.db has the schema and, optionally, a
+    default user with an api_key_hash set."""
+    import asyncio
+
+    from app.config import Config
+    from app.db import connect, init_schema
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+
+    async def setup():
+        db = await connect(cfg)
+        await init_schema(db)
+        if with_key:
+            from app.repos import users as users_repo
+            from app.services.auth import hash_api_key
+            await users_repo.set_api_key(
+                db, user_id=1,
+                key_hash=hash_api_key("yts_present"),
+                key_prefix="yts_pres",
+            )
+        await db.close()
+
+    asyncio.get_event_loop().run_until_complete(setup())
+    return cfg
+
+
+def test_default_enables_protection_when_no_api_key(tmp_path, monkeypatch):
+    """Out of the box (no key, no env override) host-check must be ON —
+    otherwise a DNS-rebind from a victim's browser can drive the open
+    MCP surface."""
     monkeypatch.delenv("YTS_MCP_DISABLE_HOST_CHECK", raising=False)
-    server, _ = _build_server()
+    cfg = _config_with_key(tmp_path, with_key=False)
+    server, _ = _build_server(cfg)
     settings = server.settings.transport_security
-    assert settings is not None, (
-        "build_mcp_server should pass an explicit transport_security so "
-        "FastMCP doesn't fall back to its localhost-only auto-config."
-    )
+    assert settings is None or (
+        settings.enable_dns_rebinding_protection is True
+    ), "No API key configured → protection must stay enabled."
+
+
+def test_default_disables_protection_when_api_key_configured(tmp_path, monkeypatch):
+    """Once an API key exists, the key gates every request, so the
+    redundant host-check is relaxed by default."""
+    monkeypatch.delenv("YTS_MCP_DISABLE_HOST_CHECK", raising=False)
+    cfg = _config_with_key(tmp_path, with_key=True)
+    server, _ = _build_server(cfg)
+    settings = server.settings.transport_security
+    assert settings is not None
     assert settings.enable_dns_rebinding_protection is False, (
-        "Default config must disable DNS-rebinding protection — "
-        "yt-summary already has API-key auth and runs on LANs."
+        "API key configured → host-check relaxed so LAN clients don't 421."
     )
 
 
-def test_env_var_can_re_enable_default(monkeypatch):
-    """Set YTS_MCP_DISABLE_HOST_CHECK=0 to opt back into FastMCP's
-    default (which the user can then configure via FASTMCP_* env)."""
+def test_env_var_1_forces_disable_even_without_key(tmp_path, monkeypatch):
+    """Explicit YTS_MCP_DISABLE_HOST_CHECK=1 disables protection
+    regardless of key presence."""
+    monkeypatch.setenv("YTS_MCP_DISABLE_HOST_CHECK", "1")
+    cfg = _config_with_key(tmp_path, with_key=False)
+    server, _ = _build_server(cfg)
+    settings = server.settings.transport_security
+    assert settings is not None
+    assert settings.enable_dns_rebinding_protection is False
+
+
+def test_env_var_0_forces_enable_even_with_key(tmp_path, monkeypatch):
+    """Explicit YTS_MCP_DISABLE_HOST_CHECK=0 keeps protection on even
+    when a key is configured (user opts back into FastMCP's default)."""
     monkeypatch.setenv("YTS_MCP_DISABLE_HOST_CHECK", "0")
-    server, _ = _build_server()
-    # When opting out, we pass transport_security=None so FastMCP falls
-    # back to its own defaults (auto-enables for localhost host).
-    assert server.settings.transport_security is not None
-    # FastMCP's own default for host="127.0.0.1" enables protection.
-    assert (
-        server.settings.transport_security.enable_dns_rebinding_protection
-        is True
+    cfg = _config_with_key(tmp_path, with_key=True)
+    server, _ = _build_server(cfg)
+    settings = server.settings.transport_security
+    assert settings is None or (
+        settings.enable_dns_rebinding_protection is True
     )
 
 
 @pytest.fixture(autouse=True)
 def _reset_module_state():
-    """The build_mcp_server module reads env at call time; reload is
-    idempotent here, just be tidy across tests."""
     yield
-    # Clear env so other tests in the suite don't see this var.
     os.environ.pop("YTS_MCP_DISABLE_HOST_CHECK", None)
-
-
-def test_sse_endpoint_does_not_421_on_lan_host(tmp_path, monkeypatch):
-    """End-to-end smoke: with the fix in place, a request whose Host
-    header is a LAN IP must NOT come back as 421 'Invalid Host header'.
-
-    We cancel the request quickly after the headers come back — SSE
-    streams indefinitely once accepted, but the status line is enough.
-    """
-    import threading
-
-    from fastapi.testclient import TestClient
-
-    from app.main import create_app
-
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("YTS_MCP_DISABLE_HOST_CHECK", raising=False)
-    app = create_app()
-    result: dict = {}
-
-    def _hit():
-        # raise_server_exceptions=False so SSE-side exceptions don't
-        # mask the client-visible HTTP response.
-        with TestClient(app, raise_server_exceptions=False) as client:
-            try:
-                # When host check is disabled, this hangs because SSE
-                # stays open. We use stream() so we can read just the
-                # response status without waiting for the body.
-                with client.stream(
-                    "GET", "/mcp/sse",
-                    headers={"Host": "192.168.0.111:8200"},
-                ) as resp:
-                    result["status"] = resp.status_code
-                    # Try to read just a tiny bit; cancel immediately.
-                    return
-            except Exception as e:
-                result["error"] = repr(e)
-
-    t = threading.Thread(target=_hit, daemon=True)
-    t.start()
-    t.join(timeout=5.0)
-    # If the thread is still running, the SSE stream stayed open —
-    # that's actually a *good* sign (host check passed, request was
-    # accepted). Either way, the result dict must not contain a 421.
-    if "status" in result:
-        assert result["status"] != 421, (
-            f"Got 421 — DNS-rebinding host check is still active. "
-            f"result: {result!r}"
-        )
-

@@ -122,6 +122,52 @@ def test_render_endpoint_enqueues_job_returns_polling_block(tmp_path, monkeypatc
     assert "queued" in body_lower or "translating" in body_lower or "preparing" in body_lower
 
 
+def test_audio_modal_cached_keys_block_is_valid_json(tmp_path, monkeypatch):
+    """The cached-keys block is embedded server JSON read by an inline
+    script. It must be rendered via `| tojson` (not `| safe` over a
+    pre-dumped string) so it stays well-formed and `</script>`-safe.
+    Parse the block and confirm the seeded done job's tuple is present."""
+    import json
+    import re
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_video(app, id="abc", source_language="en")
+        _seed_summary(app, video_id="abc", text="Hi.", language="en")
+        _seed_tts_job(
+            app, video_id="abc", source="summary",
+            target_language="de", voice="thorsten",
+            quality="medium", status="done",
+            audio_path="tts-audio/abc/summary-de-thorsten-medium.mp3",
+        )
+        resp = client.get("/v/abc/audio")
+    assert resp.status_code == 200
+    m = re.search(
+        r'<script type="application/json" id="audio-cached-keys">'
+        r"(.*?)</script>",
+        resp.text, re.DOTALL,
+    )
+    assert m, "cached-keys script block missing"
+    keys = json.loads(m.group(1))
+    assert {
+        "source": "summary", "target_language": "de",
+        "voice": "thorsten", "quality": "medium",
+    } in keys
+
+
+def test_audio_modal_template_uses_tojson_not_safe():
+    """Guard the hardening fix: the cached-keys block must serialize the
+    data with `| tojson` (escapes `</script>`), never `| safe` over a
+    pre-dumped JSON string."""
+    from pathlib import Path
+    tpl = Path("app/templates/audio_modal.html").read_text()
+    assert "done_keys_data" in tpl
+    assert "tojson" in tpl
+    assert "done_keys_json" not in tpl
+    assert "| safe" not in tpl
+
+
 def test_render_endpoint_returns_cached_done_block_when_repeated(tmp_path, monkeypatch):
     """Second submit with the same params should return the existing
     done block immediately, with the audio player."""

@@ -239,7 +239,7 @@
       video_id: {{ video.id | tojson }},
       source: "summary",
       target_selector: "[data-highlight-target]",
-      existing: {{ feedbacks_json | safe }}
+      existing: {{ feedbacks_data | tojson }}
     };
   </script>
   <script src="/static/highlight.js" defer></script>

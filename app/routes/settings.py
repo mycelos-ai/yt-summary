@@ -2,6 +2,7 @@ import asyncio
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiosqlite
 import httpx
@@ -35,6 +36,23 @@ from app.template_filters import register_filters
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 register_filters(templates)
+
+
+def _model_view(row):
+    """Sanitized view of an LlmModel for the template: every field the
+    settings page renders, plus a `has_key` boolean — but NOT the
+    plaintext api_key. Keeping the secret out of the render context
+    means no template edit can ever leak it (mirrors has_whisper_key).
+    The edit form is write-only: blank submission keeps the stored key."""
+    return SimpleNamespace(
+        id=row.id,
+        label=row.label,
+        provider_id=row.provider_id,
+        model=row.model,
+        base_url=row.base_url,
+        is_default=row.is_default,
+        has_key=bool(row.api_key),
+    )
 
 # Bundled audio sample for /settings/test-whisper. Short clip of "This
 # is a test" so the round-trip stays cheap on a Pi5.
@@ -70,8 +88,13 @@ async def settings_page(
     current_user=Depends(get_current_user),
 ):
     settings = await settings_repo.get_all(db)
-    llm_models = await llm_models_repo.list_all(db)
-    edit_model = await llm_models_repo.get(db, edit) if edit is not None else None
+    # Sanitize: the template never needs the plaintext api_key, only a
+    # has_key flag. Keep the secret out of the render context entirely.
+    llm_models = [_model_view(m) for m in await llm_models_repo.list_all(db)]
+    _edit_row = (
+        await llm_models_repo.get(db, edit) if edit is not None else None
+    )
+    edit_model = _model_view(_edit_row) if _edit_row is not None else None
     has_cookies = await asyncio.to_thread(config.cookies_path.exists)
     # Surface a sensible default in the UI: if only the legacy
     # `_hours` setting is present, render it as the equivalent minutes

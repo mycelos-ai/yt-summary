@@ -20,7 +20,6 @@ that re-renders in place on delete.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import aiosqlite
@@ -181,7 +180,9 @@ async def audio_modal(
     # surfacing it up front saves the user a click + a roundtrip.
     all_renderings = await tts_jobs_repo.list_for_video(db, video_id)
     done_renderings = [r for r in all_renderings if r.status == "done"]
-    done_keys_json = json.dumps([
+    # Plain list — the template serializes with `| tojson` so the
+    # embedded JSON stays `</script>`-safe and well-formed. Don't dump here.
+    done_keys_data = [
         {
             "source": r.source,
             "target_language": r.target_language,
@@ -189,7 +190,7 @@ async def audio_modal(
             "quality": r.quality,
         }
         for r in done_renderings
-    ])
+    ]
     return templates.TemplateResponse(
         request,
         "audio_modal.html",
@@ -210,7 +211,7 @@ async def audio_modal(
             "has_transcript": video.transcript is not None,
             "preselected_source": preselected_source,
             "done_renderings": done_renderings,
-            "done_keys_json": done_keys_json,
+            "done_keys_data": done_keys_data,
         },
     )
 
