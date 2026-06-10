@@ -1,3 +1,4 @@
+{% import "macros/export_menu.html" as exp %}
 {# Self-refreshing summary block. Polls every 2s while the latest job is
    running or pending; stops once the job is done or failed. #}
 <section
@@ -13,12 +14,7 @@
     Summary
     {% if video.summary %}
       <span class="section-controls">
-        <a class="section-download" href="/v/{{ video.id }}/summary.md"
-           title="Download summary as Markdown">↓ .md</a>
-        <a class="section-download" href="/v/{{ video.id }}/export.md"
-           title="Export with frontmatter, tags &amp; playlists (Obsidian-friendly Markdown)">⬇ Export .md</a>
-        <a class="section-download" href="/v/{{ video.id }}/export.json"
-           title="Export as a self-contained JSON document">⬇ Export .json</a>
+        {{ exp.export_menu("/v/" ~ video.id ~ "/export.md", "/v/" ~ video.id ~ "/export.json") }}
         <button type="button" class="section-download"
                 hx-get="/v/{{ video.id }}/audio?source=summary"
                 hx-target="#audio-modal-content"
