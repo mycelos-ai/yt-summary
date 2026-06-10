@@ -187,6 +187,32 @@ async def _tool_resummarize(
     return {"video_id": video_id, "job_id": job_id, "queued": True}
 
 
+async def _tool_ask_library(
+    db: aiosqlite.Connection,
+    question: str,
+    *,
+    user_id: int = 1,
+) -> dict[str, Any]:
+    """Answer a question across the library's stored summaries, with
+    citations. Runs synchronously and returns
+    ``{id, status, answer, sources}``. The highest-value MCP addition:
+    turns any MCP host into a front-end for the whole library."""
+    from app.services import ask as ask_svc
+    s = await ask_svc.ask_now(db, user_id=user_id, query=question.strip())
+    import json as _json
+    try:
+        sources = _json.loads(s.source_ids_json)
+    except (ValueError, TypeError):
+        sources = []
+    return {
+        "id": s.id,
+        "status": s.status.value,
+        "answer": s.result_md,
+        "sources": sources,
+        "error": s.error,
+    }
+
+
 def _api_key_is_configured(config) -> bool:
     """Synchronous, best-effort check for whether any user has an API key.
 
@@ -328,5 +354,17 @@ def build_mcp_server(app_state) -> FastMCP:
             llm_model_id=llm_model_id,
             additional_prompt=additional_prompt,
         )
+
+    @mcp.tool()
+    async def ask_library(question: str) -> dict[str, Any]:
+        """Answer a question across your saved library, citing the items
+        it drew on. Returns {id, status, answer (Markdown with
+        [title](/v/<id>) links), sources (the video ids used)}.
+
+        Use this to query everything you've summarised at once — e.g.
+        "What have I saved about agent evaluation?" — instead of reading
+        items one by one.
+        """
+        return await _tool_ask_library(app_state.db, question)
 
     return mcp

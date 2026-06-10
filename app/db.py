@@ -250,6 +250,19 @@ CREATE TABLE IF NOT EXISTS digests (
 );
 CREATE INDEX IF NOT EXISTS idx_digests_user_created
     ON digests(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS syntheses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    query TEXT NOT NULL,
+    result_md TEXT,
+    source_ids_json TEXT NOT NULL,   -- ordered video ids used
+    status TEXT NOT NULL CHECK(status IN ('pending','ready','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_syntheses_user_created
+    ON syntheses(user_id, created_at DESC);
 """
 
 

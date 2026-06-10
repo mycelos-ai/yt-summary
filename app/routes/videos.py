@@ -15,6 +15,7 @@ from app.repos import llm_models as llm_models_repo
 from app.repos import tags as tags_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
+from app.services import related as related_svc
 from app.services.curl_parser import looks_like_curl, parse_curl
 from app.services.markdown import render_markdown
 from app.services.reader import fetch_article
@@ -131,6 +132,33 @@ async def submit_video(
             request, "video_card.html", {"video": video}
         )
     return RedirectResponse(f"/v/{item_id}", status_code=303)
+
+
+@router.get("/v/{video_id}/related-fragment", response_class=HTMLResponse)
+async def related_fragment(
+    request: Request,
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Lazy HTMX fragment: a strip of items related to this one (Part
+    C.1). Kept off the detail-page critical path so the KNN cost is only
+    paid when the strip scrolls into view. Empty fragment when the item
+    has no embedding or no close neighbours."""
+    video = await videos_repo.get(db, video_id)
+    if video is None or video.user_id != current_user_id:
+        # Empty (not 404): this is a progressive-enhancement fragment.
+        return HTMLResponse("")
+    ids = await related_svc.related_video_ids(
+        db, video, user_id=current_user_id,
+    )
+    related = await videos_repo.get_many(db, ids)
+    ordered = [related[i] for i in ids if i in related]
+    return templates.TemplateResponse(
+        request,
+        "related_strip.html",
+        {"related": ordered},
+    )
 
 
 @router.get("/submit", response_class=HTMLResponse)

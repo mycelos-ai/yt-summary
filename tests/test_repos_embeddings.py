@@ -27,6 +27,22 @@ async def test_upsert_and_search_round_trip(db: aiosqlite.Connection):
     assert hits[0][1] < 1e-6
 
 
+async def test_get_summary_embedding_round_trips(db: aiosqlite.Connection):
+    await _make_video(db, "v1")
+    vec = _vec(0.25)
+    await embeddings_repo.upsert_summary_embedding(db, "v1", vec)
+    got = await embeddings_repo.get_summary_embedding(db, "v1")
+    assert got is not None
+    assert len(got) == 384
+    # Floats round-trip through the packed blob (allow tiny f32 error).
+    assert all(abs(a - b) < 1e-6 for a, b in zip(got, vec, strict=True))
+
+
+async def test_get_summary_embedding_none_when_absent(db: aiosqlite.Connection):
+    await _make_video(db, "v1")  # no embedding stored
+    assert await embeddings_repo.get_summary_embedding(db, "v1") is None
+
+
 async def test_upsert_replaces_existing(db: aiosqlite.Connection):
     await _make_video(db, "v1")
     await embeddings_repo.upsert_summary_embedding(db, "v1", _vec(0.1))

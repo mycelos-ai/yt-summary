@@ -44,6 +44,37 @@ async def health() -> dict[str, Any]:
     return {"ok": True, "version": API_VERSION}
 
 
+@router.post("/ask")
+async def api_ask(
+    payload: dict = Body(...),
+    user_id: int = Depends(current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Ask a question across the profile's library (Part C.2). Runs the
+    synthesis synchronously and returns the answer + the source ids it
+    used."""
+    question = payload.get("question", "")
+    if not isinstance(question, str) or not question.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "question is required", "code": "INVALID_INPUT"},
+        )
+    from app.services import ask as ask_svc
+    s = await ask_svc.ask_now(db, user_id=user_id, query=question.strip())
+    import json as _json
+    try:
+        sources = _json.loads(s.source_ids_json)
+    except (ValueError, TypeError):
+        sources = []
+    return {
+        "id": s.id,
+        "status": s.status.value,
+        "answer": s.result_md,
+        "sources": sources,
+        "error": s.error,
+    }
+
+
 @router.post("/videos")
 async def api_submit_video(
     payload: dict = Body(...),

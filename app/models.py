@@ -230,6 +230,29 @@ class Digest:
     created_at: datetime
 
 
+class SynthesisStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
+@dataclass
+class Synthesis:
+    """One "ask my library" answer — a question answered across the
+    Profile's stored summaries, with citations. States pending → ready |
+    failed. A knowledge artifact, not throwaway chat: persisted and
+    listed like digests."""
+    id: int
+    user_id: int
+    query: str
+    result_md: str | None
+    # JSON-encoded ordered list of the video ids used as sources.
+    source_ids_json: str
+    status: SynthesisStatus
+    error: str | None
+    created_at: datetime
+
+
 @dataclass
 class Highlight:
     """One LLM-extracted noteworthy point from a summary.

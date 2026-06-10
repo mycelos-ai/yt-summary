@@ -1,0 +1,117 @@
+"""Routes for "ask my library" (Part C.2).
+
+Mirrors the digest flow: GET /ask shows the question box + archive, POST
+/ask creates a pending synthesis and spawns the background job, then
+redirects to the /ask/{id} permalink which HTMX-polls until ready.
+"""
+
+import asyncio
+import logging
+
+import aiosqlite
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from app.main import get_current_user_id, get_db
+from app.models import Synthesis
+from app.repos import syntheses as syntheses_repo
+from app.repos import videos as videos_repo
+from app.services import ask as ask_service
+from app.services.markdown import render_markdown
+from app.template_filters import register_filters
+
+log = logging.getLogger(__name__)
+
+router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
+
+# Strong refs to in-flight jobs so the loop doesn't GC them mid-run
+# (same pattern as routes/digest.py).
+_PENDING_JOBS: set[asyncio.Task] = set()
+
+
+async def _enqueue_ask_job(
+    db: aiosqlite.Connection, *, user_id: int, query: str,
+) -> Synthesis:
+    """Create the pending row in the foreground (so the redirect target
+    exists), then run the synthesis in the background. Monkeypatched in
+    tests."""
+    s = await syntheses_repo.create_pending(
+        db, user_id=user_id, query=query, source_ids=[],
+    )
+
+    async def _run(synthesis_id: int) -> None:
+        try:
+            await ask_service.run(db, synthesis_id=synthesis_id, user_id=user_id)
+        except Exception:
+            log.exception("ask job crashed for user %s", user_id)
+
+    task = asyncio.create_task(_run(s.id))
+    _PENDING_JOBS.add(task)
+    task.add_done_callback(_PENDING_JOBS.discard)
+    return s
+
+
+@router.get("/ask", response_class=HTMLResponse)
+async def ask_index(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    archive = await syntheses_repo.list_for_user(db, user_id=user_id, limit=30)
+    return templates.TemplateResponse(
+        request, "ask/index.html", {"archive": archive},
+    )
+
+
+@router.post("/ask")
+async def ask_submit(
+    query: str = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    q = query.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Question is required")
+    s = await _enqueue_ask_job(db, user_id=user_id, query=q)
+    return RedirectResponse(url=f"/ask/{s.id}", status_code=303)
+
+
+async def _fetch_for_user(
+    db: aiosqlite.Connection, synthesis_id: int, user_id: int,
+) -> Synthesis:
+    s = await syntheses_repo.get(db, synthesis_id)
+    if s is None or s.user_id != user_id:
+        raise HTTPException(status_code=404)
+    return s
+
+
+@router.get("/ask/{synthesis_id}", response_class=HTMLResponse)
+async def ask_show(
+    request: Request,
+    synthesis_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    s = await _fetch_for_user(db, synthesis_id, user_id)
+    result_html = render_markdown(s.result_md) if s.result_md else ""
+    sources = []
+    if s.status.value == "ready":
+        import json
+        try:
+            ids = json.loads(s.source_ids_json)
+        except (ValueError, TypeError):
+            ids = []
+        by_id = await videos_repo.get_many(db, ids)
+        sources = [by_id[i] for i in ids if i in by_id]
+    return templates.TemplateResponse(
+        request,
+        "ask/show.html",
+        {
+            "synthesis": s,
+            "result_html": result_html,
+            "sources": sources,
+        },
+    )

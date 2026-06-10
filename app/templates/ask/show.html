@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ synthesis.query }} — yt-summary{% endblock %}
+{% block content %}
+<section>
+  <p><a href="/ask">← Ask my library</a></p>
+  <h1>{{ synthesis.query }}</h1>
+
+  {% if synthesis.status.value == 'pending' %}
+    {# Self-poll until the background synthesis finishes. #}
+    <div hx-get="/ask/{{ synthesis.id }}"
+         hx-trigger="load delay:1s"
+         hx-swap="outerHTML">
+      <p class="status status-running">
+        <span class="spinner" aria-hidden="true"></span>
+        Synthesising across your library…
+      </p>
+    </div>
+  {% elif synthesis.status.value == 'failed' %}
+    <p class="status status-failed">
+      ⚠ {{ synthesis.error or 'Synthesis failed.' }}
+    </p>
+  {% else %}
+    <article class="ask-result">{{ result_html | safe }}</article>
+
+    {% if sources %}
+      <section class="ask-sources">
+        <h2 class="section-heading">Sources</h2>
+        <ul>
+          {% for v in sources %}
+            <li><a href="/v/{{ v.id }}">{{ v.title }}</a></li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

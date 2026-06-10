@@ -1,0 +1,165 @@
+"""Library synthesis — "ask my library" (Part C.2).
+
+A question answered across the Profile's stored items, with citations
+back into the library. Generalizes the digest machinery from "last 24 h"
+to "this question": hybrid search (FTS + vector RRF) selects the top N
+items, their summaries are packed into one LLM call, and the answer is
+Markdown with [title](/v/{id}) source links.
+
+The LLM call runs in the background (the route enqueues, like digest),
+so this module never blocks a request handler.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+import aiosqlite
+import litellm
+
+from app.models import Video
+from app.repos import llm_models as llm_models_repo
+from app.repos import settings as settings_repo
+from app.repos import syntheses as syntheses_repo
+from app.repos import videos as videos_repo
+
+log = logging.getLogger(__name__)
+
+# Default number of source items packed into the synthesis call. Summaries
+# (not transcripts) keep the token budget sane.
+DEFAULT_SOURCE_LIMIT = 8
+
+_SYSTEM = (
+    "You answer questions using ONLY the provided summaries from the "
+    "user's personal library. Cite every claim with the item's Markdown "
+    "link, exactly as given in the sources (e.g. [Title](/v/<id>)). If the "
+    "provided summaries don't cover the question, say so plainly instead "
+    "of guessing. Answer in Markdown. Do not invent items or links."
+)
+
+
+async def _vector_ids(db: aiosqlite.Connection, query: str) -> list[str]:
+    """Embed the query and return ids ranked by similarity; [] on any
+    failure so retrieval degrades to FTS-only."""
+    try:
+        from app.repos import embeddings as embeddings_repo
+        from app.services.embeddings import embed_text
+        settings = await settings_repo.get_all(db)
+        model = settings.get("embedding_model", "").strip() or None
+        base_url = settings.get("embedding_base_url", "").strip() or None
+        vector = await embed_text(query, model=model, api_key="", base_url=base_url)
+        hits = await embeddings_repo.search_by_summary_vector(db, vector, limit=50)
+        return [vid for vid, _ in hits]
+    except Exception as e:  # pragma: no cover - defensive
+        log.info("ask: vector retrieval degraded to FTS: %s", e)
+        return []
+
+
+async def gather_sources(
+    db: aiosqlite.Connection, query: str, *, user_id: int,
+    limit: int = DEFAULT_SOURCE_LIMIT,
+) -> list[Video]:
+    """Top items for the question, via the same hybrid search as home."""
+    vector_ids = await _vector_ids(db, query)
+    videos = await videos_repo.search(
+        db, query, limit=limit, vector_ids=vector_ids, user_id=user_id,
+    )
+    # Only items that actually have a summary are useful as sources.
+    return [v for v in videos if v.summary][:limit]
+
+
+def build_prompt(query: str, sources: list[Video]) -> tuple[str, str]:
+    """Pure builder: (system, user) messages. The user message lists each
+    source with its citation link target and summary."""
+    blocks = []
+    for v in sources:
+        blocks.append(
+            f"### [{v.title}](/v/{v.id})\n{v.summary}"
+        )
+    sources_md = "\n\n".join(blocks) if blocks else "(no matching items)"
+    user = (
+        f"QUESTION:\n{query}\n\n"
+        f"SOURCES (cite these by their Markdown links):\n\n{sources_md}\n\n"
+        "Answer now, in Markdown, citing every claim."
+    )
+    return _SYSTEM, user
+
+
+async def _completion(
+    *, system: str, user: str, model: str, api_key: str, base_url: str | None,
+) -> str:
+    """Thin litellm wrapper — monkeypatched in tests."""
+    kwargs: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "api_key": api_key,
+    }
+    if base_url:
+        kwargs["api_base"] = base_url
+    response = await litellm.acompletion(**kwargs)
+    return response.choices[0].message.content or ""
+
+
+async def ask_now(
+    db: aiosqlite.Connection, *, user_id: int, query: str,
+):
+    """Create + run a synthesis synchronously and return the finished row.
+
+    Used by the REST API and the MCP tool, where the caller wants the
+    answer in the response (the web UI uses the background flow instead).
+    """
+    s = await syntheses_repo.create_pending(
+        db, user_id=user_id, query=query, source_ids=[],
+    )
+    await run(db, synthesis_id=s.id, user_id=user_id)
+    refreshed = await syntheses_repo.get(db, s.id)
+    assert refreshed is not None
+    return refreshed
+
+
+async def run(
+    db: aiosqlite.Connection, *, synthesis_id: int, user_id: int,
+) -> None:
+    """Execute a pending synthesis: retrieve sources, call the LLM, and
+    mark the row ready (or failed). The interest profile is deliberately
+    NOT injected — a direct question shouldn't be biased."""
+    s = await syntheses_repo.get(db, synthesis_id)
+    if s is None:
+        return
+
+    model_row = await llm_models_repo.get_default(db)
+    if model_row is None:
+        await syntheses_repo.mark_failed(
+            db, synthesis_id=synthesis_id,
+            error="No default LLM configured",
+        )
+        return
+
+    try:
+        sources = await gather_sources(db, s.query, user_id=user_id)
+        # Record the ids actually used, in retrieval order.
+        await db.execute(
+            "UPDATE syntheses SET source_ids_json=? WHERE id=?",
+            (json.dumps([v.id for v in sources]), synthesis_id),
+        )
+        await db.commit()
+
+        system, user = build_prompt(s.query, sources)
+        result_md = await _completion(
+            system=system, user=user,
+            model=model_row.model, api_key=model_row.api_key or "",
+            base_url=model_row.base_url or None,
+        )
+        await syntheses_repo.mark_ready(
+            db, synthesis_id=synthesis_id, result_md=result_md,
+        )
+    except Exception as e:
+        log.exception("ask: synthesis %s failed", synthesis_id)
+        await syntheses_repo.mark_failed(
+            db, synthesis_id=synthesis_id,
+            error=f"{type(e).__name__}: {e}",
+        )

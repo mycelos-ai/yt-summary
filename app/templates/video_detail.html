@@ -104,6 +104,14 @@
 
   {% include "video_summary_section.html" %}
 
+  {% if video.summary %}
+    {# Related items load lazily once this placeholder is revealed, so the
+       KNN cost stays off the detail-page render path (Part C.1). #}
+    <div hx-get="/v/{{ video.id }}/related-fragment"
+         hx-trigger="revealed"
+         hx-swap="outerHTML"></div>
+  {% endif %}
+
   {% include "audio_renderings_block.html" %}
 
   {% if video.transcript %}
