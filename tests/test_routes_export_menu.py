@@ -78,3 +78,30 @@ def test_transcript_renders_export_menu(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert 'data-md-url="/v/tm1/transcript.md"' in resp.text
     assert '>↓ .md</a>' not in resp.text
+
+
+def test_export_menu_script_loaded_without_summary(tmp_path, monkeypatch):
+    """A video with a transcript but no summary still renders an export
+    menu (for the transcript), so the clipboard JS must load even when
+    there's no summary."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.models import TranscriptSource
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="nosum1", url="u", title="No Summary",
+                description="d", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_transcript(
+                app.state.db, "nosum1", "the transcript",
+                TranscriptSource.AUTO_SUBS, language="en",
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/nosum1")
+    assert resp.status_code == 200
+    assert 'data-md-url="/v/nosum1/transcript.md"' in resp.text  # menu present
+    assert "/static/export-menu.js" in resp.text                  # JS loaded
