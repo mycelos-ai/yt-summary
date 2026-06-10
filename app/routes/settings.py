@@ -193,6 +193,11 @@ async def settings_page(
             "voice_cache_summary": voice_cache_summary,
             "llm_models": llm_models,
             "edit_model": edit_model,
+            # Origin for the bookmarklet (Part D), derived from the
+            # request so HTTPS/proxy setups bake in the right host. The
+            # app runs uvicorn with --proxy-headers, so base_url already
+            # reflects X-Forwarded-Proto/Host. Trailing slash stripped.
+            "base_url": str(request.base_url).rstrip("/"),
         },
     )
 

@@ -647,6 +647,37 @@
     </form>
   </section>
 
+  <!-- ── Browser bookmarklet ───────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🔖</span>
+      <div class="settings-card-head-text">
+        <h2>Browser bookmarklet</h2>
+        <p class="settings-card-sub">
+          Drag the link below to your bookmarks bar. One click on any
+          YouTube video or article page opens a small confirmation window
+          to save it to your queue.
+        </p>
+      </div>
+    </header>
+
+    {# The app origin is baked in at render time (proxy-aware base_url)
+       so HTTPS/reverse-proxy setups get the right host. The href is a
+       javascript: bookmarklet; the | e filter keeps the embedded origin
+       from breaking out of the attribute. #}
+    <p>
+      <a class="btn btn-accent"
+         href="javascript:window.open('{{ base_url }}/submit?url='+encodeURIComponent(location.href),'_blank','noopener,width=480,height=360')"
+         onclick="event.preventDefault(); alert('Drag this button to your bookmarks bar — clicking it here does nothing.');">
+        ⊕ Save to yt-summary
+      </a>
+    </p>
+    <p class="settings-card-sub">
+      Clicking it here won't do anything — bookmarklets only run from the
+      bookmarks bar.
+    </p>
+  </section>
+
   <!-- ── Diagnostics link ──────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">

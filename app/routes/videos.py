@@ -133,6 +133,36 @@ async def submit_video(
     return RedirectResponse(f"/v/{item_id}", status_code=303)
 
 
+@router.get("/submit", response_class=HTMLResponse)
+async def submit_confirmation(
+    request: Request,
+    url: str = "",
+    current_user=Depends(get_current_user),
+):
+    """Confirmation page for the bookmarklet (Part D). The bookmarklet
+    opens this in a small popup with `?url=<current page>`; the user
+    clicks Summarize, which POSTs to the existing /videos handler.
+
+    The GET only renders — it never mutates state. A GET that enqueued
+    would be a drive-by-submission vector (any page could hit it via an
+    <img>/<iframe>). GET renders, POST submits — same CSRF posture as the
+    home form."""
+    clean = url.strip().strip("'\"")
+    is_http = clean.startswith(("http://", "https://"))
+    kind = classify_url(clean) if is_http else None
+    kind_label = {"youtube": "YouTube video", "web": "Article"}.get(kind or "")
+    return templates.TemplateResponse(
+        request,
+        "submit.html",
+        {
+            "url": clean,
+            "is_http": is_http,
+            "kind_label": kind_label,
+            "profile_name": current_user.name if current_user else "default",
+        },
+    )
+
+
 
 def _composite_id(user_id: int, base_id: str) -> str:
     """Build the per-profile video id used for new imports.
