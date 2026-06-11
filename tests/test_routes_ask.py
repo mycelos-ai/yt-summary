@@ -264,7 +264,6 @@ def test_post_ask_creates_thread_and_redirects(tmp_path, monkeypatch):
     monkeypatch.setattr(ask_route, "_enqueue_first", fake_enqueue_first)
 
     with TestClient(app) as client:
-        import asyncio
         async def seed():
             from app.repos import llm_models as r
             from app.repos import videos as v
@@ -287,13 +286,12 @@ def test_followup_appends_turn_and_redirects(tmp_path, monkeypatch):
     app = create_app()
     from app.routes import ask as ask_route
 
-    async def fake_enqueue_followup(db, *, synthesis_id, query):
+    async def fake_enqueue_followup(db, *, synthesis_id, query, user_id):
         from app.services import ask as ask_svc
         return await ask_svc.add_followup(db, synthesis_id=synthesis_id, query=query)
     monkeypatch.setattr(ask_route, "_enqueue_followup", fake_enqueue_followup)
 
     with TestClient(app) as client:
-        import asyncio
         async def setup():
             from app.models import SynthesisStatus
             from app.repos import syntheses as syntheses_repo
@@ -317,7 +315,6 @@ def test_ask_show_renders_all_turns(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
-        import asyncio
         async def setup():
             from app.models import SynthesisStatus
             from app.repos import syntheses as syntheses_repo
@@ -342,7 +339,6 @@ def test_fragment_polls_while_a_turn_pending(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
-        import asyncio
         async def setup():
             from app.models import SynthesisStatus
             from app.repos import syntheses as syntheses_repo
@@ -360,3 +356,33 @@ def test_fragment_polls_while_a_turn_pending(tmp_path, monkeypatch):
     assert frag.status_code == 200
     assert "site-header" not in frag.text
     assert f"/ask/{sid}/fragment" in frag.text
+
+
+def test_followup_rejects_blank_query(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import syntheses as syntheses_repo
+            s = await syntheses_repo.create_pending(
+                app.state.db, user_id=1, query="q", source_ids=[])
+            return s.id
+        sid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(f"/ask/{sid}/followup", data={"query": "   "},
+                           follow_redirects=False)
+    assert resp.status_code == 400
+
+
+def test_followup_404_for_foreign_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import syntheses as syntheses_repo
+            s = await syntheses_repo.create_pending(
+                app.state.db, user_id=2, query="q", source_ids=[])
+            return s.id
+        sid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(f"/ask/{sid}/followup", data={"query": "hi"},
+                           follow_redirects=False)
+    assert resp.status_code == 404

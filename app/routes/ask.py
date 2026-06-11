@@ -35,7 +35,7 @@ register_filters(templates)
 _PENDING_JOBS: set[asyncio.Task] = set()
 
 
-async def _spawn_answer(db, *, message_id, user_id):
+async def _spawn_answer(db: aiosqlite.Connection, *, message_id: int, user_id: int):
     async def _run(mid):
         try:
             await ask_service.run_message(db, message_id=mid)
@@ -64,13 +64,13 @@ async def _enqueue_first(db, *, user_id: int, query: str) -> int:
     return s_id
 
 
-async def _enqueue_followup(db, *, synthesis_id: int, query: str) -> int:
+async def _enqueue_followup(db, *, synthesis_id: int, query: str, user_id: int) -> int:
     """Append a user + pending-assistant turn, fire the background job.
     Returns the new assistant message id. Monkeypatched in tests."""
     assistant_id = await ask_service.add_followup(
         db, synthesis_id=synthesis_id, query=query,
     )
-    await _spawn_answer(db, message_id=assistant_id, user_id=0)
+    await _spawn_answer(db, message_id=assistant_id, user_id=user_id)
     return assistant_id
 
 
@@ -110,7 +110,7 @@ async def ask_followup(
     q = query.strip()
     if not q:
         raise HTTPException(status_code=400, detail="Question is required")
-    await _enqueue_followup(db, synthesis_id=s.id, query=q)
+    await _enqueue_followup(db, synthesis_id=s.id, query=q, user_id=user_id)
     return RedirectResponse(url=f"/ask/{s.id}", status_code=303)
 
 
@@ -135,7 +135,8 @@ async def _body_context(
             "role": t.role,
             "status": t.status.value,
             "error": t.error,
-            "html": render_markdown(t.content) if t.content else "",
+            "html": render_markdown(t.content) if (t.content and t.role == "assistant") else "",
+            "text": t.content or "",
         })
     any_pending = any(t.status.value == "pending" for t in turns)
     ids = []

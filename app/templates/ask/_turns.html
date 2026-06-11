@@ -1,7 +1,7 @@
 <div class="ask-thread">
   {% for t in turns %}
     {% if t.role == 'user' %}
-      <div class="ask-turn ask-turn-user"><p>{{ t.html | safe }}</p></div>
+      <div class="ask-turn ask-turn-user"><p>{{ t.text }}</p></div>
     {% elif t.status == 'pending' %}
       <div class="ask-turn ask-turn-assistant"><p class="status status-running"><span class="spinner" aria-hidden="true"></span> Synthesising across your library…</p></div>
     {% elif t.status == 'failed' %}
