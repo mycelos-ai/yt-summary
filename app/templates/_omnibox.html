@@ -5,10 +5,12 @@
      x-data="{ mode: (localStorage.getItem('yts-omnibox-mode') || 'search') }"
      x-init="$watch('mode', v => localStorage.setItem('yts-omnibox-mode', v))">
   <div class="omnibox-toggle" role="tablist">
-    <button type="button" class="omnibox-toggle-btn"
+    <button type="button" class="omnibox-toggle-btn" role="tab"
+            :aria-selected="mode === 'search'"
             :class="{ 'is-active': mode === 'search' }"
             x-on:click="mode = 'search'">🔍 Search</button>
-    <button type="button" class="omnibox-toggle-btn"
+    <button type="button" class="omnibox-toggle-btn" role="tab"
+            :aria-selected="mode === 'ask'"
             :class="{ 'is-active': mode === 'ask' }"
             x-on:click="mode = 'ask'">💬 Ask</button>
   </div>
@@ -24,7 +26,7 @@
   {# Ask form — posts the question to /ask, which starts a thread #}
   <form method="post" action="/ask" class="omnibox-form"
         x-show="mode === 'ask'" x-cloak>
-    <input type="text" name="query" autocomplete="off"
+    <input type="text" name="query" autocomplete="off" required
            placeholder="Ask your library a question…">
     <button type="submit">Ask</button>
   </form>
