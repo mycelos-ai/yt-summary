@@ -11,9 +11,9 @@ def _setup(app, monkeypatch):
 
     from app.services import ask as ask_svc
 
-    async def fake_completion(*, system, user, model, api_key, base_url):
+    async def fake_completion(*, system, messages, model, api_key, base_url):
         return "Answer with [Agent Eval](/v/1:a)."
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
+    monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
 
     async def seed():
         from app.repos import llm_models as llm_models_repo

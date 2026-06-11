@@ -104,21 +104,110 @@ async def _completion(
     return response.choices[0].message.content or ""
 
 
+async def _completion_messages(
+    *, system: str, messages: list[dict], model: str, api_key: str,
+    base_url: str | None,
+) -> str:
+    """litellm call from a prebuilt messages list (system already at [0]
+    via build_messages). Monkeypatched in tests."""
+    kwargs: dict = {"model": model, "messages": messages, "api_key": api_key}
+    if base_url:
+        kwargs["api_base"] = base_url
+    response = await litellm.acompletion(**kwargs)
+    return response.choices[0].message.content or ""
+
+
+def _sources_block(sources: list[Video]) -> str:
+    blocks = [f"### [{v.title}](/v/{v.id})\n{v.summary}" for v in sources]
+    return "\n\n".join(blocks) if blocks else "(no matching items)"
+
+
+async def start_thread(
+    db: aiosqlite.Connection, *, user_id: int, query: str,
+) -> tuple[int, int]:
+    """Create a thread: synthesis container (recording the fixed source
+    set via retrieval), the first user message, and a pending assistant
+    message. Returns (synthesis_id, assistant_message_id)."""
+    from app.models import SynthesisStatus
+    from app.repos import synthesis_messages as sm_repo
+    sources = await gather_sources(db, query, user_id=user_id)
+    s = await syntheses_repo.create_pending(
+        db, user_id=user_id, query=query, source_ids=[v.id for v in sources],
+    )
+    await sm_repo.append(db, synthesis_id=s.id, role="user", content=query,
+                         status=SynthesisStatus.READY)
+    assistant = await sm_repo.append(db, synthesis_id=s.id, role="assistant",
+                                     content=None, status=SynthesisStatus.PENDING)
+    return s.id, assistant.id
+
+
+async def add_followup(
+    db: aiosqlite.Connection, *, synthesis_id: int, query: str,
+) -> int:
+    """Append a user turn + pending assistant turn to an existing thread.
+    Returns the assistant message id. Does NOT re-search — the thread's
+    fixed source set is reused."""
+    from app.models import SynthesisStatus
+    from app.repos import synthesis_messages as sm_repo
+    await sm_repo.append(db, synthesis_id=synthesis_id, role="user",
+                         content=query, status=SynthesisStatus.READY)
+    assistant = await sm_repo.append(db, synthesis_id=synthesis_id,
+                                     role="assistant", content=None,
+                                     status=SynthesisStatus.PENDING)
+    return assistant.id
+
+
+async def run_message(db: aiosqlite.Connection, *, message_id: int) -> None:
+    """Answer one pending assistant message using the thread's fixed
+    source set and prior turns as context. Marks the message ready/failed."""
+    from app.repos import synthesis_messages as sm_repo
+    from app.services.chat_core import build_messages
+    msg = await sm_repo.get(db, message_id)
+    if msg is None:
+        return
+    model_row = await llm_models_repo.get_default(db)
+    if model_row is None:
+        await sm_repo.mark_failed(db, message_id=message_id,
+                                  error="No default LLM configured")
+        return
+    try:
+        s = await syntheses_repo.get(db, msg.synthesis_id)
+        ids = json.loads(s.source_ids_json) if s and s.source_ids_json else []
+        by_id = await videos_repo.get_many(db, ids)
+        sources = [by_id[i] for i in ids if i in by_id]
+        system = f"{_SYSTEM}\n\nSOURCES:\n\n{_sources_block(sources)}"
+        turns = await sm_repo.history(db, synthesis_id=msg.synthesis_id)
+        # Every message before this pending assistant. start_thread /
+        # add_followup always insert (user, assistant) pairs, so `prior`
+        # ends with the user question we're answering: prior[-1] is that
+        # question, prior[:-1] is the conversation context.
+        prior = [t for t in turns if t.id < message_id]
+        user_turn = prior[-1].content if prior else ""
+        hist = [(t.role, t.content) for t in prior[:-1]]
+        messages = build_messages(system_prompt=system, history=hist,
+                                  user_message=user_turn)
+        answer = await _completion_messages(
+            system=system, messages=messages, model=model_row.model,
+            api_key=model_row.api_key or "", base_url=model_row.base_url or None,
+        )
+        await sm_repo.mark_ready(db, message_id=message_id, content=answer)
+    except Exception as e:
+        log.exception("ask: message %s failed", message_id)
+        await sm_repo.mark_failed(db, message_id=message_id,
+                                  error=f"{type(e).__name__}: {e}")
+
+
 async def ask_now(
     db: aiosqlite.Connection, *, user_id: int, query: str,
 ):
-    """Create + run a synthesis synchronously and return the finished row.
-
-    Used by the REST API and the MCP tool, where the caller wants the
-    answer in the response (the web UI uses the background flow instead).
-    """
-    s = await syntheses_repo.create_pending(
-        db, user_id=user_id, query=query, source_ids=[],
-    )
-    await run(db, synthesis_id=s.id, user_id=user_id)
-    refreshed = await syntheses_repo.get(db, s.id)
-    assert refreshed is not None
-    return refreshed
+    """Create a one-turn thread, answer it synchronously, return
+    (synthesis_row, assistant_message). Used by REST API + MCP tool."""
+    from app.repos import synthesis_messages as sm_repo
+    s_id, assistant_id = await start_thread(db, user_id=user_id, query=query)
+    await run_message(db, message_id=assistant_id)
+    s = await syntheses_repo.get(db, s_id)
+    answer = await sm_repo.get(db, assistant_id)
+    return s, answer
 
 
 async def run(
