@@ -56,10 +56,21 @@ async def _enqueue_digest_job(
                 db, digest_id=digest_id, user_id=user_id,
                 period_hours=period_hours,
             )
-        except Exception:
+        except Exception as e:
             log.exception(
                 "on-demand digest job crashed for user %s", user_id,
             )
+            # Safety net: don't leave the row stuck pending/rendering if
+            # the job raised before marking its own failure.
+            try:
+                await digests_repo.mark_failed(
+                    db, digest_id=digest_id,
+                    error=f"{type(e).__name__}: {e}",
+                )
+            except Exception:
+                log.exception(
+                    "digest job: could not mark digest %s failed", digest_id,
+                )
 
     task = asyncio.create_task(_run(d.id))
     _PENDING_JOBS.add(task)
@@ -108,9 +119,11 @@ async def _existing_feedback_for_digest(
     user_id: int,
     digest_id: int,
     video_ids: list[str],
-) -> str:
-    """Render JSON of this Profile's digest feedback rows so the
-    highlight.js restore-pass can re-mark them on page load.
+) -> list[dict]:
+    """Collect this Profile's digest feedback rows so the highlight.js
+    restore-pass can re-mark them on page load. Returned as a plain list;
+    the template serializes it with `| tojson` (which escapes `</script>`
+    so prompt-injected selected_text can't break out of the script block).
 
     Two kinds of feedback live on a digest page:
     - source-item feedback (anchored to a video_id) — for hooks /
@@ -154,7 +167,7 @@ async def _existing_feedback_for_digest(
             "sentiment": fb.sentiment.value,
             "comment": fb.comment,
         })
-    return json.dumps(rows)
+    return rows
 
 
 @router.get("/digest/{digest_id}", response_class=HTMLResponse)
@@ -165,7 +178,7 @@ async def digest_show(
     user_id: int = Depends(get_current_user_id),
 ) -> HTMLResponse:
     d, referenced = await _fetch_digest_for_user(db, digest_id, user_id)
-    feedbacks_json = await _existing_feedback_for_digest(
+    feedbacks_data = await _existing_feedback_for_digest(
         db, user_id=user_id,
         digest_id=digest_id,
         video_ids=list(referenced.keys()),
@@ -176,7 +189,7 @@ async def digest_show(
         {
             "digest": d,
             "videos": referenced,
-            "feedbacks_json": feedbacks_json,
+            "feedbacks_data": feedbacks_data,
         },
     )
 

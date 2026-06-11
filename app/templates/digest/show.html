@@ -14,7 +14,7 @@
     window.__HIGHLIGHT_DATA__ = {
       source: "digest",
       target_selector: "[data-highlight-target]",
-      existing: {{ feedbacks_json | safe }}
+      existing: {{ feedbacks_data | tojson }}
     };
   </script>
   <script src="/static/highlight.js" defer></script>

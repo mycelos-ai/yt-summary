@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Save to yt-summary</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0; padding: 20px;
+      display: flex; flex-direction: column; gap: 14px;
+      max-width: 440px;
+    }
+    h1 { font-size: 1.1rem; margin: 0; }
+    .url {
+      font-size: 0.85rem; word-break: break-all;
+      background: rgba(127,127,127,0.12); padding: 8px 10px;
+      border-radius: 6px; line-height: 1.35;
+    }
+    .kind { font-size: 0.85rem; opacity: 0.8; }
+    .profile { font-size: 0.8rem; opacity: 0.65; }
+    button {
+      font-size: 1rem; padding: 10px 16px; border: 0; border-radius: 6px;
+      background: #2563eb; color: #fff; cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    .error { color: #b91c1c; font-size: 0.9rem; }
+    .muted { font-size: 0.8rem; opacity: 0.7; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  {% if is_http %}
+    <h1>Save to yt-summary</h1>
+    <div class="kind">Detected: <strong>{{ kind_label }}</strong></div>
+    <div class="url">{{ url }}</div>
+    <div class="profile">Profile: {{ profile_name }}</div>
+    <form method="post" action="/videos">
+      <input type="hidden" name="url" value="{{ url }}">
+      <button type="submit">Summarize</button>
+    </form>
+    <p class="muted">
+      Opens the summary in this window once queued.
+    </p>
+  {% else %}
+    <h1>That's not a web URL</h1>
+    <p class="error">
+      The bookmarklet only works on pages with an
+      <code>http(s)</code> address. Open a YouTube video or an article
+      and try again.
+    </p>
+    <p class="muted"><a href="/">← Back to yt-summary</a></p>
+  {% endif %}
+</body>
+</html>

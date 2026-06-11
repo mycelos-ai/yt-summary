@@ -25,6 +25,26 @@ def _pack_vector(vector: list[float]) -> bytes:
     return struct.pack(f"{len(vector)}f", *vector)
 
 
+def _unpack_vector(blob: bytes) -> list[float]:
+    n = len(blob) // 4  # 4 bytes per float32
+    return list(struct.unpack(f"{n}f", blob))
+
+
+async def get_summary_embedding(
+    db: aiosqlite.Connection, video_id: str
+) -> list[float] | None:
+    """Return a video's own stored summary embedding, or None if it has
+    none. Used to find related items (KNN with the item's own vector)."""
+    cursor = await db.execute(
+        "SELECT summary_vec FROM video_embeddings WHERE video_id = ?",
+        (video_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None or row[0] is None:
+        return None
+    return _unpack_vector(row[0])
+
+
 async def upsert_summary_embedding(
     db: aiosqlite.Connection, video_id: str, vector: list[float]
 ) -> None:

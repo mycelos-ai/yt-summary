@@ -126,6 +126,24 @@ yt-summary.example.com {
 
 That's it — Caddy sets the forwarded headers correctly out of the box.
 
+### Data & secrets
+
+Everything yt-summary knows lives under `~/yt-summary/data/` (the
+`app.db` SQLite file plus the thumbnail/audio caches). That database
+holds your secrets **in plaintext** — LLM/Whisper API keys, the IMAP
+mailbox password, and any YouTube cookies. There's no separate
+keystore; the app is a single-tenant LAN tool.
+
+Treat the `data/` directory accordingly:
+
+- keep filesystem permissions tight (it's readable as whoever runs the
+  container),
+- if you back it up, the backup contains those secrets — encrypt or
+  scope it,
+- rotate a key by re-entering it in Settings (the field is write-only:
+  blank submission keeps the existing key, so the page never echoes a
+  stored key back to the browser).
+
 ## What it does
 
 | Feature | Notes |
@@ -213,6 +231,14 @@ terminology consistent across long transcripts.
 
 Cloud TTS providers are not (yet) supported — Piper is good
 enough for the use case and removes a second API-key dependency.
+
+### Podcast feed
+
+Enable a personal podcast feed under Settings → "Podcast feed" to
+listen to your renderings in any podcast app. It's a standard RSS feed
+over your existing 🔊 audio outputs, gated by a capability token baked
+into the URL (podcast clients can't send auth headers). Anyone with the
+URL can listen, so keep it private — regenerate to revoke an old one.
 
 ## Programmatic access
 

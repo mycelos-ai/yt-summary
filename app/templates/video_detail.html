@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ video.title }} — yt-summary{% endblock %}
 {% block content %}
+{% import "macros/export_menu.html" as exp %}
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
@@ -104,6 +105,14 @@
 
   {% include "video_summary_section.html" %}
 
+  {% if video.summary %}
+    {# Related items load lazily once this placeholder is revealed, so the
+       KNN cost stays off the detail-page render path (Part C.1). #}
+    <div hx-get="/v/{{ video.id }}/related-fragment"
+         hx-trigger="revealed"
+         hx-swap="outerHTML"></div>
+  {% endif %}
+
   {% include "audio_renderings_block.html" %}
 
   {% if video.transcript %}
@@ -119,9 +128,7 @@
           {% endif %}
         </span>
         <span class="section-controls">
-          <a class="section-download" href="/v/{{ video.id }}/transcript.md"
-             title="Download {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %} as Markdown"
-             onclick="event.stopPropagation()">↓ .md</a>
+          {{ exp.export_menu("/v/" ~ video.id ~ "/transcript.md", label="Export") }}
           <button type="button" class="section-download"
                   hx-get="/v/{{ video.id }}/audio?source=transcript"
                   hx-target="#audio-modal-content"
@@ -239,11 +246,12 @@
       video_id: {{ video.id | tojson }},
       source: "summary",
       target_selector: "[data-highlight-target]",
-      existing: {{ feedbacks_json | safe }}
+      existing: {{ feedbacks_data | tojson }}
     };
   </script>
   <script src="/static/highlight.js" defer></script>
 {% endif %}
+<script src="/static/export-menu.js" defer></script>
 
 {% if video.kind.value == 'youtube' %}
 <script>

@@ -593,6 +593,131 @@
     </ul>
   </section>
 
+  <!-- ── Podcast feed ──────────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🎙️</span>
+      <div class="settings-card-head-text">
+        <h2>Podcast feed</h2>
+        <p class="settings-card-sub">
+          Turn your audio renderings (the 🎧 “Listen” outputs) into a
+          private podcast feed — subscribe in any podcast app to play
+          your summaries on the go.
+        </p>
+      </div>
+    </header>
+
+    {% if current_user and current_user.podcast_token %}
+      <label class="settings-field">
+        <span class="settings-label">Feed URL</span>
+        <input type="text" readonly
+               value="{{ base_url }}/podcast/{{ current_user.podcast_token }}/feed.xml"
+               onclick="this.select()">
+        <small>
+          ⚠ Anyone with this URL can listen to your renderings. Keep it
+          private; regenerate to revoke the old one.
+        </small>
+      </label>
+      <div class="settings-field-row">
+        <form method="post" action="/settings/podcast/enable" style="display:inline">
+          <button type="submit" class="btn btn-secondary">Regenerate URL</button>
+        </form>
+        <form method="post" action="/settings/podcast/disable" style="display:inline">
+          <button type="submit" class="btn btn-secondary">Disable feed</button>
+        </form>
+      </div>
+    {% else %}
+      <form method="post" action="/settings/podcast/enable">
+        <button type="submit" class="btn btn-accent">Enable podcast feed</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <!-- ── Export ────────────────────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">⬇</span>
+      <div class="settings-card-head-text">
+        <h2>Export</h2>
+        <p class="settings-card-sub">
+          Download this profile's library as a ZIP — one
+          Obsidian-friendly Markdown (or JSON) file per item, plus a
+          <code>manifest.json</code>. Leave the filters empty to export
+          everything.
+        </p>
+      </div>
+    </header>
+
+    <form method="get" action="/export.zip" class="settings-form">
+      <label class="settings-field">
+        <span class="settings-label">Format</span>
+        <select name="format">
+          <option value="md">Markdown (.md)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Kind</span>
+        <select name="kind">
+          <option value="">All</option>
+          <option value="youtube">YouTube</option>
+          <option value="web">Web articles</option>
+          <option value="email">Newsletters</option>
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Tag (optional)</span>
+        <input type="text" name="tag" placeholder="exact tag name">
+      </label>
+
+      <div class="settings-field-row">
+        <label class="settings-field">
+          <span class="settings-label">Since</span>
+          <input type="date" name="since">
+        </label>
+        <label class="settings-field">
+          <span class="settings-label">Until</span>
+          <input type="date" name="until">
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-accent">Download ZIP</button>
+    </form>
+  </section>
+
+  <!-- ── Browser bookmarklet ───────────────────────────────── -->
+  <section class="settings-card">
+    <header class="settings-card-head">
+      <span class="settings-card-icon" aria-hidden="true">🔖</span>
+      <div class="settings-card-head-text">
+        <h2>Browser bookmarklet</h2>
+        <p class="settings-card-sub">
+          Drag the link below to your bookmarks bar. One click on any
+          YouTube video or article page opens a small confirmation window
+          to save it to your queue.
+        </p>
+      </div>
+    </header>
+
+    {# The app origin is baked in at render time (proxy-aware base_url)
+       so HTTPS/reverse-proxy setups get the right host. The href is a
+       javascript: bookmarklet; the | e filter keeps the embedded origin
+       from breaking out of the attribute. #}
+    <p>
+      <a class="btn btn-accent"
+         href="javascript:window.open('{{ base_url }}/submit?url='+encodeURIComponent(location.href),'_blank','noopener,width=480,height=360')"
+         onclick="event.preventDefault(); alert('Drag this button to your bookmarks bar — clicking it here does nothing.');">
+        ⊕ Save to yt-summary
+      </a>
+    </p>
+    <p class="settings-card-sub">
+      Clicking it here won't do anything — bookmarklets only run from the
+      bookmarks bar.
+    </p>
+  </section>
+
   <!-- ── Diagnostics link ──────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">

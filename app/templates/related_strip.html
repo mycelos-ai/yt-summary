@@ -1,0 +1,23 @@
+{# Related-items strip (Part C.1). Rendered as a lazy HTMX fragment under
+   the summary. Empty when there are no close neighbours — the include
+   site stays silent in that case. #}
+{% if related %}
+  <section class="related-strip">
+    <h3 class="section-heading">Related in your library</h3>
+    <div class="related-strip-cards">
+      {% for v in related %}
+        <a class="related-card related-card-{{ v.kind.value }}"
+           href="/v/{{ v.id }}">
+          {% if v.thumbnail_path %}
+            <img src="/thumbnails/{{ v.id }}.jpg" alt="">
+          {% else %}
+            <div class="related-card-placeholder">
+              {% if v.kind.value == 'web' %}🌐{% elif v.kind.value == 'email' %}✉️{% else %}▶{% endif %}
+            </div>
+          {% endif %}
+          <span class="related-card-title">{{ v.title }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

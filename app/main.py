@@ -90,7 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _user is None or _user.api_key_hash is None:
             logging.getLogger("yt_summary.boot").warning(
                 "No API key configured — /api/v1 and /mcp/sse are open to "
-                "anyone on the LAN. Generate one at /settings."
+                "anyone on the LAN. Generate one at /settings. "
+                "(While no key is set, the MCP DNS-rebinding host-check "
+                "stays enabled to limit drive-by access; it relaxes once "
+                "a key exists.)"
             )
 
         worker = Worker(
@@ -279,6 +282,14 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router)
     from app.routes.digest import router as digest_router
     app.include_router(digest_router)
+    from app.routes.export import api_router as export_api_router
+    from app.routes.export import router as export_router
+    app.include_router(export_router)
+    app.include_router(export_api_router)
+    from app.routes.ask import router as ask_router
+    app.include_router(ask_router)
+    from app.routes.podcast import router as podcast_router
+    app.include_router(podcast_router)
     from app.routes.mcp import build_mcp_server
     mcp_server = build_mcp_server(app.state)
     app.mount("/mcp", mcp_server.sse_app())

@@ -187,20 +187,81 @@ async def _tool_resummarize(
     return {"video_id": video_id, "job_id": job_id, "queued": True}
 
 
+async def _tool_ask_library(
+    db: aiosqlite.Connection,
+    question: str,
+    *,
+    user_id: int = 1,
+) -> dict[str, Any]:
+    """Answer a question across the library's stored summaries, with
+    citations. Runs synchronously and returns
+    ``{id, status, answer, sources}``. The highest-value MCP addition:
+    turns any MCP host into a front-end for the whole library."""
+    from app.services import ask as ask_svc
+    s = await ask_svc.ask_now(db, user_id=user_id, query=question.strip())
+    import json as _json
+    try:
+        sources = _json.loads(s.source_ids_json)
+    except (ValueError, TypeError):
+        sources = []
+    return {
+        "id": s.id,
+        "status": s.status.value,
+        "answer": s.result_md,
+        "sources": sources,
+        "error": s.error,
+    }
+
+
+def _api_key_is_configured(config) -> bool:
+    """Synchronous, best-effort check for whether any user has an API key.
+
+    Read at build time, before the async app.state.db exists, so we open a
+    short-lived sqlite connection against config.db_path. Returns False on
+    any problem (missing config, missing db/table, fresh install) — i.e.
+    "no key", which keeps the host-check ENABLED. Fail closed."""
+    if config is None:
+        return False
+    import sqlite3
+    try:
+        path = config.db_path
+        if not path.exists():
+            return False
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT 1 FROM users WHERE api_key_hash IS NOT NULL LIMIT 1"
+            ).fetchone()
+        finally:
+            con.close()
+        return row is not None
+    except Exception:
+        return False
+
+
 def build_mcp_server(app_state) -> FastMCP:
     """Wire the tool functions into FastMCP, threading the FastAPI
     app.state.db / app.state.config through."""
-    # FastMCP's transport-security middleware defaults to host validation
-    # with an empty allowlist (because our default host is "127.0.0.1"),
-    # which 421s every request whose Host header isn't localhost. yt-summary
-    # is a LAN tool with its own API-key auth — DNS-rebinding protection
-    # is both redundant (no key → no access) and a foot-gun (every user
-    # who hits /mcp/sse from another LAN machine sees a confusing error).
-    # Disable it by default; set YTS_MCP_DISABLE_HOST_CHECK=0 to opt into
-    # FastMCP's default behavior.
-    disable_host_check = os.environ.get(
-        "YTS_MCP_DISABLE_HOST_CHECK", "1"
-    ) != "0"
+    # FastMCP's transport-security middleware validates the Host header
+    # (DNS-rebinding protection). For a LAN tool with API-key auth that's
+    # redundant *once a key exists* — but the out-of-the-box state is "no
+    # key configured" (auth disabled). Disabling the host-check there too
+    # composes into a real hole: a malicious website can DNS-rebind to
+    # http://<lan-host>:8200 and drive the open MCP surface from a victim's
+    # browser. So couple the default to key presence:
+    #   * no key   -> protection ENABLED  (fail closed)
+    #   * key set  -> protection relaxed   (the key gates every request)
+    # YTS_MCP_DISABLE_HOST_CHECK overrides both ways:
+    #   "1" -> always disable, "0" -> always enable.
+    env = os.environ.get("YTS_MCP_DISABLE_HOST_CHECK")
+    if env == "1":
+        disable_host_check = True
+    elif env == "0":
+        disable_host_check = False
+    else:
+        disable_host_check = _api_key_is_configured(
+            getattr(app_state, "config", None)
+        )
     transport_security = (
         TransportSecuritySettings(enable_dns_rebinding_protection=False)
         if disable_host_check
@@ -293,5 +354,17 @@ def build_mcp_server(app_state) -> FastMCP:
             llm_model_id=llm_model_id,
             additional_prompt=additional_prompt,
         )
+
+    @mcp.tool()
+    async def ask_library(question: str) -> dict[str, Any]:
+        """Answer a question across your saved library, citing the items
+        it drew on. Returns {id, status, answer (Markdown with
+        [title](/v/<id>) links), sources (the video ids used)}.
+
+        Use this to query everything you've summarised at once — e.g.
+        "What have I saved about agent evaluation?" — instead of reading
+        items one by one.
+        """
+        return await _tool_ask_library(app_state.db, question)
 
     return mcp

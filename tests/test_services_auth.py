@@ -98,3 +98,31 @@ async def test_authenticate_rejects_missing_when_key_required(db):
     with pytest.raises(HTTPException) as exc:
         await authenticate(db, req)
     assert exc.value.status_code == 401
+
+
+async def test_authenticate_uses_constant_time_compare(db, monkeypatch):
+    """The presented-vs-stored hash comparison must go through
+    hmac.compare_digest, not a plain `!=` whose early-return leaks the
+    matching-prefix length via timing."""
+    import app.services.auth as auth_mod
+    from app.repos import users as users_repo
+    from app.services.auth import authenticate, hash_api_key
+    plaintext = "yts_consttime"
+    await users_repo.set_api_key(
+        db, user_id=1,
+        key_hash=hash_api_key(plaintext), key_prefix=plaintext[:8],
+    )
+
+    calls: list[tuple[str, str]] = []
+    real_compare = auth_mod.hmac.compare_digest
+
+    def _spy(a, b):
+        calls.append((a, b))
+        return real_compare(a, b)
+
+    monkeypatch.setattr(auth_mod.hmac, "compare_digest", _spy)
+    req = await _fake_request({"authorization": f"Bearer {plaintext}"})
+    user_id = await authenticate(db, req)
+    assert user_id == 1
+    assert calls, "authenticate must compare the key with hmac.compare_digest"
+    assert real_compare(*calls[0])  # the two hashes it compared do match

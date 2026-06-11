@@ -284,3 +284,58 @@ async def test_retry_refuses_non_failed_job(db: aiosqlite.Connection):
     # status is 'queued' — retry should refuse.
     affected = await r.retry(db, j.id)
     assert affected == 0
+
+
+async def _done_job(db, *, vid, source="summary", finished):
+    """Insert a done tts_job with explicit finished_at for ordering."""
+    cur = await db.execute(
+        """
+        INSERT INTO tts_jobs (
+            video_id, source, target_language, voice, quality,
+            status, audio_path, duration_seconds, finished_at
+        ) VALUES (?, ?, 'en', 'amy', 'medium', 'done', ?, 12.0, ?)
+        """,
+        (vid, source, f"tts-audio/{vid}/{source}.mp3", finished),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def test_list_done_for_user_scopes_and_orders(db: aiosqlite.Connection):
+    # Two videos owned by user 1, one by user 2.
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="u", title="V1", description="",
+        thumbnail_path=None, duration_seconds=None, user_id=1,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="v2", url="u", title="V2", description="",
+        thumbnail_path=None, duration_seconds=None, user_id=1,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="v3", url="u", title="V3", description="",
+        thumbnail_path=None, duration_seconds=None, user_id=2,
+    )
+    await _done_job(db, vid="v1", finished="2026-06-01 10:00:00")
+    await _done_job(db, vid="v2", finished="2026-06-05 10:00:00")
+    await _done_job(db, vid="v3", finished="2026-06-09 10:00:00")  # other user
+    # A non-done job for user 1 must be excluded.
+    await db.execute(
+        "INSERT INTO tts_jobs (video_id, source, target_language, voice, "
+        "quality, status) VALUES ('v1','transcript','en','amy','medium','queued')"
+    )
+    await db.commit()
+
+    rows = await r.list_done_for_user(db, user_id=1, limit=100)
+    vids = [j.video_id for j in rows]
+    assert vids == ["v2", "v1"]   # newest finished first; v3 excluded
+
+
+async def test_list_done_for_user_respects_limit(db: aiosqlite.Connection):
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="u", title="V1", description="",
+        thumbnail_path=None, duration_seconds=None, user_id=1,
+    )
+    await _done_job(db, vid="v1", source="summary", finished="2026-06-01 10:00:00")
+    await _done_job(db, vid="v1", source="transcript", finished="2026-06-02 10:00:00")
+    rows = await r.list_done_for_user(db, user_id=1, limit=1)
+    assert len(rows) == 1

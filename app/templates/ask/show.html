@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ synthesis.query }} — yt-summary{% endblock %}
+{% block content %}
+<section>
+  <p><a href="/ask">← Ask my library</a></p>
+  <h1>{{ synthesis.query }}</h1>
+
+  {% include "ask/_body.html" %}
+</section>
+{% endblock %}

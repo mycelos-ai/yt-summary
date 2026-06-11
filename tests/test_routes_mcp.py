@@ -47,6 +47,30 @@ async def test_mcp_search(seeded_db_and_config):
     assert any(h["video_id"] == "mcptest1" for h in hits)
 
 
+async def test_mcp_ask_library(seeded_db_and_config, monkeypatch):
+    db, _ = seeded_db_and_config
+    from app.repos import llm_models as llm_models_repo
+    from app.services import ask as ask_svc
+    await llm_models_repo.insert(
+        db, label="m", provider_id="openai", model="openai/gpt-4o",
+        api_key="sk-x", base_url="", make_default=True,
+    )
+
+    async def fake_completion(*, system, user, model, api_key, base_url):
+        return "Per [MCP test](/v/mcptest1), yes."
+    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
+
+    # Query is a single FTS-matchable token against the seeded title
+    # ("MCP test") — the embedder is unavailable in the sandbox, so
+    # retrieval falls back to FTS-only here. (Vector retrieval is
+    # exercised in test_services_ask via the real search path.)
+    from app.routes.mcp import _tool_ask_library
+    out = await _tool_ask_library(db, question="MCP")
+    assert out["status"] == "ready"
+    assert "/v/mcptest1" in out["answer"]
+    assert "mcptest1" in out["sources"]
+
+
 async def test_mcp_list_recent(seeded_db_and_config):
     db, _ = seeded_db_and_config
     from app.routes.mcp import _tool_list_recent

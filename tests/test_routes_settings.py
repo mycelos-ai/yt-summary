@@ -45,6 +45,103 @@ def test_settings_page_does_not_leak_api_key(tmp_path, monkeypatch):
     assert "supersecret" not in resp.text
 
 
+def test_settings_page_does_not_leak_llm_model_key(tmp_path, monkeypatch):
+    """A configured-model row's api_key must never reach the browser —
+    neither in the model list nor in the edit form. The form is
+    write-only ('leave blank to keep'), mirroring the Whisper card."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    secret = "sk-modelsecret-zzz9"
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            return await llm_models_repo.insert(
+                app.state.db, label="Mine", provider_id="openai",
+                model="openai/gpt-4o", api_key=secret, base_url="",
+                make_default=True,
+            )
+        model_id = asyncio.get_event_loop().run_until_complete(setup())
+        list_resp = client.get("/settings")
+        edit_resp = client.get(f"/settings?edit={model_id}")
+    assert list_resp.status_code == 200
+    assert secret not in list_resp.text
+    assert edit_resp.status_code == 200
+    assert secret not in edit_resp.text
+
+
+def test_settings_route_keeps_model_keys_out_of_template_context(
+    tmp_path, monkeypatch,
+):
+    """Defense in depth: the plaintext api_key must not even enter the
+    Jinja render context — so no future template edit can leak it. The
+    route should pass sanitized view-models (has_key boolean) instead of
+    the raw rows, mirroring the Whisper card's has_whisper_key pattern."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    secret = "sk-context-leak-7"
+
+    captured: dict = {}
+    from app.routes import settings as settings_route
+    real_response = settings_route.templates.TemplateResponse
+
+    def _spy(request, name, context, *a, **kw):
+        captured["context"] = context
+        return real_response(request, name, context, *a, **kw)
+
+    monkeypatch.setattr(
+        settings_route.templates, "TemplateResponse", _spy,
+    )
+
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            await llm_models_repo.insert(
+                app.state.db, label="Mine", provider_id="openai",
+                model="openai/gpt-4o", api_key=secret, base_url="",
+                make_default=True,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        client.get("/settings")
+
+    ctx = captured["context"]
+    # The secret must not appear anywhere in the rendered context.
+    import json as _json
+    blob = _json.dumps(ctx, default=str)
+    assert secret not in blob, "plaintext api_key leaked into template context"
+    # And the sanitized view-models must expose a has_key flag instead.
+    models = ctx["llm_models"]
+    assert models, "expected the seeded model in context"
+    assert all(getattr(m, "has_key", None) is True for m in models)
+
+
+def test_settings_page_signals_model_key_is_set(tmp_path, monkeypatch):
+    """The edit form must still tell the user a key is on file (so they
+    know blank = keep), without revealing it — same has_key contract as
+    the Whisper card."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import llm_models as llm_models_repo
+            return await llm_models_repo.insert(
+                app.state.db, label="Mine", provider_id="openai",
+                model="openai/gpt-4o", api_key="sk-set", base_url="",
+                make_default=True,
+            )
+        model_id = asyncio.get_event_loop().run_until_complete(setup())
+        edit_resp = client.get(f"/settings?edit={model_id}")
+    assert edit_resp.status_code == 200
+    # "leave blank to keep" wording (case-insensitive) confirms the
+    # write-only field is present for an existing key.
+    assert "leave blank" in edit_resp.text.lower()
+
+
 def test_save_settings_persists_playlist_fields_in_minutes(tmp_path, monkeypatch):
     """The form now stores intervals in minutes; saving 45 minutes
     should land verbatim and the legacy hours setting should be

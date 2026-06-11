@@ -15,6 +15,7 @@ from app.repos import llm_models as llm_models_repo
 from app.repos import tags as tags_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
+from app.services import related as related_svc
 from app.services.curl_parser import looks_like_curl, parse_curl
 from app.services.markdown import render_markdown
 from app.services.reader import fetch_article
@@ -131,6 +132,63 @@ async def submit_video(
             request, "video_card.html", {"video": video}
         )
     return RedirectResponse(f"/v/{item_id}", status_code=303)
+
+
+@router.get("/v/{video_id}/related-fragment", response_class=HTMLResponse)
+async def related_fragment(
+    request: Request,
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Lazy HTMX fragment: a strip of items related to this one (Part
+    C.1). Kept off the detail-page critical path so the KNN cost is only
+    paid when the strip scrolls into view. Empty fragment when the item
+    has no embedding or no close neighbours."""
+    video = await videos_repo.get(db, video_id)
+    if video is None or video.user_id != current_user_id:
+        # Empty (not 404): this is a progressive-enhancement fragment.
+        return HTMLResponse("")
+    ids = await related_svc.related_video_ids(
+        db, video, user_id=current_user_id,
+    )
+    related = await videos_repo.get_many(db, ids)
+    ordered = [related[i] for i in ids if i in related]
+    return templates.TemplateResponse(
+        request,
+        "related_strip.html",
+        {"related": ordered},
+    )
+
+
+@router.get("/submit", response_class=HTMLResponse)
+async def submit_confirmation(
+    request: Request,
+    url: str = "",
+    current_user=Depends(get_current_user),
+):
+    """Confirmation page for the bookmarklet (Part D). The bookmarklet
+    opens this in a small popup with `?url=<current page>`; the user
+    clicks Summarize, which POSTs to the existing /videos handler.
+
+    The GET only renders — it never mutates state. A GET that enqueued
+    would be a drive-by-submission vector (any page could hit it via an
+    <img>/<iframe>). GET renders, POST submits — same CSRF posture as the
+    home form."""
+    clean = url.strip().strip("'\"")
+    is_http = clean.startswith(("http://", "https://"))
+    kind = classify_url(clean) if is_http else None
+    kind_label = {"youtube": "YouTube video", "web": "Article"}.get(kind or "")
+    return templates.TemplateResponse(
+        request,
+        "submit.html",
+        {
+            "url": clean,
+            "is_http": is_http,
+            "kind_label": kind_label,
+            "profile_name": current_user.name if current_user else "default",
+        },
+    )
 
 
 
@@ -443,7 +501,11 @@ async def video_detail(
     fbs = await feedback_repo.list_for_video(
         db, video_id=video.id, user_id=current_user_id,
     )
-    feedbacks_json = json.dumps([
+    # Build a plain list and let Jinja's `| tojson` serialize it in the
+    # template — tojson escapes `<`, `>`, `&` so a feedback selected_text
+    # containing `</script>` (LLM summaries are prompt-injectable) can't
+    # break out of the <script> block. Do NOT json.dumps here.
+    feedbacks_data = [
         {
             "id": fb.id,
             "selected_text": fb.selected_text,
@@ -453,7 +515,7 @@ async def video_detail(
             "comment": fb.comment,
         }
         for fb in fbs
-    ])
+    ]
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -468,7 +530,7 @@ async def video_detail(
             "current_user": current_user,
             "renderings": audio_renderings,
             "llm_models": llm_models,
-            "feedbacks_json": feedbacks_json,
+            "feedbacks_data": feedbacks_data,
         },
     )
 
@@ -483,11 +545,9 @@ def _parse_transcript_blocks(video) -> list[dict]:
     raw = getattr(video, "transcript_segments", None)
     if not raw:
         return []
-    import json as _json
-
     from app.services.transcript_format import format_timestamp
     try:
-        items = _json.loads(raw)
+        items = json.loads(raw)
     except (ValueError, TypeError):
         return []
     if not isinstance(items, list):

@@ -11,6 +11,7 @@ warning is logged at boot in that case (see app/main.py).
 
 import base64
 import hashlib
+import hmac
 import logging
 import os
 
@@ -87,7 +88,7 @@ async def authenticate(
             status_code=401,
             detail={"error": "API key required", "code": "INVALID_API_KEY"},
         )
-    if hash_api_key(token) != user.api_key_hash:
+    if not hmac.compare_digest(hash_api_key(token), user.api_key_hash):
         raise HTTPException(
             status_code=401,
             detail={"error": "Invalid API key", "code": "INVALID_API_KEY"},

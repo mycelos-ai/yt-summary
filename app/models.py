@@ -144,6 +144,9 @@ class User:
     interest_profile_version: int = 0
     digest_enabled: bool = False
     digest_hour_local: int = 7
+    # Part B: capability token for the personal podcast feed. None →
+    # feed disabled. Plaintext (the settings page re-displays the URL).
+    podcast_token: str | None = None
 
 
 @dataclass
@@ -226,6 +229,29 @@ class Digest:
     top_items_json: str | None
     item_count: int
     status: DigestStatus
+    error: str | None
+    created_at: datetime
+
+
+class SynthesisStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
+@dataclass
+class Synthesis:
+    """One "ask my library" answer — a question answered across the
+    Profile's stored summaries, with citations. States pending → ready |
+    failed. A knowledge artifact, not throwaway chat: persisted and
+    listed like digests."""
+    id: int
+    user_id: int
+    query: str
+    result_md: str | None
+    # JSON-encoded ordered list of the video ids used as sources.
+    source_ids_json: str
+    status: SynthesisStatus
     error: str | None
     created_at: datetime
 

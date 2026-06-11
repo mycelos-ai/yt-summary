@@ -2298,3 +2298,44 @@ mark.highlight-not_interesting {
 }
 .digest-source strong a { text-decoration: none; }
 .digest-source strong a:hover { text-decoration: underline; }
+
+/* Export menu (unified download / copy / link). The trigger reuses
+   .section-download; this styles the floating dropdown Alpine toggles. */
+.export-menu {
+  position: relative;
+  display: inline-block;
+}
+.export-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 50;
+  min-width: 200px;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.export-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 8px 10px;
+  border-radius: var(--rounded-xs, 6px);
+  white-space: nowrap;
+}
+.export-menu-item:hover {
+  background: rgba(127, 127, 127, 0.12);
+  text-decoration: none;
+}
