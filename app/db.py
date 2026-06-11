@@ -266,6 +266,18 @@ CREATE TABLE IF NOT EXISTS syntheses (
 );
 CREATE INDEX IF NOT EXISTS idx_syntheses_user_created
     ON syntheses(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS synthesis_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    synthesis_id INTEGER NOT NULL REFERENCES syntheses(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content TEXT,
+    status TEXT NOT NULL CHECK(status IN ('pending','ready','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_synthesis_messages_synthesis
+    ON synthesis_messages(synthesis_id, created_at, id);
 """
 
 
@@ -681,6 +693,21 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
     await _run_migrations(conn)
     await conn.executescript(SCHEMA)
     await _migrate_v7_embedding_dim(conn)
+    # Part C.2 follow-up threads: syntheses changed from "one
+    # query+result_md" rows to thread containers whose turns live in
+    # synthesis_messages. Old rows have no messages, so clear them once.
+    # Gated by a settings marker (user_id=1) so it runs exactly once.
+    cur = await conn.execute(
+        "SELECT value FROM settings "
+        "WHERE user_id=1 AND key='syntheses_threads_migrated'"
+    )
+    if await cur.fetchone() is None:
+        await conn.execute("DELETE FROM syntheses")
+        await conn.execute(
+            "INSERT INTO settings (user_id, key, value) "
+            "VALUES (1, 'syntheses_threads_migrated', '1')"
+        )
+        await conn.commit()
     # Seed the single default user (id=1) if the table is empty. Every
     # existing user_id=1 reference now points at a real row.
     cursor = await conn.execute("SELECT COUNT(*) FROM users")
