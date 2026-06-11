@@ -86,23 +86,6 @@ def build_prompt(query: str, sources: list[Video]) -> tuple[str, str]:
     return _SYSTEM, user
 
 
-async def _completion(
-    *, system: str, user: str, model: str, api_key: str, base_url: str | None,
-) -> str:
-    """Thin litellm wrapper — monkeypatched in tests."""
-    kwargs: dict = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "api_key": api_key,
-    }
-    if base_url:
-        kwargs["api_base"] = base_url
-    response = await litellm.acompletion(**kwargs)
-    return response.choices[0].message.content or ""
-
 
 async def _completion_messages(
     *, messages: list[dict], model: str, api_key: str,
@@ -221,45 +204,3 @@ async def ask_now(
     return s, answer
 
 
-async def run(
-    db: aiosqlite.Connection, *, synthesis_id: int, user_id: int,
-) -> None:
-    """Execute a pending synthesis: retrieve sources, call the LLM, and
-    mark the row ready (or failed). The interest profile is deliberately
-    NOT injected — a direct question shouldn't be biased."""
-    s = await syntheses_repo.get(db, synthesis_id)
-    if s is None:
-        return
-
-    model_row = await llm_models_repo.get_default(db)
-    if model_row is None:
-        await syntheses_repo.mark_failed(
-            db, synthesis_id=synthesis_id,
-            error="No default LLM configured",
-        )
-        return
-
-    try:
-        sources = await gather_sources(db, s.query, user_id=user_id)
-        # Record the ids actually used, in retrieval order.
-        await db.execute(
-            "UPDATE syntheses SET source_ids_json=? WHERE id=?",
-            (json.dumps([v.id for v in sources]), synthesis_id),
-        )
-        await db.commit()
-
-        system, user = build_prompt(s.query, sources)
-        result_md = await _completion(
-            system=system, user=user,
-            model=model_row.model, api_key=model_row.api_key or "",
-            base_url=model_row.base_url or None,
-        )
-        await syntheses_repo.mark_ready(
-            db, synthesis_id=synthesis_id, result_md=result_md,
-        )
-    except Exception as e:
-        log.exception("ask: synthesis %s failed", synthesis_id)
-        await syntheses_repo.mark_failed(
-            db, synthesis_id=synthesis_id,
-            error=f"{type(e).__name__}: {e}",
-        )

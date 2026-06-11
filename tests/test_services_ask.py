@@ -5,8 +5,6 @@ degrades to FTS when the embedder isn't available, which is fine here —
 we seed summaries whose text matches the query.
 """
 
-import json
-
 from app.repos import llm_models as llm_models_repo
 from app.repos import syntheses as syntheses_repo
 from app.repos import videos as videos_repo
@@ -51,62 +49,10 @@ def test_build_prompt_packs_summaries_and_demands_citations():
     assert "Eval needs golden sets." in user
 
 
-async def test_run_marks_ready_with_llm_markdown(db, monkeypatch):
-    await _default_model(db)
-    await _seed_video(db, "1:a", title="Agent Eval", summary="about agent eval")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=["1:a"],
-    )
-
-    async def fake_completion(*, system, user, model, api_key, base_url):
-        return "Answer with [Agent Eval](/v/1:a)."
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
-
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    assert got.status.value == "ready"
-    assert "[Agent Eval](/v/1:a)" in got.result_md
-
-
-async def test_run_marks_failed_without_default_model(db, monkeypatch):
-    await _seed_video(db, "1:a", title="X", summary="agent eval stuff")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=["1:a"],
-    )
-    # No default model configured.
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    assert got.status.value == "failed"
-    assert got.error
-
-
-async def test_run_records_source_ids_actually_used(db, monkeypatch):
-    await _default_model(db)
-    await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
-    await _seed_video(db, "1:b", title="Cooking", summary="how to bake bread")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=[],
-    )
-
-    async def fake_completion(*, system, user, model, api_key, base_url):
-        return "ok"
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
-
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    used = json.loads(got.source_ids_json)
-    # The relevant item must be among the sources; the unrelated one
-    # need not be (FTS won't match "agent eval" against a bread summary).
-    assert "1:a" in used
-
 
 async def test_start_thread_records_sources_and_pending_assistant(db, monkeypatch):
     await _default_model(db)
     await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
-    from app.repos import syntheses as syntheses_repo
     from app.repos import synthesis_messages as sm_repo
 
     s_id, assistant_id = await ask_svc.start_thread(db, user_id=1, query="agent eval")
@@ -141,7 +87,6 @@ async def test_followup_reuses_fixed_sources_not_research(db, monkeypatch):
     await _default_model(db)
     await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
     await _seed_video(db, "1:b", title="Bread", summary="how to bake bread")
-    from app.repos import syntheses as syntheses_repo
     s_id, a1 = await ask_svc.start_thread(db, user_id=1, query="agent eval")
     calls = []
     async def fake_completion(*, messages, model, api_key, base_url):
