@@ -1,5 +1,5 @@
 {% if msg.role == 'user' %}
-  <div class="chat-bubble-user">{{ msg.content }}</div>
+  <div class="chat-bubble-user">{{ msg.content | e }}</div>
 {% else %}
   <div class="chat-answer">
     <div class="chat-answer-content">{{ msg.content | render_markdown | safe }}</div>

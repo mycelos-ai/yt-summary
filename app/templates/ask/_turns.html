@@ -20,11 +20,11 @@
 {% if sources %}
   <section class="chat-sources">
     <h2 class="section-heading">Sources ({{ sources | length }})</h2>
-    <div>
+    <ul class="chat-sources-list">
       {% for v in sources %}
-        <a class="chat-source-chip" href="/v/{{ v.id }}">{{ v.title }}</a>
+        <li><a class="chat-source-chip" href="/v/{{ v.id }}">{{ v.title }}</a></li>
       {% endfor %}
-    </div>
+    </ul>
   </section>
 {% endif %}
 {% if not any_pending %}

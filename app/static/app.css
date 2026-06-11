@@ -675,7 +675,6 @@ button.section-download {
   font-size: 14px;
   line-height: 1.6;
 }
-.chat-answer .chat-content,
 .chat-answer-content { white-space: pre-wrap; }
 .chat-answer-controls { margin-top: 10px; }
 .chat-pending { padding: 4px 2px; }
@@ -687,6 +686,7 @@ button.section-download {
   margin-bottom: 6px;
   font-weight: 600;
 }
+.chat-sources-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 2px; }
 .chat-source-chip {
   display: inline-flex;
   align-items: center;
@@ -703,6 +703,7 @@ button.section-download {
 .chat-composer {
   position: sticky;
   bottom: 0;
+  z-index: 10;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -779,8 +780,7 @@ button.section-download {
   background: rgba(212, 86, 86, 0.06);
   border: 1px solid rgba(212, 86, 86, 0.24);
 }
-.chat-msg-error strong { color: var(--brand-error); }
-.chat-msg-error .chat-content { color: var(--brand-error); font-family: var(--font-mono); font-size: 13px; }
+.chat-msg-error .chat-answer-content { color: var(--brand-error); font-family: var(--font-mono); font-size: 13px; }
 
 /* Settings — card-based layout */
 .settings-page {
