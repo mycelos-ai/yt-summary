@@ -257,6 +257,17 @@ class Synthesis:
 
 
 @dataclass
+class SynthesisMessage:
+    id: int
+    synthesis_id: int
+    role: ChatRole  # 'user' | 'assistant'
+    content: str | None
+    status: SynthesisStatus
+    error: str | None
+    created_at: datetime
+
+
+@dataclass
 class Highlight:
     """One LLM-extracted noteworthy point from a summary.
 
