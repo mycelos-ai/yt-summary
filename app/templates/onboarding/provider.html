@@ -81,7 +81,7 @@
                     hx-target="#ollama-models-result-onboarding"
                     hx-swap="innerHTML"
                     hx-disabled-elt="this">
-              📡 Load my models
+              {{ icon('broadcast') }} Load my models
             </button>
           </div>
           <div id="ollama-models-result-onboarding"
@@ -115,7 +115,7 @@
            request is in flight. CSS swaps the two children below via
            that class. The hint to the right uses the same class on
            the parent row. #}
-        <span class="ob-test-btn-label">🔌 Test connection</span>
+        <span class="ob-test-btn-label">{{ icon('plug') }} Test connection</span>
         <span class="ob-test-btn-spinner" aria-hidden="true">
           <span class="ob-spinner"></span>
           <span>Testing…</span>

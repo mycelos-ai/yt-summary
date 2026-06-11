@@ -43,6 +43,9 @@ def register_filters(templates: "Jinja2Templates") -> None:
     templates.env.filters["avatar_bg"] = bg_color_for
     # Expose as a callable so each render reads the current mtime.
     templates.env.globals["asset_version"] = _asset_version
+    # Inline SVG icons — {{ icon('headphones') }} works in any template.
+    from app.services.icons import icon
+    templates.env.globals["icon"] = icon
 
 
 def relative_time(dt: datetime | None, *, now: datetime | None = None) -> str:

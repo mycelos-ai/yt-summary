@@ -1,6 +1,6 @@
 <div class="playlist-card-wrap digest-card-wrap">
   <a href="/digest/{{ digest.id }}" class="playlist-card digest-card digest-card--{{ digest.status.value }}">
-    <div class="playlist-card-placeholder">📰</div>
+    <div class="playlist-card-placeholder">{{ icon('news', 28) }}</div>
     <div class="playlist-card-body">
       <h4>
         {{ digest.created_at.strftime('%a, %d %b') }}

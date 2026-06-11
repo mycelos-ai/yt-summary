@@ -4,7 +4,7 @@
       <img src="/thumbnails/{{ video.id }}.jpg" alt="">
     {% else %}
       <div class="video-card-placeholder">
-        {% if video.kind.value == 'web' %}🌐{% elif video.kind.value == 'email' %}✉️{% else %}▶{% endif %}
+        {% if video.kind.value == 'web' %}{{ icon('globe', 48) }}{% elif video.kind.value == 'email' %}{{ icon('mail', 48) }}{% else %}{{ icon('play', 48) }}{% endif %}
       </div>
     {% endif %}
     <span class="video-card-kind">{{ video.kind.value }}</span>
@@ -14,7 +14,7 @@
   {% if links %}
     <div class="playlist-tags">
       {% for pid, ptitle in links %}
-        <a href="/p/{{ pid }}" class="playlist-tag">📋 {{ ptitle }}</a>
+        <a href="/p/{{ pid }}" class="playlist-tag">{{ icon('list', 12) }} {{ ptitle }}</a>
       {% endfor %}
     </div>
   {% endif %}

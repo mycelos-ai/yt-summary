@@ -9,7 +9,7 @@
        hx-trigger="every 2s"
        hx-swap="outerHTML"
        class="digest-rendering">
-    <p>⏳ Building digest…</p>
+    <p>{{ icon('clock') }} Building digest…</p>
   </div>
 {% elif digest.status.value == 'failed' %}
   <section class="digest-failed">

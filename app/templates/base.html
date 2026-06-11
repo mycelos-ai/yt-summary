@@ -90,11 +90,11 @@
           <a href="/profiles">Switch profile</a>
           <a href="/profiles/{{ current_user.id }}/edit">Edit profile</a>
           <div class="profile-dropdown-sep" role="separator"></div>
-          <a href="/settings">⚙ Settings</a>
+          <a href="/settings">{{ icon('gear') }} Settings</a>
         </div>
       </div>
     {% else %}
-      <a href="/settings" class="gear" aria-label="Settings">⚙</a>
+      <a href="/settings" class="gear" aria-label="Settings">{{ icon('gear', 18) }}</a>
     {% endif %}
   </header>
   <main>

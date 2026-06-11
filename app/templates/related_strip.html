@@ -12,7 +12,7 @@
             <img src="/thumbnails/{{ v.id }}.jpg" alt="">
           {% else %}
             <div class="related-card-placeholder">
-              {% if v.kind.value == 'web' %}🌐{% elif v.kind.value == 'email' %}✉️{% else %}▶{% endif %}
+              {% if v.kind.value == 'web' %}{{ icon('globe', 32) }}{% elif v.kind.value == 'email' %}{{ icon('mail', 32) }}{% else %}{{ icon('play', 32) }}{% endif %}
             </div>
           {% endif %}
           <span class="related-card-title">{{ v.title }}</span>

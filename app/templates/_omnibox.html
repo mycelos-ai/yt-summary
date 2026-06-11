@@ -8,11 +8,11 @@
     <button type="button" class="omnibox-toggle-btn" role="tab"
             :aria-selected="mode === 'search'"
             :class="{ 'is-active': mode === 'search' }"
-            x-on:click="mode = 'search'"><svg class="omnibox-toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.3" y1="15.3" x2="20.5" y2="20.5"/></svg> Search</button>
+            x-on:click="mode = 'search'">{{ icon('search') }} Search</button>
     <button type="button" class="omnibox-toggle-btn" role="tab"
             :aria-selected="mode === 'ask'"
             :class="{ 'is-active': mode === 'ask' }"
-            x-on:click="mode = 'ask'"><svg class="omnibox-toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4h9a3.5 3.5 0 0 1 3.5 3.5v6a3.5 3.5 0 0 1-3.5 3.5h-4.2l-4.3 4v-4h-.5a3.5 3.5 0 0 1-3.5-3.5v-6a3.5 3.5 0 0 1 3.5-3.5z"/></svg> Ask</button>
+            x-on:click="mode = 'ask'">{{ icon('ask') }} Ask</button>
   </div>
 
   {# Search form — the no-JS fallback (visible unless JS hides it for ask mode) #}

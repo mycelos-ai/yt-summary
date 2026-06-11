@@ -304,8 +304,8 @@ def test_summary_worker_alive_within_300s_threshold(tmp_path, monkeypatch):
     summary_row_idx = text.find("summary_worker")
     assert summary_row_idx >= 0
     near = text[summary_row_idx:summary_row_idx + 800]
-    assert "✅ alive" in near, (
-        f"Expected ✅ alive within 300s; got: {near[:300]!r}"
+    assert "icon-check-circle" in near and "alive" in near, (
+        f"Expected alive (check-circle icon) within 300s; got: {near[:300]!r}"
     )
 
 
@@ -375,7 +375,7 @@ def test_scheduler_threshold_still_uses_interval(tmp_path, monkeypatch):
     sched_idx = resp.text.find("scheduler</code>")
     assert sched_idx >= 0
     near = resp.text[sched_idx:sched_idx + 800]
-    assert "✅ alive" in near, (
+    assert "icon-check-circle" in near and "alive" in near, (
         f"Scheduler 2h-old heartbeat should be alive (3h threshold); "
         f"got: {near[:300]!r}"
     )

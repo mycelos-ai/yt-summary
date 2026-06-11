@@ -12,7 +12,7 @@
 
   {% if onboarding_done %}
     <p class="settings-flash">
-      👋 Setup complete. You can change any of this anytime — providers,
+      {{ icon('check-circle') }} Setup complete. You can change any of this anytime — providers,
       profile, prompt, all live on this page or under your profile menu.
     </p>
   {% endif %}
@@ -27,7 +27,7 @@
   <!-- ── Configured models ──────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">🧠</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('cpu', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Configured models</h2>
         <p class="settings-card-sub">
@@ -94,7 +94,7 @@
            id="quick-setup"
            x-data="{ provider: '{{ edit_model.provider_id if edit_model else current_provider_id }}', showAll: {} }">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">⚡</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('bolt', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>{{ 'Edit ' + edit_model.label if edit_model else 'Add model' }}</h2>
         <p class="settings-card-sub">
@@ -325,7 +325,7 @@
          users will never touch it. -->
     <details class="settings-advanced">
       <summary class="settings-advanced-summary">
-        <span class="settings-advanced-icon" aria-hidden="true">⚙</span>
+        <span class="settings-advanced-icon" aria-hidden="true">{{ icon('gear', 20) }}</span>
         <span>
           <strong>Advanced — Whisper manual config</strong>
           <span class="settings-advanced-hint">
@@ -448,7 +448,7 @@
     <!-- ── Audio (TTS) ─────────────────────────────────────────── -->
     <section class="settings-card">
       <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">🔊</span>
+        <span class="settings-card-icon" aria-hidden="true">{{ icon('volume', 26) }}</span>
         <div class="settings-card-head-text">
           <h2>Audio (TTS)</h2>
           <p class="settings-card-sub">Defaults for the "Listen" modal. Voices are downloaded on demand the first time you render in that voice + quality.</p>
@@ -596,11 +596,11 @@
   <!-- ── Podcast feed ──────────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">🎙️</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('mic', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Podcast feed</h2>
         <p class="settings-card-sub">
-          Turn your audio renderings (the 🎧 “Listen” outputs) into a
+          Turn your audio renderings (the {{ icon('headphones', 12) }} “Listen” outputs) into a
           private podcast feed — subscribe in any podcast app to play
           your summaries on the go.
         </p>
@@ -636,7 +636,7 @@
   <!-- ── Export ────────────────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">⬇</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('download', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Export</h2>
         <p class="settings-card-sub">
@@ -690,7 +690,7 @@
   <!-- ── Browser bookmarklet ───────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">🔖</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('bookmark', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Browser bookmarklet</h2>
         <p class="settings-card-sub">
@@ -721,7 +721,7 @@
   <!-- ── Diagnostics link ──────────────────────────────────── -->
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">🔬</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('flask', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Diagnose</h2>
         <p class="settings-card-sub">
