@@ -24,16 +24,17 @@ def _skip_onboarding(monkeypatch):
 
 
 def test_home_submit_field_allows_curl_paste(tmp_path, monkeypatch):
-    """The submit input must not be type=url, or the browser would
+    """The add-overlay input must not be type=url, or the browser would
     reject a pasted 'Copy as cURL' command before it ever reaches the
-    server (where the curl is parsed for paywall cookies)."""
+    server (where the curl is parsed for paywall cookies).
+    The old submit-form has been replaced by the omnibox + add-overlay."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         resp = client.get("/")
     assert resp.status_code == 200
-    # The one input inside the submit-form is the url field.
-    assert 'class="submit-form"' in resp.text
+    # The add overlay uses a textarea (not type=url) so curl pastes are accepted.
+    assert 'data-add-overlay' in resp.text
     assert 'type="url" name="url"' not in resp.text
 
 

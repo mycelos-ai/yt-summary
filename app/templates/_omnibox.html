@@ -1,0 +1,31 @@
+{# Omnibox: one input with a Search ⇄ Ask toggle. Search (GET /?q=) is the
+   no-JS default; Ask (POST /ask, starts a thread) is the toggle. Alpine
+   shows the matching form; mode persists in localStorage. #}
+<div class="omnibox" data-omnibox
+     x-data="{ mode: (localStorage.getItem('yts-omnibox-mode') || 'search') }"
+     x-init="$watch('mode', v => localStorage.setItem('yts-omnibox-mode', v))">
+  <div class="omnibox-toggle" role="tablist">
+    <button type="button" class="omnibox-toggle-btn"
+            :class="{ 'is-active': mode === 'search' }"
+            x-on:click="mode = 'search'">🔍 Search</button>
+    <button type="button" class="omnibox-toggle-btn"
+            :class="{ 'is-active': mode === 'ask' }"
+            x-on:click="mode = 'ask'">💬 Ask</button>
+  </div>
+
+  {# Search form — the no-JS fallback (visible unless JS hides it for ask mode) #}
+  <form method="get" action="/" class="omnibox-form"
+        x-show="mode === 'search'">
+    <input type="search" name="q" value="{{ q or '' }}"
+           autocomplete="off" placeholder="Search your library…">
+    <button type="submit">Search</button>
+  </form>
+
+  {# Ask form — posts the question to /ask, which starts a thread #}
+  <form method="post" action="/ask" class="omnibox-form"
+        x-show="mode === 'ask'" x-cloak>
+    <input type="text" name="query" autocomplete="off"
+           placeholder="Ask your library a question…">
+    <button type="submit">Ask</button>
+  </form>
+</div>
