@@ -23,18 +23,19 @@ def _msg_html(role: str, content: str, *, is_error: bool = False) -> str:
     properly. Errors stay escaped (they may include error strings
     that look like markup).
     """
-    cls = f"chat-msg chat-msg-{role}"
-    if is_error:
-        cls += " chat-msg-error"
-    label = "error" if is_error else role
-    if role == "assistant" and not is_error:
-        body = render_markdown(content)
-    else:
+    if role == "user":
         body = str(escape(content))
+        return f'<div class="chat-bubble-user">{body}</div>'
+    if is_error:
+        body = str(escape(content))
+        return (
+            f'<div class="chat-answer chat-msg-error">'
+            f'<div class="chat-answer-content">{body}</div></div>'
+        )
+    body = render_markdown(content)
     return (
-        f'<div class="{cls}">'
-        f"<strong>{label}</strong>"
-        f'<div class="chat-content">{body}</div></div>'
+        f'<div class="chat-answer">'
+        f'<div class="chat-answer-content">{body}</div></div>'
     )
 
 

@@ -1,16 +1,16 @@
 {% import "macros/export_menu.html" as exp %}
-<div class="ask-thread">
+<div class="chat-thread">
   {% for t in turns %}
     {% if t.role == 'user' %}
-      <div class="ask-turn ask-turn-user"><p>{{ t.text }}</p></div>
+      <div class="chat-bubble-user">{{ t.text }}</div>
     {% elif t.status == 'pending' %}
-      <div class="ask-turn ask-turn-assistant"><p class="status status-running"><span class="spinner" aria-hidden="true"></span> Synthesising across your library…</p></div>
+      <div class="chat-pending"><p class="status status-running"><span class="spinner" aria-hidden="true"></span> Synthesising across your library…</p></div>
     {% elif t.status == 'failed' %}
-      <div class="ask-turn ask-turn-assistant"><p class="status status-failed">⚠ {{ t.error or 'Synthesis failed.' }}</p></div>
+      <div class="chat-failed"><p class="status status-failed">⚠ {{ t.error or 'Synthesis failed.' }}</p></div>
     {% else %}
-      <div class="ask-turn ask-turn-assistant">
+      <div class="chat-answer">
         <article class="ask-result">{{ t.html | safe }}</article>
-        <div class="ask-turn-controls">
+        <div class="chat-answer-controls">
           {{ exp.export_menu("/ask/" ~ synthesis.id ~ "/answer/" ~ t.id ~ ".md") }}
         </div>
       </div>
@@ -18,17 +18,17 @@
   {% endfor %}
 </div>
 {% if sources %}
-  <section class="ask-sources">
+  <section class="chat-sources">
     <h2 class="section-heading">Sources ({{ sources | length }})</h2>
-    <ul>
+    <div>
       {% for v in sources %}
-        <li><a href="/v/{{ v.id }}">{{ v.title }}</a></li>
+        <a class="chat-source-chip" href="/v/{{ v.id }}">{{ v.title }}</a>
       {% endfor %}
-    </ul>
+    </div>
   </section>
 {% endif %}
 {% if not any_pending %}
-  <form method="post" action="/ask/{{ synthesis.id }}/followup" class="ask-followup">
+  <form method="post" action="/ask/{{ synthesis.id }}/followup" class="chat-composer">
     <input type="text" name="query" autocomplete="off"
            placeholder="Ask a follow-up…" required>
     <button type="submit">Ask</button>

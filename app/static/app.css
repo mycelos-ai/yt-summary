@@ -636,7 +636,7 @@ button.section-download {
   color: var(--ink);
 }
 
-/* Chat */
+/* Chat — shared thread classes used by both video chat and ask-my-library */
 .chat {
   margin-top: 32px;
   padding-top: 32px;
@@ -645,43 +645,74 @@ button.section-download {
 .chat h2 { font-size: 22px; margin-bottom: 16px; }
 #chat-history {
   margin-bottom: 16px;
+}
+
+/* Shared chat-thread classes */
+.chat-thread {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
+  max-width: 760px;
+  margin: 0 auto;
 }
-.chat-msg {
-  padding: 12px 16px;
-  border-radius: var(--rounded-md);
+.chat-bubble-user {
+  align-self: flex-end;
+  max-width: 78%;
+  background: var(--primary);
+  color: var(--on-primary);
+  padding: 11px 16px;
+  border-radius: 14px 14px 4px 14px;
   font-size: 14px;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
-.chat-msg-user {
-  background: var(--surface);
-  border: 1px solid var(--hairline-soft);
+.chat-answer {
+  background: var(--surface-soft);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--brand-green);
+  border-radius: 0 var(--rounded-lg) var(--rounded-lg) 0;
+  padding: 16px 18px;
+  font-size: 14px;
+  line-height: 1.6;
 }
-.chat-msg-assistant {
-  background: rgba(0, 212, 164, 0.06);
-  border: 1px solid rgba(0, 212, 164, 0.18);
-}
-.chat-msg strong {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+.chat-answer .chat-content,
+.chat-answer-content { white-space: pre-wrap; }
+.chat-answer-controls { margin-top: 10px; }
+.chat-pending { padding: 4px 2px; }
+.chat-failed { padding: 4px 2px; }
+.chat-sources { margin-top: 4px; }
+.chat-sources h2 {
+  font-size: 13px;
   color: var(--steel);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-weight: 600;
 }
-.chat-content { color: var(--charcoal); white-space: pre-wrap; }
-.chat-form {
+.chat-source-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  padding: 3px 11px;
+  font-size: 12px;
+  text-decoration: none;
+  margin: 2px 3px;
+}
+.chat-source-chip:hover { border-color: var(--brand-green); }
+.chat-composer {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 8px;
+  align-items: center;
   background: var(--canvas);
-  padding: 6px;
-  border-radius: var(--rounded-full);
+  padding: 8px;
   border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  margin-top: 8px;
 }
-.chat-form input {
+.chat-composer input {
   flex: 1;
   border: none;
   padding: 10px 16px;
@@ -689,8 +720,14 @@ button.section-download {
   outline: none;
   background: transparent;
 }
-.chat-form input:disabled { color: var(--muted); }
-.chat-form button {
+.chat-composer input:disabled { color: var(--muted); }
+.chat-composer select {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--steel);
+}
+.chat-composer button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -700,16 +737,17 @@ button.section-download {
   font-size: 14px;
   padding: 10px 20px;
   border-radius: var(--rounded-full);
-  transition: background 150ms ease, opacity 150ms ease;
   border: none;
+  cursor: pointer;
+  transition: background 150ms ease;
 }
-.chat-form button:hover:not(:disabled) { background: var(--brand-green-deep); }
-.chat-form button:disabled {
+.chat-composer button:hover:not(:disabled) { background: var(--brand-green-deep); }
+.chat-composer button:disabled {
   background: var(--brand-green-soft, #7cebcb);
   color: var(--steel);
   cursor: progress;
 }
-.chat-form .btn-spinner {
+.chat-composer .btn-spinner {
   display: none;
   width: 12px;
   height: 12px;
@@ -718,8 +756,8 @@ button.section-download {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-.chat-form button:disabled .btn-spinner { display: inline-block; }
-.chat-form button:disabled .btn-label { opacity: 0.6; }
+.chat-composer button:disabled .btn-spinner { display: inline-block; }
+.chat-composer button:disabled .btn-label { opacity: 0.6; }
 
 .chat-hint {
   display: none;
@@ -2122,7 +2160,7 @@ button.section-download {
    muted label) so it reads as part of the pill, not a parked
    browser-default widget. Keep the native caret because removing
    it requires extra markup, but tighten everything else. */
-.chat-form .chat-model-select {
+.chat-composer .chat-model-select {
   font-size: 12px;
   max-width: 11rem;
   border: 0;
@@ -2133,12 +2171,12 @@ button.section-download {
   outline: none;
   flex-shrink: 0;
 }
-.chat-form .chat-model-select:hover,
-.chat-form .chat-model-select:focus {
+.chat-composer .chat-model-select:hover,
+.chat-composer .chat-model-select:focus {
   color: var(--primary);
 }
 @media (max-width: 600px) {
-  .chat-form .chat-model-select { max-width: 7rem; }
+  .chat-composer .chat-model-select { max-width: 7rem; }
 }
 
 /* ---- Highlight popover (Daily Digest feedback loop) -------------- */
@@ -2340,14 +2378,4 @@ mark.highlight-not_interesting {
   text-decoration: none;
 }
 
-/* Ask thread (multi-turn library Q&A). */
-.ask-thread { display: flex; flex-direction: column; gap: 16px; margin: 1rem 0; }
-.ask-turn-user p {
-  margin: 0; font-weight: 500;
-  padding: 10px 14px; border-radius: var(--rounded-md);
-  background: rgba(127, 127, 127, 0.10);
-}
-.ask-turn-assistant { padding: 0 2px; }
-.ask-turn-controls { margin-top: 6px; }
-.ask-followup { display: flex; gap: 8px; margin-top: 1rem; }
-.ask-followup input { flex: 1; }
+/* Ask thread — now uses shared .chat-thread classes (see Chat section). */
