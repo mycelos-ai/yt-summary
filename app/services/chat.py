@@ -4,6 +4,7 @@ from typing import Any
 import litellm
 
 from app.models import ChatMessage
+from app.services.chat_core import build_messages
 
 SYSTEM_TEMPLATE = (
     "You are answering follow-up questions about a YouTube video. "
@@ -35,12 +36,11 @@ async def stream_reply(
     api_key: str,
     base_url: str | None,
 ) -> AsyncIterator[str]:
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": SYSTEM_TEMPLATE.format(transcript=transcript)},
-    ]
-    for m in history:
-        messages.append({"role": m.role, "content": m.content})
-    messages.append({"role": "user", "content": user_message})
+    messages = build_messages(
+        system_prompt=SYSTEM_TEMPLATE.format(transcript=transcript),
+        history=[(m.role, m.content) for m in history],
+        user_message=user_message,
+    )
 
     kwargs: dict[str, Any] = {
         "model": model,
