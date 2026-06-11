@@ -60,7 +60,7 @@ async def api_ask(
             detail={"error": "question is required", "code": "INVALID_INPUT"},
         )
     from app.services import ask as ask_svc
-    s = await ask_svc.ask_now(db, user_id=user_id, query=question.strip())
+    s, answer = await ask_svc.ask_now(db, user_id=user_id, query=question.strip())
     import json as _json
     try:
         sources = _json.loads(s.source_ids_json)
@@ -68,10 +68,10 @@ async def api_ask(
         sources = []
     return {
         "id": s.id,
-        "status": s.status.value,
-        "answer": s.result_md,
+        "status": answer.status.value,
+        "answer": answer.content,
         "sources": sources,
-        "error": s.error,
+        "error": answer.error,
     }
 
 

@@ -56,9 +56,9 @@ async def test_mcp_ask_library(seeded_db_and_config, monkeypatch):
         api_key="sk-x", base_url="", make_default=True,
     )
 
-    async def fake_completion(*, system, user, model, api_key, base_url):
+    async def fake_completion(*, messages, model, api_key, base_url):
         return "Per [MCP test](/v/mcptest1), yes."
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
+    monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
 
     # Query is a single FTS-matchable token against the seeded title
     # ("MCP test") — the embedder is unavailable in the sandbox, so

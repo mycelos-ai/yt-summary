@@ -8,7 +8,7 @@
     <span class="onboarding-done-emoji" aria-hidden="true">👋</span>
     <div class="onboarding-done-text">
       <strong>You're all set.</strong>
-      Paste a URL below to summarize your first video, or open
+      Use the + Add button to summarize your first video, or open
       <a href="/settings">Settings</a> to fine-tune providers, models,
       or your summarizer prompt anytime.
     </div>
@@ -19,11 +19,11 @@
 
 <section class="hero">
   <h1>Summarize any video or article</h1>
-  <p>Paste a YouTube link or any web article URL, get a clean summary. Self-hosted, with chat over the content.</p>
-  <form method="post" action="/videos" class="submit-form">
-    <input type="text" name="url" inputmode="url" autocomplete="off" placeholder="Paste a YouTube or article URL (or a curl command for paywalled articles)" required>
-    <button type="submit">Summarize</button>
-  </form>
+  <p>Search and ask across your library, or add something new.</p>
+  <div class="hero-omnibox">
+    {% include "_omnibox.html" %}
+    {% include "_add_overlay.html" %}
+  </div>
 </section>
 
 {% if playlists %}
@@ -85,13 +85,8 @@
 {% endif %}
 
 <p class="playlist-strip-more">
-  <a href="/ask">💬 Ask my library →</a>
+  <a href="/ask">All questions →</a>
 </p>
-
-<form method="get" action="/" class="search-form">
-  <input type="search" name="q" value="{{ q or '' }}" placeholder="Search past videos">
-  <button type="submit">Search</button>
-</form>
 
 <p class="section-title">Library</p>
 
@@ -109,7 +104,7 @@
     {% if active_tag %}
       <p class="empty">No videos with tag "{{ active_tag }}".</p>
     {% else %}
-      <p class="empty">No videos yet — paste a URL above to get started.</p>
+      <p class="empty">No videos yet — use the + Add button to get started.</p>
     {% endif %}
   {% endfor %}
 </section>

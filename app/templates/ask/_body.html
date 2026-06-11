@@ -5,35 +5,13 @@
    (hx-swap=outerHTML) swaps the whole page (header + main) into the
    polling div on every tick, nesting the page into itself recursively.
    Mirrors digest/_body.html. #}
-{% if synthesis.status.value == 'pending' %}
+{% if any_pending %}
   <div hx-get="/ask/{{ synthesis.id }}/fragment"
        hx-trigger="every 1s"
        hx-swap="outerHTML"
        class="ask-rendering">
-    <p class="status status-running">
-      <span class="spinner" aria-hidden="true"></span>
-      Synthesising across your library…
-    </p>
+    {% include "ask/_turns.html" %}
   </div>
-{% elif synthesis.status.value == 'failed' %}
-  <p class="status status-failed">
-    ⚠ {{ synthesis.error or 'Synthesis failed.' }}
-  </p>
 {% else %}
-  <article class="ask-result">{{ result_html | safe }}</article>
-
-  {% if sources %}
-    <section class="ask-sources">
-      <h2 class="section-heading">Sources ({{ sources | length }})</h2>
-      <ul>
-        {% for v in sources %}
-          <li><a href="/v/{{ v.id }}">{{ v.title }}</a></li>
-        {% endfor %}
-      </ul>
-    </section>
-  {% else %}
-    <p class="settings-card-sub">
-      No matching items in your library were used for this answer.
-    </p>
-  {% endif %}
+  {% include "ask/_turns.html" %}
 {% endif %}

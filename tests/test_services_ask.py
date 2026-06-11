@@ -5,8 +5,6 @@ degrades to FTS when the embedder isn't available, which is fine here —
 we seed summaries whose text matches the query.
 """
 
-import json
-
 from app.repos import llm_models as llm_models_repo
 from app.repos import syntheses as syntheses_repo
 from app.repos import videos as videos_repo
@@ -51,53 +49,72 @@ def test_build_prompt_packs_summaries_and_demands_citations():
     assert "Eval needs golden sets." in user
 
 
-async def test_run_marks_ready_with_llm_markdown(db, monkeypatch):
-    await _default_model(db)
-    await _seed_video(db, "1:a", title="Agent Eval", summary="about agent eval")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=["1:a"],
-    )
 
-    async def fake_completion(*, system, user, model, api_key, base_url):
-        return "Answer with [Agent Eval](/v/1:a)."
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
-
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    assert got.status.value == "ready"
-    assert "[Agent Eval](/v/1:a)" in got.result_md
-
-
-async def test_run_marks_failed_without_default_model(db, monkeypatch):
-    await _seed_video(db, "1:a", title="X", summary="agent eval stuff")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=["1:a"],
-    )
-    # No default model configured.
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    assert got.status.value == "failed"
-    assert got.error
-
-
-async def test_run_records_source_ids_actually_used(db, monkeypatch):
+async def test_start_thread_records_sources_and_pending_assistant(db, monkeypatch):
     await _default_model(db)
     await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
-    await _seed_video(db, "1:b", title="Cooking", summary="how to bake bread")
-    s = await syntheses_repo.create_pending(
-        db, user_id=1, query="agent eval", source_ids=[],
-    )
+    from app.repos import synthesis_messages as sm_repo
 
-    async def fake_completion(*, system, user, model, api_key, base_url):
+    s_id, assistant_id = await ask_svc.start_thread(db, user_id=1, query="agent eval")
+    s = await syntheses_repo.get(db, s_id)
+    import json
+    assert "1:a" in json.loads(s.source_ids_json)
+    msgs = await sm_repo.history(db, synthesis_id=s_id)
+    assert [m.role for m in msgs] == ["user", "assistant"]
+    assert msgs[0].content == "agent eval"
+    assert msgs[1].status.value == "pending"
+    assert msgs[1].id == assistant_id
+
+
+async def test_run_message_answers_pending_with_thread_context(db, monkeypatch):
+    await _default_model(db)
+    await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
+    from app.repos import synthesis_messages as sm_repo
+    s_id, assistant_id = await ask_svc.start_thread(db, user_id=1, query="agent eval")
+    captured = {}
+    async def fake_completion(*, messages, model, api_key, base_url):
+        captured["messages"] = messages
+        return "Answer [Agent Eval](/v/1:a)."
+    monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
+    await ask_svc.run_message(db, message_id=assistant_id)
+    done = await sm_repo.get(db, assistant_id)
+    assert done.status.value == "ready"
+    assert "[Agent Eval](/v/1:a)" in done.content
+    assert captured["messages"][-1] == {"role": "user", "content": "agent eval"}
+
+
+async def test_followup_reuses_fixed_sources_not_research(db, monkeypatch):
+    await _default_model(db)
+    await _seed_video(db, "1:a", title="Agent Eval", summary="agent eval golden")
+    await _seed_video(db, "1:b", title="Bread", summary="how to bake bread")
+    s_id, a1 = await ask_svc.start_thread(db, user_id=1, query="agent eval")
+    calls = []
+    async def fake_completion(*, messages, model, api_key, base_url):
+        calls.append(messages)
         return "ok"
-    monkeypatch.setattr(ask_svc, "_completion", fake_completion)
+    monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
+    await ask_svc.run_message(db, message_id=a1)
+    a2 = await ask_svc.add_followup(db, synthesis_id=s_id, query="cooking?")
+    s_before = await syntheses_repo.get(db, s_id)
+    await ask_svc.run_message(db, message_id=a2)
+    s_after = await syntheses_repo.get(db, s_id)
+    assert s_before.source_ids_json == s_after.source_ids_json
+    # The follow-up call sees the prior exchange (the first answer "ok")
+    # plus the new user question last.
+    assert any(m["role"] == "assistant" and m["content"] == "ok"
+               for m in calls[1])
+    assert calls[1][-1] == {"role": "user", "content": "cooking?"}
 
-    await ask_svc.run(db, synthesis_id=s.id, user_id=1)
-    got = await syntheses_repo.get(db, s.id)
-    assert got is not None
-    used = json.loads(got.source_ids_json)
-    # The relevant item must be among the sources; the unrelated one
-    # need not be (FTS won't match "agent eval" against a bread summary).
-    assert "1:a" in used
+
+async def test_run_message_marks_failed_on_error(db, monkeypatch):
+    await _default_model(db)
+    await _seed_video(db, "1:a", title="X", summary="agent eval stuff")
+    from app.repos import synthesis_messages as sm_repo
+    s_id, a1 = await ask_svc.start_thread(db, user_id=1, query="agent eval")
+    async def boom(*, messages, model, api_key, base_url):
+        raise RuntimeError("llm down")
+    monkeypatch.setattr(ask_svc, "_completion_messages", boom)
+    await ask_svc.run_message(db, message_id=a1)
+    done = await sm_repo.get(db, a1)
+    assert done.status.value == "failed"
+    assert "llm down" in done.error
