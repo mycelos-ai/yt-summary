@@ -2339,3 +2339,15 @@ mark.highlight-not_interesting {
   background: rgba(127, 127, 127, 0.12);
   text-decoration: none;
 }
+
+/* Ask thread (multi-turn library Q&A). */
+.ask-thread { display: flex; flex-direction: column; gap: 16px; margin: 1rem 0; }
+.ask-turn-user p {
+  margin: 0; font-weight: 500;
+  padding: 10px 14px; border-radius: var(--rounded-md);
+  background: rgba(127, 127, 127, 0.10);
+}
+.ask-turn-assistant { padding: 0 2px; }
+.ask-turn-controls { margin-top: 6px; }
+.ask-followup { display: flex; gap: 8px; margin-top: 1rem; }
+.ask-followup input { flex: 1; }

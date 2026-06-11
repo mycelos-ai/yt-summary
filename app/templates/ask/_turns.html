@@ -1,3 +1,4 @@
+{% import "macros/export_menu.html" as exp %}
 <div class="ask-thread">
   {% for t in turns %}
     {% if t.role == 'user' %}
@@ -7,13 +8,29 @@
     {% elif t.status == 'failed' %}
       <div class="ask-turn ask-turn-assistant"><p class="status status-failed">⚠ {{ t.error or 'Synthesis failed.' }}</p></div>
     {% else %}
-      <div class="ask-turn ask-turn-assistant"><article class="ask-result">{{ t.html | safe }}</article></div>
+      <div class="ask-turn ask-turn-assistant">
+        <article class="ask-result">{{ t.html | safe }}</article>
+        <div class="ask-turn-controls">
+          {{ exp.export_menu("/ask/" ~ synthesis.id ~ "/answer/" ~ t.id ~ ".md") }}
+        </div>
+      </div>
     {% endif %}
   {% endfor %}
 </div>
 {% if sources %}
-  <section class="ask-sources"><h2 class="section-heading">Sources ({{ sources | length }})</h2><ul>{% for v in sources %}<li><a href="/v/{{ v.id }}">{{ v.title }}</a></li>{% endfor %}</ul></section>
+  <section class="ask-sources">
+    <h2 class="section-heading">Sources ({{ sources | length }})</h2>
+    <ul>
+      {% for v in sources %}
+        <li><a href="/v/{{ v.id }}">{{ v.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
 {% endif %}
 {% if not any_pending %}
-  <form method="post" action="/ask/{{ synthesis.id }}/followup" class="ask-followup"><input type="text" name="query" autocomplete="off" placeholder="Ask a follow-up…" required><button type="submit">Ask</button></form>
+  <form method="post" action="/ask/{{ synthesis.id }}/followup" class="ask-followup">
+    <input type="text" name="query" autocomplete="off"
+           placeholder="Ask a follow-up…" required>
+    <button type="submit">Ask</button>
+  </form>
 {% endif %}

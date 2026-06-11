@@ -12,7 +12,7 @@ import logging
 
 import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.main import get_current_user_id, get_db
@@ -132,6 +132,7 @@ async def _body_context(
     rendered = []
     for t in turns:
         rendered.append({
+            "id": t.id,
             "role": t.role,
             "status": t.status.value,
             "error": t.error,
@@ -165,6 +166,23 @@ async def ask_show(
     s = await _fetch_for_user(db, synthesis_id, user_id)
     ctx = await _body_context(db, s)
     return templates.TemplateResponse(request, "ask/show.html", ctx)
+
+
+@router.get("/ask/{synthesis_id}/answer/{message_id}.md", response_class=PlainTextResponse)
+async def ask_answer_md(
+    synthesis_id: int,
+    message_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Raw Markdown of one assistant answer, for the export menu's
+    copy/download. Scoped to the active profile via the parent thread."""
+    await _fetch_for_user(db, synthesis_id, user_id)  # 404s foreign profile
+    msg = await sm_repo.get(db, message_id)
+    if (msg is None or msg.synthesis_id != synthesis_id
+            or msg.role != "assistant" or not msg.content):
+        raise HTTPException(404)
+    return PlainTextResponse(msg.content, media_type="text/markdown; charset=utf-8")
 
 
 @router.get("/ask/{synthesis_id}/fragment", response_class=HTMLResponse)

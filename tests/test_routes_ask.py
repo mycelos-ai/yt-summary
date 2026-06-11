@@ -386,3 +386,69 @@ def test_followup_404_for_foreign_profile(tmp_path, monkeypatch):
         resp = client.post(f"/ask/{sid}/followup", data={"query": "hi"},
                            follow_redirects=False)
     assert resp.status_code == 404
+
+
+def test_answer_markdown_endpoint_returns_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.models import SynthesisStatus
+            from app.repos import syntheses as syntheses_repo
+            from app.repos import synthesis_messages as sm_repo
+            s = await syntheses_repo.create_pending(
+                app.state.db, user_id=1, query="q", source_ids=[])
+            await sm_repo.append(app.state.db, synthesis_id=s.id, role="user",
+                                 content="q", status=SynthesisStatus.READY)
+            a = await sm_repo.append(app.state.db, synthesis_id=s.id,
+                                     role="assistant",
+                                     content="# The answer\nbody",
+                                     status=SynthesisStatus.READY)
+            return s.id, a.id
+        sid, aid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/ask/{sid}/answer/{aid}.md")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    assert "# The answer" in resp.text
+
+
+def test_answer_markdown_404_foreign_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.models import SynthesisStatus
+            from app.repos import syntheses as syntheses_repo
+            from app.repos import synthesis_messages as sm_repo
+            s = await syntheses_repo.create_pending(
+                app.state.db, user_id=2, query="q", source_ids=[])  # other profile
+            a = await sm_repo.append(app.state.db, synthesis_id=s.id,
+                                     role="assistant", content="x",
+                                     status=SynthesisStatus.READY)
+            return s.id, a.id
+        sid, aid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/ask/{sid}/answer/{aid}.md")
+    assert resp.status_code == 404
+
+
+def test_ready_answer_has_export_menu(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.models import SynthesisStatus
+            from app.repos import syntheses as syntheses_repo
+            from app.repos import synthesis_messages as sm_repo
+            s = await syntheses_repo.create_pending(
+                app.state.db, user_id=1, query="q", source_ids=[])
+            await sm_repo.append(app.state.db, synthesis_id=s.id, role="user",
+                                 content="q", status=SynthesisStatus.READY)
+            a = await sm_repo.append(app.state.db, synthesis_id=s.id,
+                                     role="assistant", content="answer",
+                                     status=SynthesisStatus.READY)
+            return s.id, a.id
+        sid, aid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/ask/{sid}")
+    assert resp.status_code == 200
+    assert f"/ask/{sid}/answer/{aid}.md" in resp.text   # export menu points at it
+    assert "data-export-menu" in resp.text
