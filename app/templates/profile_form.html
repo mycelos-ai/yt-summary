@@ -114,7 +114,7 @@
       editing an existing profile — a brand-new profile has no id yet. -#}
   <form method="post" action="/profiles/{{ profile.id }}/imap"
         class="profile-form profile-imap-form">
-    <h2 class="profile-imap-heading">✉️ Newsletter (IMAP)</h2>
+    <h2 class="profile-imap-heading">{{ icon('mail', 18) }} Newsletter (IMAP)</h2>
     <p class="profile-imap-sub">
       Point this profile at a mailbox and yt-summary pulls every
       newsletter that lands there, strips the cruft, and summarizes it
@@ -379,7 +379,7 @@
   <form method="post"
         action="/profiles/{{ profile.id }}/interest-profile"
         class="profile-form profile-imap-form">
-    <h2 class="profile-imap-heading">🎯 Interest profile</h2>
+    <h2 class="profile-imap-heading">{{ icon('target', 18) }} Interest profile</h2>
     <p class="profile-imap-sub">
       Distilled from your highlight feedback on summaries. Used as
       context for future summaries and the daily digest. Edit by hand
@@ -409,7 +409,7 @@
   <form method="post"
         action="/profiles/{{ profile.id }}/digest-prefs"
         class="profile-form profile-imap-form">
-    <h2 class="profile-imap-heading">📰 Daily digest</h2>
+    <h2 class="profile-imap-heading">{{ icon('news', 18) }} Daily digest</h2>
     <p class="profile-imap-sub">
       Once a day, yt-summary builds a TL;DR + Top-10 ranking of the
       most relevant new items in this profile's queue, shaped by the

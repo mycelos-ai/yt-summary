@@ -20,7 +20,7 @@
   {# ── Workers ─────────────────────────────────────────────── #}
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">🫀</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('pulse', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Worker-Status</h2>
         <p class="settings-card-sub">
@@ -45,11 +45,11 @@
             <td><code>{{ name }}</code></td>
             <td>
               {% if hb is none %}
-                ⛔ never
+                {{ icon('ban') }} never
               {% else %}
                 {% set age = (now - hb.last_tick_at).total_seconds() %}
                 {% if age < threshold %}
-                  ✅ alive
+                  <span class="status-done">{{ icon('check-circle') }} alive</span>
                 {% else %}
                   ⚠ stale ({{ age | int }}s)
                 {% endif %}
@@ -84,7 +84,7 @@
                       video_link_prefix='/v/') %}
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">📋</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('clipboard', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>{{ label }}</h2>
         <p class="settings-card-sub">
@@ -181,7 +181,7 @@
   {# ── Scheduler ────────────────────────────────────────────── #}
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">⏰</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('clock', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Scheduler</h2>
         <p class="settings-card-sub">
@@ -234,7 +234,7 @@
   {# ── Log tail ────────────────────────────────────────────── #}
   <section class="settings-card">
     <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">📜</span>
+      <span class="settings-card-icon" aria-hidden="true">{{ icon('doc', 26) }}</span>
       <div class="settings-card-head-text">
         <h2>Log</h2>
         <p class="settings-card-sub">

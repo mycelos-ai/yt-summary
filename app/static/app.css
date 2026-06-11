@@ -71,6 +71,10 @@ code, pre, .mono {
   font-family: var(--font-mono);
 }
 
+/* Inline SVG icons (app/services/icons.py). currentColor strokes, so
+   they follow the surrounding text color in every state. */
+.icon { vertical-align: -0.125em; flex-shrink: 0; }
+
 /* Site-wide top header (brand + gear). Scoped to .site-header so it
    doesn't leak into the <header> elements inside cards / detail pages. */
 .site-header {

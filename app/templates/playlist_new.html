@@ -13,10 +13,10 @@
   <div class="source-tabs" role="tablist">
     <button type="button" class="source-tab"
             :class="tab === 'youtube' ? 'is-active' : ''"
-            @click="tab = 'youtube'">▶ YouTube</button>
+            @click="tab = 'youtube'">{{ icon('play') }} YouTube</button>
     <button type="button" class="source-tab"
             :class="tab === 'email' ? 'is-active' : ''"
-            @click="tab = 'email'">✉️ Newsletter</button>
+            @click="tab = 'email'">{{ icon('mail') }} Newsletter</button>
   </div>
 
   <!-- ════════════════ YouTube ════════════════ -->
@@ -161,7 +161,7 @@
             Scan recent senders
           </button>
           <span id="scan-status" class="htmx-indicator mail-scan-spinner">
-            ⏳ Scanning the latest messages…
+            {{ icon('clock') }} Scanning the latest messages…
           </span>
           <small>Reads the latest ~150 messages (headers only — nothing is
             marked read) to list who's been emailing this mailbox.</small>

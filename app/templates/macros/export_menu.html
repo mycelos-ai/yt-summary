@@ -6,19 +6,19 @@
       x-on:keydown.escape="open = false" x-on:click.stop>
   <a class="section-download export-menu-trigger" href="{{ md_url }}"
      role="button" aria-haspopup="menu" x-bind:aria-expanded="open"
-     x-on:click.prevent="open = !open">⬇ {{ label }} ▾</a>
+     x-on:click.prevent="open = !open">{{ icon('download') }} {{ label }} ▾</a>
   <span class="export-menu-dropdown" x-show="open" x-cloak x-transition.opacity>
     <a class="export-menu-item" href="{{ md_url }}"
-       x-on:click="open = false">⬇ Download .md</a>
+       x-on:click="open = false">{{ icon('download') }} Download .md</a>
     <button type="button" class="export-menu-item"
             x-on:click="ytsCopyMarkdown($el.closest('[data-export-menu]').dataset.mdUrl, $event.target); open = false">
-      📋 Copy Markdown</button>
+      {{ icon('clipboard') }} Copy Markdown</button>
     <button type="button" class="export-menu-item"
             x-on:click="ytsCopyLink($el.closest('[data-export-menu]').dataset.mdUrl, $event.target); open = false">
-      🔗 Copy link</button>
+      {{ icon('link') }} Copy link</button>
     {% if json_url %}
       <a class="export-menu-item" href="{{ json_url }}"
-         x-on:click="open = false">⬇ Download .json</a>
+         x-on:click="open = false">{{ icon('download') }} Download .json</a>
     {% endif %}
   </span>
 </span>

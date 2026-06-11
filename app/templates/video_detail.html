@@ -134,7 +134,7 @@
                   hx-target="#audio-modal-content"
                   hx-swap="innerHTML"
                   onclick="event.stopPropagation()"
-                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %}">🎧 Audio</button>
+                  title="Generate audio from this {% if video.kind.value == 'web' %}article body{% elif video.kind.value == 'email' %}newsletter body{% else %}transcript{% endif %}">{{ icon('headphones') }} Audio</button>
         </span>
       </summary>
       {% if transcript_blocks and video.kind.value == 'youtube' %}
