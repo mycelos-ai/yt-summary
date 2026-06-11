@@ -21,3 +21,9 @@ def test_build_messages_empty_history():
         {"role": "system", "content": "S"},
         {"role": "user", "content": "hi"},
     ]
+
+
+def test_build_messages_does_not_mutate_history():
+    h = [("user", "q")]
+    build_messages(system_prompt="S", history=h, user_message="hi")
+    assert h == [("user", "q")]

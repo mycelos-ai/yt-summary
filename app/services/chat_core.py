@@ -8,11 +8,15 @@ HOW they call the model, not in how the message list is shaped.
 
 from __future__ import annotations
 
+from app.models import ChatRole
+
+HistoryEntry = tuple[ChatRole, str]
+
 
 def build_messages(
     *,
     system_prompt: str,
-    history: list[tuple[str, str]],
+    history: list[HistoryEntry],
     user_message: str,
 ) -> list[dict[str, str]]:
     """[system] + history turns (each a (role, content) pair) + the new
