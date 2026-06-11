@@ -2384,8 +2384,9 @@ mark.highlight-not_interesting {
 .hero-omnibox { display: flex; gap: 10px; align-items: stretch; max-width: 720px; margin: 0 auto; }
 .omnibox { flex: 1; }
 .omnibox-toggle { display: inline-flex; gap: 2px; margin-bottom: 8px; background: var(--surface); border-radius: var(--rounded-full); padding: 3px; }
-.omnibox-toggle-btn { border: none; background: transparent; font-size: 13px; padding: 5px 14px; border-radius: var(--rounded-full); cursor: pointer; color: var(--steel); }
+.omnibox-toggle-btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-size: 13px; padding: 5px 14px; border-radius: var(--rounded-full); cursor: pointer; color: var(--steel); }
 .omnibox-toggle-btn.is-active { background: var(--canvas); color: var(--ink); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.omnibox-toggle-btn.is-active .omnibox-toggle-icon { color: var(--brand-green-deep); }
 .omnibox-form { display: flex; gap: 8px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--rounded-full); padding: 6px; }
 .omnibox-form input { flex: 1; border: none; padding: 10px 16px; font-size: 14px; outline: none; background: transparent; }
 .omnibox-form button { background: var(--brand-green); color: var(--primary); border: none; border-radius: var(--rounded-full); padding: 10px 20px; font-weight: 500; font-size: 14px; cursor: pointer; }
