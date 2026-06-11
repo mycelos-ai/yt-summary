@@ -105,7 +105,7 @@ async def _completion(
 
 
 async def _completion_messages(
-    *, system: str, messages: list[dict], model: str, api_key: str,
+    *, messages: list[dict], model: str, api_key: str,
     base_url: str | None,
 ) -> str:
     """litellm call from a prebuilt messages list (system already at [0]
@@ -182,12 +182,23 @@ async def run_message(db: aiosqlite.Connection, *, message_id: int) -> None:
         # ends with the user question we're answering: prior[-1] is that
         # question, prior[:-1] is the conversation context.
         prior = [t for t in turns if t.id < message_id]
-        user_turn = prior[-1].content if prior else ""
-        hist = [(t.role, t.content) for t in prior[:-1]]
+        if not prior:
+            await sm_repo.mark_failed(
+                db, message_id=message_id,
+                error="Thread invariant violated: no user turn precedes message",
+            )
+            return
+        user_turn = prior[-1].content or ""
+        # Drop turns with no content (a prior assistant turn that failed or
+        # is still pending) — passing ("assistant", None) into the model
+        # breaks the messages contract.
+        hist = [
+            (t.role, t.content) for t in prior[:-1] if t.content is not None
+        ]
         messages = build_messages(system_prompt=system, history=hist,
                                   user_message=user_turn)
         answer = await _completion_messages(
-            system=system, messages=messages, model=model_row.model,
+            messages=messages, model=model_row.model,
             api_key=model_row.api_key or "", base_url=model_row.base_url or None,
         )
         await sm_repo.mark_ready(db, message_id=message_id, content=answer)

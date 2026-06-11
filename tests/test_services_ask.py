@@ -126,8 +126,7 @@ async def test_run_message_answers_pending_with_thread_context(db, monkeypatch):
     from app.repos import synthesis_messages as sm_repo
     s_id, assistant_id = await ask_svc.start_thread(db, user_id=1, query="agent eval")
     captured = {}
-    async def fake_completion(*, system, messages, model, api_key, base_url):
-        captured["system"] = system
+    async def fake_completion(*, messages, model, api_key, base_url):
         captured["messages"] = messages
         return "Answer [Agent Eval](/v/1:a)."
     monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
@@ -144,7 +143,9 @@ async def test_followup_reuses_fixed_sources_not_research(db, monkeypatch):
     await _seed_video(db, "1:b", title="Bread", summary="how to bake bread")
     from app.repos import syntheses as syntheses_repo
     s_id, a1 = await ask_svc.start_thread(db, user_id=1, query="agent eval")
-    async def fake_completion(*, system, messages, model, api_key, base_url):
+    calls = []
+    async def fake_completion(*, messages, model, api_key, base_url):
+        calls.append(messages)
         return "ok"
     monkeypatch.setattr(ask_svc, "_completion_messages", fake_completion)
     await ask_svc.run_message(db, message_id=a1)
@@ -153,6 +154,11 @@ async def test_followup_reuses_fixed_sources_not_research(db, monkeypatch):
     await ask_svc.run_message(db, message_id=a2)
     s_after = await syntheses_repo.get(db, s_id)
     assert s_before.source_ids_json == s_after.source_ids_json
+    # The follow-up call sees the prior exchange (the first answer "ok")
+    # plus the new user question last.
+    assert any(m["role"] == "assistant" and m["content"] == "ok"
+               for m in calls[1])
+    assert calls[1][-1] == {"role": "user", "content": "cooking?"}
 
 
 async def test_run_message_marks_failed_on_error(db, monkeypatch):
@@ -160,7 +166,7 @@ async def test_run_message_marks_failed_on_error(db, monkeypatch):
     await _seed_video(db, "1:a", title="X", summary="agent eval stuff")
     from app.repos import synthesis_messages as sm_repo
     s_id, a1 = await ask_svc.start_thread(db, user_id=1, query="agent eval")
-    async def boom(*, system, messages, model, api_key, base_url):
+    async def boom(*, messages, model, api_key, base_url):
         raise RuntimeError("llm down")
     monkeypatch.setattr(ask_svc, "_completion_messages", boom)
     await ask_svc.run_message(db, message_id=a1)
