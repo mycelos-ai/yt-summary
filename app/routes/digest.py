@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiosqlite
@@ -193,9 +193,8 @@ async def digest_new(
     candidates, missing = await digest_service.list_candidates(
         db, user_id=user_id, period_start=period_start,
     )
-    last_end = await digests_repo.latest_period_end(db, user_id=user_id)
-    since_last = last_end is not None and last_end > (
-        period_end - timedelta(hours=digest_service.WINDOW_CAP_HOURS)
+    since_last = period_start > period_end - timedelta(
+        hours=digest_service.WINDOW_CAP_HOURS,
     )
     return templates.TemplateResponse(
         request,
@@ -204,6 +203,7 @@ async def digest_new(
             "candidates": candidates,
             "missing_highlights_count": missing,
             "period_start": period_start,
+            "period_end": period_end,
             "since_last_digest": since_last,
             "error": error,
         },
@@ -266,14 +266,30 @@ async def digest_body_fragment(
 @router.post("/digest/generate")
 async def digest_generate(
     video_ids: list[str] = Form(default=[]),
+    period_end: str | None = Form(default=None),
     db: aiosqlite.Connection = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    period_start, period_end = await digest_service.compute_window(
+    period_start, window_end = await digest_service.compute_window(
         db, user_id=user_id,
     )
+    # The selection page stamps its render-time window end into the
+    # form. Honour it (clamped to "not in the future") so items that
+    # arrived after the page was rendered stay out of this digest's
+    # window and surface as candidates for the next one (spec §5).
+    effective_end = window_end
+    if period_end:
+        try:
+            posted = datetime.fromisoformat(period_end)
+        except ValueError:
+            posted = None
+        if posted is not None:
+            if posted.tzinfo is None:
+                posted = posted.replace(tzinfo=UTC)
+            effective_end = min(posted, window_end)
     candidates, _ = await digest_service.list_candidates(
         db, user_id=user_id, period_start=period_start,
+        period_end=effective_end,
     )
     allowed = {c["id"] for c in candidates}
     chosen = [v for v in video_ids if v in allowed]
@@ -283,7 +299,7 @@ async def digest_generate(
         )
     d = await _enqueue_digest_job(
         db, user_id=user_id,
-        period_start=period_start, period_end=period_end,
+        period_start=period_start, period_end=effective_end,
         video_ids=chosen,
     )
     return RedirectResponse(url=f"/digest/{d.id}", status_code=303)

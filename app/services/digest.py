@@ -141,7 +141,11 @@ async def _gather_pool(
 
 
 async def list_candidates(
-    db: aiosqlite.Connection, *, user_id: int, period_start: datetime,
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    period_start: datetime,
+    period_end: datetime | None = None,
 ) -> tuple[list[dict], int]:
     """Candidates for the /digest/new selection page.
 
@@ -149,18 +153,27 @@ async def list_candidates(
     highlights and can be picked; the count covers in-window videos
     without highlights, surfaced as a footnote so the user understands
     why they are absent.
+
+    When period_end is not None, items that arrived after the selection
+    page was rendered are excluded — they belong to the next digest.
     """
+    params: list = [user_id, period_start.isoformat()]
+    upper_clause = ""
+    if period_end is not None:
+        upper_clause = "AND datetime(created_at) < datetime(?)"
+        params.append(period_end.isoformat())
     cur = await db.execute(
-        """
+        f"""
         SELECT id, title, kind, created_at,
                (highlights_json IS NOT NULL AND highlights_json != '[]')
                    AS has_highlights
         FROM videos
         WHERE user_id = ?
           AND datetime(created_at) >= datetime(?)
+          {upper_clause}
         ORDER BY datetime(created_at) DESC
         """,
-        (user_id, period_start.isoformat()),
+        params,
     )
     rows = await cur.fetchall()
     eligible: list[dict] = []
@@ -272,7 +285,7 @@ async def run_for_existing_digest(
     pending. Window and (optional) hand-picked selection come from the
     row itself — the route handler persisted both."""
     d = await digests_repo.get(db, digest_id)
-    assert d is not None
+    assert d is not None and d.user_id == user_id
     selected: list[str] | None = None
     if d.selected_video_ids_json:
         selected = json.loads(d.selected_video_ids_json)

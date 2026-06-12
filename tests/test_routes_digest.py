@@ -445,6 +445,7 @@ def test_get_digest_new_lists_candidates_prechecked(tmp_path, monkeypatch):
     assert 'name="video_ids"' in resp.text
     assert "checked" in resp.text
     assert 'action="/digest/generate"' in resp.text
+    assert 'name="period_end"' in resp.text
 
 
 def test_get_digest_new_empty_state(tmp_path, monkeypatch):
@@ -468,3 +469,48 @@ def test_get_digest_new_footnotes_missing_highlights(tmp_path, monkeypatch):
     assert "Title v1" in resp.text
     assert "Title v2" not in resp.text
     assert "1 more item" in resp.text
+
+
+def test_post_digest_generate_respects_posted_period_end(
+    tmp_path, monkeypatch,
+):
+    """A video imported after the selection page was rendered must NOT
+    slip into the persisted window — it belongs to the next digest and
+    must surface as a candidate on the next /digest/new."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services import digest as digest_service
+
+    async def noop(db, *, digest_id, user_id):
+        return None
+    monkeypatch.setattr(digest_service, "run_for_existing_digest", noop)
+
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1", hours_ago=2)
+        cutoff = (
+            datetime.now(UTC) - timedelta(hours=1)
+        ).replace(microsecond=0)
+        _seed_route_video(app, "v2", hours_ago=0)  # arrives after render
+        resp = client.post(
+            "/digest/generate",
+            data={
+                "video_ids": ["v1", "v2"],
+                "period_end": cutoff.isoformat(),
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        digest_id = int(resp.headers["location"].rsplit("/", 1)[1])
+
+        async def fetch():
+            return await digests_repo.get(app.state.db, digest_id)
+        d = asyncio.get_event_loop().run_until_complete(fetch())
+        assert d is not None
+        assert d.selected_video_ids_json == '["v1"]'
+        assert d.period_end == cutoff
+
+        # v2 belongs to the NEXT digest's window
+        resp2 = client.get("/digest/new")
+        assert "Title v2" in resp2.text
+        assert "Title v1" not in resp2.text

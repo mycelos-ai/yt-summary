@@ -22,6 +22,8 @@
           this.$root.querySelectorAll('input[name=video_ids]')
             .forEach(c => c.checked = on)
         } }">
+    <input type="hidden" name="period_end"
+           value="{{ period_end.isoformat() }}">
     <p class="digest-new-toolbar">
       <button type="button" class="btn btn-secondary"
               @click="toggleAll(true)">Select all</button>

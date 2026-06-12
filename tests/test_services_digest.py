@@ -286,3 +286,15 @@ async def test_run_for_existing_digest_uses_stored_selection(
     assert got.status.value == "ready"
     assert "v1" in seen_pools[0]
     assert "v2" not in seen_pools[0]
+
+
+async def test_list_candidates_respects_period_end_upper_bound(db):
+    await _seed_video(db, "v1", hours_ago=5)
+    await _seed_video(db, "v2", hours_ago=1)
+    start = datetime.now(UTC) - timedelta(hours=96)
+    end = datetime.now(UTC) - timedelta(hours=3)
+    candidates, missing = await digest_service.list_candidates(
+        db, user_id=1, period_start=start, period_end=end,
+    )
+    assert [c["id"] for c in candidates] == ["v1"]
+    assert missing == 0
