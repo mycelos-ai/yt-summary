@@ -11,12 +11,20 @@ import aiosqlite
 from app.models import Digest, DigestStatus
 
 
+def _parse_utc(value: str) -> datetime:
+    """Parse a stored timestamp; treat naive legacy values as UTC."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _row_to_digest(row: aiosqlite.Row) -> Digest:
     return Digest(
         id=row["id"],
         user_id=row["user_id"],
-        period_start=datetime.fromisoformat(row["period_start"]),
-        period_end=datetime.fromisoformat(row["period_end"]),
+        period_start=_parse_utc(row["period_start"]),
+        period_end=_parse_utc(row["period_end"]),
         tldr=row["tldr"],
         top_items_json=row["top_items_json"],
         item_count=row["item_count"],
@@ -137,10 +145,7 @@ async def latest_period_end(
     row = await cur.fetchone()
     if row is None:
         return None
-    dt = datetime.fromisoformat(row["period_end"])
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt
+    return _parse_utc(row["period_end"])
 
 
 async def exists_in_range(

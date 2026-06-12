@@ -26,6 +26,25 @@ _EMPTY_POOL_TLDR = (
     "{hours} hours — your queue is quiet."
 )
 
+# Hard cap on how far back a digest window may reach when the last
+# digest is old or missing (spec: fixed 4 days, no setting).
+WINDOW_CAP_HOURS = 96
+
+
+async def compute_window(
+    db: aiosqlite.Connection, *, user_id: int, now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """Candidate window for the next digest of this Profile.
+
+    Starts where the last non-failed digest ended, but never more than
+    WINDOW_CAP_HOURS back. `now` is injectable for tests.
+    """
+    period_end = (now or datetime.now(UTC)).replace(microsecond=0)
+    floor = period_end - timedelta(hours=WINDOW_CAP_HOURS)
+    last_end = await digests_repo.latest_period_end(db, user_id=user_id)
+    period_start = floor if last_end is None else max(last_end, floor)
+    return period_start, period_end
+
 
 _DIGEST_SYSTEM = """\
 You curate a daily digest for one Profile of yt-summary.

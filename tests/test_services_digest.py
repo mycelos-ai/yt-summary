@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -138,3 +139,45 @@ async def test_generate_scopes_pool_per_user(db, monkeypatch):
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed.item_count == 0
     fake_llm.assert_not_called()
+
+
+async def test_compute_window_no_previous_digest_caps_96h(db):
+    now = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
+    start, end = await digest_service.compute_window(db, user_id=1, now=now)
+    assert end == now
+    assert start == now - timedelta(hours=96)
+
+
+async def test_compute_window_resumes_after_last_digest(db):
+    now = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=30),
+        period_end=now - timedelta(hours=6),
+    )
+    start, end = await digest_service.compute_window(db, user_id=1, now=now)
+    assert start == now - timedelta(hours=6)
+    assert end == now
+
+
+async def test_compute_window_caps_stale_last_digest(db):
+    now = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=300),
+        period_end=now - timedelta(hours=200),
+    )
+    start, end = await digest_service.compute_window(db, user_id=1, now=now)
+    assert start == now - timedelta(hours=96)
+
+
+async def test_compute_window_ignores_failed_digests(db):
+    now = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=10),
+        period_end=now - timedelta(hours=2),
+    )
+    await digests_repo.mark_failed(db, digest_id=d.id, error="boom")
+    start, end = await digest_service.compute_window(db, user_id=1, now=now)
+    assert start == now - timedelta(hours=96)
