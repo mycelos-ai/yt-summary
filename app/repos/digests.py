@@ -22,6 +22,7 @@ def _row_to_digest(row: aiosqlite.Row) -> Digest:
         item_count=row["item_count"],
         status=DigestStatus(row["status"]),
         error=row["error"],
+        selected_video_ids_json=row["selected_video_ids_json"],
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -32,14 +33,19 @@ async def create_pending(
     user_id: int,
     period_start: datetime,
     period_end: datetime,
+    selected_video_ids_json: str | None = None,
 ) -> Digest:
     cur = await db.execute(
         """
         INSERT INTO digests (
-            user_id, period_start, period_end, status
-        ) VALUES (?, ?, ?, 'pending')
+            user_id, period_start, period_end,
+            selected_video_ids_json, status
+        ) VALUES (?, ?, ?, ?, 'pending')
         """,
-        (user_id, period_start.isoformat(), period_end.isoformat()),
+        (
+            user_id, period_start.isoformat(), period_end.isoformat(),
+            selected_video_ids_json,
+        ),
     )
     await db.commit()
     digest_id = cur.lastrowid

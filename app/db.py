@@ -249,6 +249,10 @@ CREATE TABLE IF NOT EXISTS digests (
     item_count INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK(status IN ('pending','rendering','ready','failed')),
     error TEXT,
+    -- JSON list of video ids the user hand-picked on /digest/new.
+    -- NULL = automatic digest (cron or pre-feature rows): pool is
+    -- everything in the window.
+    selected_video_ids_json TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_digests_user_created
@@ -479,6 +483,13 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 ALTER TABLE feedback_new RENAME TO feedback;
                 """
             )
+
+    # Digest video selection: manual digests store the hand-picked
+    # video ids; NULL = automatic (cron / legacy rows).
+    if await _table_exists(conn, "digests"):
+        await _ensure_column(
+            conn, "digests", "selected_video_ids_json", "TEXT",
+        )
 
     # V7: 768d → 384d embedding dimension. Must run here (before
     # executescript(SCHEMA) creates the FTS triggers) so that the

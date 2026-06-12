@@ -136,3 +136,39 @@ async def test_upgrade_path_adds_highlights_column_to_existing_videos(config):
         assert "highlights_json" in cols
     finally:
         await conn.close()
+
+
+async def test_digests_gains_selected_video_ids_column(config):
+    """Legacy digests table (pre-selection) gains selected_video_ids_json
+    via _ensure_column on init_schema."""
+    conn = await connect(config)
+    try:
+        # Manually create a minimal digests table without the new column
+        # (mirroring a pre-feature install shape).
+        await conn.execute("DROP TABLE IF EXISTS digests")
+        await conn.execute(
+            """
+            CREATE TABLE digests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                tldr TEXT,
+                top_items_json TEXT,
+                item_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL
+                    CHECK(status IN ('pending','rendering','ready','failed')),
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await conn.commit()
+
+        # Now run init_schema — should upgrade the digests table in place.
+        await init_schema(conn)
+
+        cols = await _columns(conn, "digests")
+        assert "selected_video_ids_json" in cols
+    finally:
+        await conn.close()

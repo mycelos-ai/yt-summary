@@ -142,6 +142,7 @@ def test_digest_dataclass():
         status=DigestStatus.READY,
         error=None,
         created_at=datetime(2026, 5, 26, 7, 0),
+        selected_video_ids_json=None,
     )
     assert d.status == "ready"
 

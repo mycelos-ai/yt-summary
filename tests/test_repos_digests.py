@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 
@@ -139,3 +139,24 @@ async def test_list_for_user(db: aiosqlite.Connection):
     rows = await digests_repo.list_for_user(db, user_id=1, limit=10)
     assert len(rows) == 1
     assert rows[0].user_id == 1
+
+
+async def test_create_pending_persists_selection(db: aiosqlite.Connection):
+    end = datetime.now(UTC).replace(microsecond=0)
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=end - timedelta(hours=4), period_end=end,
+        selected_video_ids_json='["a", "b"]',
+    )
+    assert d.selected_video_ids_json == '["a", "b"]'
+
+
+async def test_create_pending_selection_defaults_to_null(
+    db: aiosqlite.Connection,
+):
+    end = datetime.now(UTC).replace(microsecond=0)
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=end - timedelta(hours=4), period_end=end,
+    )
+    assert d.selected_video_ids_json is None
