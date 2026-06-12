@@ -62,21 +62,18 @@
   {% for digest in recent_digests %}
     {% include "digest_card.html" %}
   {% endfor %}
-  <form method="post" action="/digest/generate" class="digest-card-add-wrap">
-    <input type="hidden" name="period_hours" value="24">
-    <button type="submit" class="playlist-card playlist-card-add"
-            title="Generate a fresh digest of the last 24 hours">
-      <div class="playlist-card-placeholder">+</div>
-      <div class="playlist-card-body">
-        <h4>
-          {% if recent_digests %}New digest{% else %}Generate your first digest{% endif %}
-        </h4>
-        <p class="caption">
-          A TL;DR + Top-10 of new items, shaped by your interest profile
-        </p>
-      </div>
-    </button>
-  </form>
+  <a href="/digest/new" class="playlist-card playlist-card-add"
+     title="Pick the items for a fresh digest">
+    <div class="playlist-card-placeholder">+</div>
+    <div class="playlist-card-body">
+      <h4>
+        {% if recent_digests %}New digest{% else %}Generate your first digest{% endif %}
+      </h4>
+      <p class="caption">
+        A TL;DR + Top-10 of new items, shaped by your interest profile
+      </p>
+    </div>
+  </a>
 </section>
 {% if recent_digests %}
   <p class="playlist-strip-more">

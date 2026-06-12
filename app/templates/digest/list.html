@@ -1,9 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Daily digest</h1>
-<form hx-post="/digest/generate" hx-trigger="submit" method="post">
-  <button type="submit">Generate now</button>
-</form>
+<p><a href="/digest/new" class="btn btn-primary">New digest</a></p>
 <ul>
   {% for d in digests %}
     <li>
@@ -12,7 +10,7 @@
       ({{ d.item_count }} items)
     </li>
   {% else %}
-    <li>No digests yet. <button hx-post="/digest/generate">Generate the first one</button></li>
+    <li>No digests yet. <a href="/digest/new">Generate the first one</a></li>
   {% endfor %}
 </ul>
 {% endblock %}

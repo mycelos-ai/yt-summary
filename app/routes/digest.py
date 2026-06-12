@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiosqlite
@@ -38,25 +38,31 @@ _PENDING_JOBS: set[asyncio.Task] = set()
 
 
 async def _enqueue_digest_job(
-    db: aiosqlite.Connection, *, user_id: int, period_hours: int,
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    period_start: datetime,
+    period_end: datetime,
+    video_ids: list[str] | None,
 ) -> Digest:
     """Spawn the digest job. Pre-creates the pending row in the
     foreground so the redirect to `/digest/<id>` has a valid target
-    before the background generation finishes. Tests monkeypatch this
+    before the background generation finishes. `video_ids` is the
+    hand-picked selection (None = automatic). Tests monkeypatch this
     whole function.
     """
-    from datetime import UTC, datetime, timedelta
-    end = datetime.now(UTC).replace(microsecond=0)
-    start = end - timedelta(hours=period_hours)
     d = await digests_repo.create_pending(
-        db, user_id=user_id, period_start=start, period_end=end,
+        db, user_id=user_id, period_start=period_start,
+        period_end=period_end,
+        selected_video_ids_json=(
+            json.dumps(video_ids) if video_ids is not None else None
+        ),
     )
 
     async def _run(digest_id: int) -> None:
         try:
             await digest_service.run_for_existing_digest(
                 db, digest_id=digest_id, user_id=user_id,
-                period_hours=period_hours,
             )
         except Exception as e:
             log.exception(
@@ -259,13 +265,25 @@ async def digest_body_fragment(
 
 @router.post("/digest/generate")
 async def digest_generate(
-    period_hours: int = Form(default=24),
+    video_ids: list[str] = Form(default=[]),
     db: aiosqlite.Connection = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    if period_hours < 1 or period_hours > 24 * 30:
-        raise HTTPException(status_code=422, detail="invalid period_hours")
+    period_start, period_end = await digest_service.compute_window(
+        db, user_id=user_id,
+    )
+    candidates, _ = await digest_service.list_candidates(
+        db, user_id=user_id, period_start=period_start,
+    )
+    allowed = {c["id"] for c in candidates}
+    chosen = [v for v in video_ids if v in allowed]
+    if not chosen:
+        return RedirectResponse(
+            url="/digest/new?error=no-selection", status_code=303,
+        )
     d = await _enqueue_digest_job(
-        db, user_id=user_id, period_hours=period_hours,
+        db, user_id=user_id,
+        period_start=period_start, period_end=period_end,
+        video_ids=chosen,
     )
     return RedirectResponse(url=f"/digest/{d.id}", status_code=303)

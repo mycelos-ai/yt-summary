@@ -383,8 +383,8 @@ def test_home_shows_digests_strip_with_add_card_when_empty(tmp_path, monkeypatch
         resp = client.get("/")
     assert resp.status_code == 200
     assert "Digests" in resp.text
-    # The "+ generate digest" form lives in the strip.
-    assert 'action="/digest/generate"' in resp.text
+    # The add-digest card links to the candidate-selection page.
+    assert 'href="/digest/new"' in resp.text
     assert "Generate your first digest" in resp.text
 
 
