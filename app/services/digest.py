@@ -240,17 +240,17 @@ def _parse_digest_response(
 
 
 async def generate(
-    db: aiosqlite.Connection, *, user_id: int, period_hours: int = 24,
+    db: aiosqlite.Connection, *, user_id: int,
 ) -> Digest:
-    """Build a digest for the Profile over the last `period_hours`.
+    """Build an automatic digest for the Profile.
 
-    Creates a fresh pending row and runs the job. Used by the cron
-    sweep. The on-demand HTTP path creates the row in the handler so
-    it can redirect to `/digest/<id>` immediately, then calls
-    `run_for_existing_digest` to finish the work in the background.
+    Window = since the last non-failed digest, capped at
+    WINDOW_CAP_HOURS. Takes every candidate (no selection). Used by
+    the cron sweep. The on-demand HTTP path creates the row in the
+    handler so it can redirect to `/digest/<id>` immediately, then
+    calls `run_for_existing_digest` to finish in the background.
     """
-    period_end = datetime.now(UTC).replace(microsecond=0)
-    period_start = period_end - timedelta(hours=period_hours)
+    period_start, period_end = await compute_window(db, user_id=user_id)
 
     d = await digests_repo.create_pending(
         db, user_id=user_id, period_start=period_start, period_end=period_end,
@@ -258,6 +258,7 @@ async def generate(
     return await _run(
         db, digest_id=d.id, user_id=user_id,
         period_start=period_start, period_end=period_end,
+        selected_video_ids=None,
     )
 
 
@@ -266,16 +267,19 @@ async def run_for_existing_digest(
     *,
     digest_id: int,
     user_id: int,
-    period_hours: int,
 ) -> Digest:
     """Run the job for a digest row that's already been inserted as
-    pending. Used by the on-demand route handler so the redirect target
-    exists synchronously."""
-    period_end = datetime.now(UTC).replace(microsecond=0)
-    period_start = period_end - timedelta(hours=period_hours)
+    pending. Window and (optional) hand-picked selection come from the
+    row itself — the route handler persisted both."""
+    d = await digests_repo.get(db, digest_id)
+    assert d is not None
+    selected: list[str] | None = None
+    if d.selected_video_ids_json:
+        selected = json.loads(d.selected_video_ids_json)
     return await _run(
         db, digest_id=digest_id, user_id=user_id,
-        period_start=period_start, period_end=period_end,
+        period_start=d.period_start, period_end=d.period_end,
+        selected_video_ids=selected,
     )
 
 
@@ -286,12 +290,16 @@ async def _run(
     user_id: int,
     period_start: datetime,
     period_end: datetime,
+    selected_video_ids: list[str] | None,
 ) -> Digest:
     """Shared work loop. The row at `digest_id` must already exist."""
     await digests_repo.mark_rendering(db, digest_id=digest_id)
 
     period_hours = max(1, int((period_end - period_start).total_seconds() // 3600))
-    pool = await _gather_pool(db, user_id=user_id, period_start=period_start)
+    pool = await _gather_pool(
+        db, user_id=user_id, period_start=period_start,
+        video_ids=selected_video_ids,
+    )
     if not pool:
         await digests_repo.mark_ready(
             db, digest_id=digest_id,

@@ -32,7 +32,7 @@ async def test_generate_empty_pool_writes_silence_tldr(db, monkeypatch):
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
     d = await digest_service.generate(
-        db, user_id=1, period_hours=24,
+        db, user_id=1,
     )
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed is not None
@@ -61,7 +61,7 @@ async def test_generate_ranks_pool_via_llm(db, monkeypatch):
     }))
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
-    d = await digest_service.generate(db, user_id=1, period_hours=24)
+    d = await digest_service.generate(db, user_id=1)
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed.status == DigestStatus.READY
     assert refreshed.tldr == "Two things happened."
@@ -82,7 +82,7 @@ async def test_generate_filters_empty_highlights_from_pool(db, monkeypatch):
     }))
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
-    d = await digest_service.generate(db, user_id=1, period_hours=24)
+    d = await digest_service.generate(db, user_id=1)
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed.item_count == 1
 
@@ -99,7 +99,7 @@ async def test_generate_drops_hallucinated_video_ids(db, monkeypatch):
     }))
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
-    d = await digest_service.generate(db, user_id=1, period_hours=24)
+    d = await digest_service.generate(db, user_id=1)
     refreshed = await digests_repo.get(db, d.id)
     top = json.loads(refreshed.top_items_json)
     assert {t["video_id"] for t in top} == {"v1"}
@@ -112,7 +112,7 @@ async def test_generate_marks_failed_on_invalid_json(db, monkeypatch):
     fake_llm = AsyncMock(return_value="not valid json at all")
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
-    d = await digest_service.generate(db, user_id=1, period_hours=24)
+    d = await digest_service.generate(db, user_id=1)
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed.status == DigestStatus.FAILED
     assert refreshed.error is not None
@@ -135,7 +135,7 @@ async def test_generate_scopes_pool_per_user(db, monkeypatch):
     fake_llm = AsyncMock()
     monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
 
-    d = await digest_service.generate(db, user_id=1, period_hours=24)
+    d = await digest_service.generate(db, user_id=1)
     refreshed = await digests_repo.get(db, d.id)
     assert refreshed.item_count == 0
     fake_llm.assert_not_called()
@@ -252,3 +252,37 @@ async def test_list_candidates_scoped_by_user(db):
     )
     assert candidates == []
     assert missing == 0
+
+
+async def test_run_for_existing_digest_uses_stored_selection(
+    db, monkeypatch,
+):
+    """The background job must honour the selection persisted on the
+    digest row — not re-derive the pool from the whole window."""
+    await _seed_video(db, "v1")
+    await _seed_video(db, "v2")
+    now = datetime.now(UTC).replace(microsecond=0)
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=96), period_end=now,
+        selected_video_ids_json='["v1"]',
+    )
+
+    seen_pools = []
+
+    async def fake_llm(**kwargs):
+        seen_pools.append(kwargs["payload"])
+        return (
+            '{"tldr": "ok", "top_items": '
+            '[{"video_id": "v1", "rank": 1, "hook": "h", "reason": "r"}]}'
+        )
+
+    monkeypatch.setattr(digest_service, "_call_digest_llm", fake_llm)
+    await _default_llm(db)
+
+    got = await digest_service.run_for_existing_digest(
+        db, digest_id=d.id, user_id=1,
+    )
+    assert got.status.value == "ready"
+    assert "v1" in seen_pools[0]
+    assert "v2" not in seen_pools[0]
