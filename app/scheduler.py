@@ -258,7 +258,8 @@ class DigestScheduler:
 
     For each Profile with digest_enabled=1 whose digest_hour_local
     matches the current local hour and that has no digest yet today
-    (status pending|rendering|ready), call digest_service.generate (window = since the last digest, capped at 96 h).
+    (status pending|rendering|ready), call digest_service.generate
+    (window = since the last digest, capped at 96 h).
     """
 
     def __init__(
