@@ -160,3 +160,46 @@ async def test_create_pending_selection_defaults_to_null(
         period_start=end - timedelta(hours=4), period_end=end,
     )
     assert d.selected_video_ids_json is None
+
+
+async def test_latest_period_end_none_without_digests(
+    db: aiosqlite.Connection,
+):
+    assert await digests_repo.latest_period_end(db, user_id=1) is None
+
+
+async def test_latest_period_end_returns_newest(db: aiosqlite.Connection):
+    now = datetime.now(UTC).replace(microsecond=0)
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=48),
+        period_end=now - timedelta(hours=24),
+    )
+    await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=24),
+        period_end=now - timedelta(hours=2),
+    )
+    got = await digests_repo.latest_period_end(db, user_id=1)
+    assert got == now - timedelta(hours=2)
+
+
+async def test_latest_period_end_ignores_failed(db: aiosqlite.Connection):
+    now = datetime.now(UTC).replace(microsecond=0)
+    d = await digests_repo.create_pending(
+        db, user_id=1,
+        period_start=now - timedelta(hours=24), period_end=now,
+    )
+    await digests_repo.mark_failed(db, digest_id=d.id, error="boom")
+    assert await digests_repo.latest_period_end(db, user_id=1) is None
+
+
+async def test_latest_period_end_scoped_by_user(db: aiosqlite.Connection):
+    now = datetime.now(UTC).replace(microsecond=0)
+    await db.execute("INSERT INTO users (id, name) VALUES (2, 'other')")
+    await db.commit()
+    await digests_repo.create_pending(
+        db, user_id=2,
+        period_start=now - timedelta(hours=24), period_end=now,
+    )
+    assert await digests_repo.latest_period_end(db, user_id=1) is None

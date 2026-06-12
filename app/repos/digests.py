@@ -4,7 +4,7 @@ One row represents one daily-digest job for one Profile over one window.
 States transition pending → rendering → ready | failed. Scoped by
 `user_id` (Profile) for all read queries.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -113,6 +113,34 @@ async def list_for_user(
         (user_id, limit),
     )
     return [_row_to_digest(r) for r in await cur.fetchall()]
+
+
+async def latest_period_end(
+    db: aiosqlite.Connection, *, user_id: int,
+) -> datetime | None:
+    """period_end of the user's most recent non-failed digest.
+
+    Failed digests are skipped — they summarized nothing, so their
+    window must be retried by the next digest. Returned aware (UTC):
+    rows written by this app store isoformat() of aware datetimes,
+    but be defensive about naive legacy values.
+    """
+    cur = await db.execute(
+        """
+        SELECT period_end FROM digests
+        WHERE user_id=? AND status IN ('pending','rendering','ready')
+        ORDER BY datetime(period_end) DESC, id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    dt = datetime.fromisoformat(row["period_end"])
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
 
 
 async def exists_in_range(
