@@ -1,6 +1,7 @@
 """Digest endpoints.
 
 GET    /digest                  list view (latest + archive)
+GET    /digest/new              candidate-selection page
 GET    /digest/<id>             single digest view, HTMX-pollable
 POST   /digest/generate         enqueue an on-demand digest job
 """
@@ -9,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import timedelta
 from typing import Any
 
 import aiosqlite
@@ -168,6 +170,38 @@ async def _existing_feedback_for_digest(
             "comment": fb.comment,
         })
     return rows
+
+
+@router.get("/digest/new", response_class=HTMLResponse)
+async def digest_new(
+    request: Request,
+    error: str | None = None,
+    db: aiosqlite.Connection = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> HTMLResponse:
+    """Candidate-selection page for an on-demand digest. Window =
+    since the last non-failed digest, capped at 96 h."""
+    period_start, period_end = await digest_service.compute_window(
+        db, user_id=user_id,
+    )
+    candidates, missing = await digest_service.list_candidates(
+        db, user_id=user_id, period_start=period_start,
+    )
+    last_end = await digests_repo.latest_period_end(db, user_id=user_id)
+    since_last = last_end is not None and last_end > (
+        period_end - timedelta(hours=digest_service.WINDOW_CAP_HOURS)
+    )
+    return templates.TemplateResponse(
+        request,
+        "digest/new.html",
+        {
+            "candidates": candidates,
+            "missing_highlights_count": missing,
+            "period_start": period_start,
+            "since_last_digest": since_last,
+            "error": error,
+        },
+    )
 
 
 @router.get("/digest/{digest_id}", response_class=HTMLResponse)

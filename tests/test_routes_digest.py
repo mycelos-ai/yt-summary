@@ -379,3 +379,58 @@ def test_body_fragment_404_for_foreign_profile(tmp_path, monkeypatch):
         digest_id = asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get(f"/digest/{digest_id}/body-fragment")
     assert resp.status_code == 404
+
+
+def _seed_route_video(app, video_id, *, highlights=True, hours_ago=1):
+    async def setup():
+        created = (
+            datetime.now(UTC) - timedelta(hours=hours_ago)
+        ).replace(microsecond=0)
+        await app.state.db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title,"
+            " highlights_json, created_at) VALUES (?, 1, 'youtube', 'u',"
+            " ?, ?, ?)",
+            (
+                video_id, f"Title {video_id}",
+                '[{"text": "t", "rank": 1}]' if highlights else None,
+                created.isoformat(),
+            ),
+        )
+        await app.state.db.commit()
+    asyncio.get_event_loop().run_until_complete(setup())
+
+
+def test_get_digest_new_lists_candidates_prechecked(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert "Title v1" in resp.text
+    assert 'name="video_ids"' in resp.text
+    assert "checked" in resp.text
+    assert 'action="/digest/generate"' in resp.text
+
+
+def test_get_digest_new_empty_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert 'name="video_ids"' not in resp.text
+    assert "No new items" in resp.text
+
+
+def test_get_digest_new_footnotes_missing_highlights(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        _seed_route_video(app, "v2", highlights=False)
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert "Title v1" in resp.text
+    assert "Title v2" not in resp.text
+    assert "1 more item" in resp.text
