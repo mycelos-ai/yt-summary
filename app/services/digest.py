@@ -85,24 +85,41 @@ invent video_ids.
 
 
 async def _gather_pool(
-    db: aiosqlite.Connection, *, user_id: int, period_start: datetime,
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    period_start: datetime,
+    video_ids: list[str] | None = None,
 ) -> list[dict]:
     """Return JSON-ready item dicts for the digest prompt.
+
+    `video_ids` restricts the pool to a hand-picked selection (manual
+    digests); None means everything in the window (automatic digests).
+    The highlights gate applies either way.
 
     Uses SQLite's datetime() on both sides of the timestamp comparison
     to normalize the space-vs-T separator mismatch between SQLite's
     column-default datetime('now') and Python's datetime.isoformat().
     """
+    if video_ids is not None and not video_ids:
+        return []
+    params: list = [user_id, period_start.isoformat()]
+    id_clause = ""
+    if video_ids is not None:
+        placeholders = ",".join("?" for _ in video_ids)
+        id_clause = f" AND id IN ({placeholders})"
+        params.extend(video_ids)
     cur = await db.execute(
-        """
+        f"""
         SELECT id, title, kind, url, highlights_json
         FROM videos
         WHERE user_id = ?
           AND datetime(created_at) >= datetime(?)
           AND highlights_json IS NOT NULL
           AND highlights_json != '[]'
+          {id_clause}
         """,
-        (user_id, period_start.isoformat()),
+        params,
     )
     rows = await cur.fetchall()
     items: list[dict] = []
@@ -121,6 +138,44 @@ async def _gather_pool(
             "highlights": highlights,
         })
     return items
+
+
+async def list_candidates(
+    db: aiosqlite.Connection, *, user_id: int, period_start: datetime,
+) -> tuple[list[dict], int]:
+    """Candidates for the /digest/new selection page.
+
+    Returns (eligible, missing_highlights_count): eligible items have
+    highlights and can be picked; the count covers in-window videos
+    without highlights, surfaced as a footnote so the user understands
+    why they are absent.
+    """
+    cur = await db.execute(
+        """
+        SELECT id, title, kind, created_at,
+               (highlights_json IS NOT NULL AND highlights_json != '[]')
+                   AS has_highlights
+        FROM videos
+        WHERE user_id = ?
+          AND datetime(created_at) >= datetime(?)
+        ORDER BY datetime(created_at) DESC
+        """,
+        (user_id, period_start.isoformat()),
+    )
+    rows = await cur.fetchall()
+    eligible: list[dict] = []
+    missing = 0
+    for r in rows:
+        if not r["has_highlights"]:
+            missing += 1
+            continue
+        eligible.append({
+            "id": r["id"],
+            "title": r["title"],
+            "kind": r["kind"],
+            "created_at": r["created_at"],
+        })
+    return eligible, missing
 
 
 async def _call_digest_llm(

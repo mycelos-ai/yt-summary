@@ -181,3 +181,74 @@ async def test_compute_window_ignores_failed_digests(db):
     await digests_repo.mark_failed(db, digest_id=d.id, error="boom")
     start, end = await digest_service.compute_window(db, user_id=1, now=now)
     assert start == now - timedelta(hours=96)
+
+
+async def _seed_video(
+    db, video_id, *, hours_ago=1, highlights='[{"text": "x", "rank": 1}]',
+    user_id=1,
+):
+    created = (
+        datetime.now(UTC) - timedelta(hours=hours_ago)
+    ).replace(microsecond=0)
+    await db.execute(
+        "INSERT INTO videos (id, user_id, url, title, highlights_json,"
+        " created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (video_id, user_id, "u", f"Title {video_id}", highlights,
+         created.isoformat()),
+    )
+    await db.commit()
+
+
+async def test_gather_pool_restricts_to_video_ids(db):
+    await _seed_video(db, "v1")
+    await _seed_video(db, "v2")
+    start = datetime.now(UTC) - timedelta(hours=96)
+    pool = await digest_service._gather_pool(
+        db, user_id=1, period_start=start, video_ids=["v1"],
+    )
+    assert [i["video_id"] for i in pool] == ["v1"]
+
+
+async def test_gather_pool_empty_selection_returns_empty(db):
+    await _seed_video(db, "v1")
+    start = datetime.now(UTC) - timedelta(hours=96)
+    pool = await digest_service._gather_pool(
+        db, user_id=1, period_start=start, video_ids=[],
+    )
+    assert pool == []
+
+
+async def test_gather_pool_without_ids_keeps_old_behavior(db):
+    await _seed_video(db, "v1")
+    await _seed_video(db, "v2")
+    start = datetime.now(UTC) - timedelta(hours=96)
+    pool = await digest_service._gather_pool(
+        db, user_id=1, period_start=start,
+    )
+    assert {i["video_id"] for i in pool} == {"v1", "v2"}
+
+
+async def test_list_candidates_splits_eligible_and_missing(db):
+    await _seed_video(db, "v1", hours_ago=1)
+    await _seed_video(db, "v2", hours_ago=2, highlights=None)
+    await _seed_video(db, "v3", hours_ago=200)  # outside window
+    start = datetime.now(UTC) - timedelta(hours=96)
+    candidates, missing = await digest_service.list_candidates(
+        db, user_id=1, period_start=start,
+    )
+    assert [c["id"] for c in candidates] == ["v1"]
+    assert candidates[0]["title"] == "Title v1"
+    assert candidates[0]["kind"] == "youtube"
+    assert missing == 1
+
+
+async def test_list_candidates_scoped_by_user(db):
+    await db.execute("INSERT INTO users (id, name) VALUES (2, 'other')")
+    await db.commit()
+    await _seed_video(db, "v9", user_id=2)
+    start = datetime.now(UTC) - timedelta(hours=96)
+    candidates, missing = await digest_service.list_candidates(
+        db, user_id=1, period_start=start,
+    )
+    assert candidates == []
+    assert missing == 0
