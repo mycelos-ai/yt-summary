@@ -14,10 +14,7 @@
 {% elif digest.status.value == 'failed' %}
   <section class="digest-failed">
     <p>Digest failed: {{ digest.error or 'unknown error' }}</p>
-    <form method="post" action="/digest/generate">
-      <input type="hidden" name="period_hours" value="24">
-      <button type="submit" class="btn btn-primary">Retry</button>
-    </form>
+    <a href="/digest/new" class="btn btn-primary">Retry</a>
   </section>
 {% else %}
   <section class="tldr digest-source"

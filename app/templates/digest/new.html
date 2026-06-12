@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New digest</h1>
+<p class="caption">
+  {% if since_last_digest %}
+    Covering items since your last digest
+    ({{ period_start.strftime('%Y-%m-%d %H:%M') }} UTC).
+  {% else %}
+    Covering items from the last 4 days.
+  {% endif %}
+</p>
+
+{% if error == 'no-selection' %}
+  <p class="digest-new-error" role="alert">
+    Pick at least one item to generate a digest.
+  </p>
+{% endif %}
+
+{% if candidates %}
+  <form method="post" action="/digest/generate"
+        x-data="{ toggleAll(on) {
+          this.$root.querySelectorAll('input[name=video_ids]')
+            .forEach(c => c.checked = on)
+        } }">
+    <input type="hidden" name="period_end"
+           value="{{ period_end.isoformat() }}">
+    <p class="digest-new-toolbar">
+      <button type="button" class="btn btn-secondary"
+              @click="toggleAll(true)">Select all</button>
+      <button type="button" class="btn btn-secondary"
+              @click="toggleAll(false)">Deselect all</button>
+    </p>
+    <ul class="digest-candidates">
+      {% for c in candidates %}
+        <li>
+          <label>
+            <input type="checkbox" name="video_ids"
+                   value="{{ c.id }}" checked>
+            <strong>{{ c.title }}</strong>
+            <span class="caption">{{ c.kind }} · {{ c.created_at[:16] }}</span>
+          </label>
+        </li>
+      {% endfor %}
+    </ul>
+    <button type="submit" class="btn btn-primary">Generate digest</button>
+  </form>
+{% else %}
+  <p class="empty">
+    No new items with highlights in this window — your queue is quiet.
+  </p>
+{% endif %}
+
+{% if missing_highlights_count %}
+  <p class="caption digest-new-footnote">
+    {{ missing_highlights_count }} more item{{ '' if missing_highlights_count == 1 else 's' }}
+    in this window {{ 'has' if missing_highlights_count == 1 else 'have' }} no highlights yet and can't be included.
+  </p>
+{% endif %}
+
+<style>
+  .digest-candidates { list-style: none; padding: 0; }
+  .digest-candidates li { padding: 6px 0; border-bottom: 1px solid var(--hairline); }
+  .digest-candidates label { display: flex; gap: 10px; align-items: baseline; cursor: pointer; }
+  .digest-new-toolbar { display: flex; gap: 8px; }
+  .digest-new-error { color: var(--danger, #b00020); }
+  .digest-new-footnote { margin-top: 16px; }
+</style>
+{% endblock %}

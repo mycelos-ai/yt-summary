@@ -73,7 +73,7 @@ async def test_full_loop_ingest_feedback_consolidate_digest(
         })),
     )
 
-    digest = await digest_service.generate(db, user_id=1, period_hours=24)
+    digest = await digest_service.generate(db, user_id=1)
     assert digest.status.value == "ready"
     assert digest.item_count == 2
     assert digest.top_items_json is not None

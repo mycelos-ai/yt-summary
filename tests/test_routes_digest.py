@@ -16,14 +16,17 @@ def test_enqueue_marks_digest_failed_when_run_crashes(tmp_path, monkeypatch):
     from app.routes import digest as digest_route
     from app.services import digest as digest_service
 
-    async def boom(db, *, digest_id, user_id, period_hours):
+    async def boom(db, *, digest_id, user_id):
         raise RuntimeError("simulated digest crash")
     monkeypatch.setattr(digest_service, "run_for_existing_digest", boom)
 
     with TestClient(app):
         async def scenario():
+            end = datetime.now(UTC).replace(microsecond=0)
             d = await digest_route._enqueue_digest_job(
-                app.state.db, user_id=1, period_hours=24,
+                app.state.db, user_id=1,
+                period_start=end - timedelta(hours=96), period_end=end,
+                video_ids=["v1"],
             )
             for t in list(digest_route._PENDING_JOBS):
                 await t
@@ -147,49 +150,80 @@ def test_get_digest_show_404_for_unknown_id(tmp_path, monkeypatch):
     assert resp.status_code == 404
 
 
-def test_post_digest_generate_redirects_to_new_digest(
+def test_post_digest_generate_persists_selection_and_redirects(
     tmp_path, monkeypatch,
 ):
-    """The handler should create a pending digest synchronously and
-    redirect (303) to /digest/<id>. The actual generation happens in
-    a background task we don't need to wait for here — verify only
-    the synchronous part."""
+    """The handler validates the picked ids against the current
+    candidate window, persists them on the digest row, and redirects
+    (303) to /digest/<id>. Generation runs in background — neutralize
+    it so no LLM call fires."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
 
-    # Monkeypatch the route's `_enqueue_digest_job` so we don't fire
-    # the real LLM-driven digest in the background.
-    from app.routes import digest as digest_route
+    from app.services import digest as digest_service
 
-    async def fake_enqueue(db, *, user_id, period_hours):
-        end = datetime.now(UTC).replace(microsecond=0)
-        start = end - timedelta(hours=period_hours)
-        return await digests_repo.create_pending(
-            db, user_id=user_id, period_start=start, period_end=end,
-        )
-
-    monkeypatch.setattr(digest_route, "_enqueue_digest_job", fake_enqueue)
+    async def noop(db, *, digest_id, user_id):
+        return None
+    monkeypatch.setattr(digest_service, "run_for_existing_digest", noop)
 
     with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        _seed_route_video(app, "v2")
         resp = client.post(
-            "/digest/generate", data={"period_hours": "24"},
+            "/digest/generate", data={"video_ids": ["v1"]},
             follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        location = resp.headers["location"]
+        assert location.startswith("/digest/")
+        digest_id = int(location.rsplit("/", 1)[1])
+
+        async def fetch():
+            return await digests_repo.get(app.state.db, digest_id)
+        d = asyncio.get_event_loop().run_until_complete(fetch())
+    assert d is not None
+    assert d.selected_video_ids_json == '["v1"]'
+
+
+def test_post_digest_generate_filters_foreign_ids(tmp_path, monkeypatch):
+    """Ids outside the candidate window (unknown, other profile, no
+    highlights) are dropped server-side."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services import digest as digest_service
+
+    async def noop(db, *, digest_id, user_id):
+        return None
+    monkeypatch.setattr(digest_service, "run_for_existing_digest", noop)
+
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        resp = client.post(
+            "/digest/generate", data={"video_ids": ["v1", "evil"]},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        digest_id = int(resp.headers["location"].rsplit("/", 1)[1])
+
+        async def fetch():
+            return await digests_repo.get(app.state.db, digest_id)
+        d = asyncio.get_event_loop().run_until_complete(fetch())
+    assert d is not None
+    assert d.selected_video_ids_json == '["v1"]'
+
+
+def test_post_digest_generate_empty_selection_redirects_back(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/digest/generate", data={}, follow_redirects=False,
         )
     assert resp.status_code == 303
-    assert resp.headers["location"].startswith("/digest/")
-
-
-def test_post_digest_generate_rejects_invalid_period_hours(
-    tmp_path, monkeypatch,
-):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        resp = client.post(
-            "/digest/generate", data={"period_hours": "0"},
-            follow_redirects=False,
-        )
-    assert resp.status_code == 422
+    assert resp.headers["location"] == "/digest/new?error=no-selection"
 
 
 def test_body_fragment_returns_just_the_body_no_layout(tmp_path, monkeypatch):
@@ -379,3 +413,104 @@ def test_body_fragment_404_for_foreign_profile(tmp_path, monkeypatch):
         digest_id = asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get(f"/digest/{digest_id}/body-fragment")
     assert resp.status_code == 404
+
+
+def _seed_route_video(app, video_id, *, highlights=True, hours_ago=1):
+    async def setup():
+        created = (
+            datetime.now(UTC) - timedelta(hours=hours_ago)
+        ).replace(microsecond=0)
+        await app.state.db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title,"
+            " highlights_json, created_at) VALUES (?, 1, 'youtube', 'u',"
+            " ?, ?, ?)",
+            (
+                video_id, f"Title {video_id}",
+                '[{"text": "t", "rank": 1}]' if highlights else None,
+                created.isoformat(),
+            ),
+        )
+        await app.state.db.commit()
+    asyncio.get_event_loop().run_until_complete(setup())
+
+
+def test_get_digest_new_lists_candidates_prechecked(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert "Title v1" in resp.text
+    assert 'name="video_ids"' in resp.text
+    assert "checked" in resp.text
+    assert 'action="/digest/generate"' in resp.text
+    assert 'name="period_end"' in resp.text
+
+
+def test_get_digest_new_empty_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert 'name="video_ids"' not in resp.text
+    assert "No new items" in resp.text
+
+
+def test_get_digest_new_footnotes_missing_highlights(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1")
+        _seed_route_video(app, "v2", highlights=False)
+        resp = client.get("/digest/new")
+    assert resp.status_code == 200
+    assert "Title v1" in resp.text
+    assert "Title v2" not in resp.text
+    assert "1 more item" in resp.text
+
+
+def test_post_digest_generate_respects_posted_period_end(
+    tmp_path, monkeypatch,
+):
+    """A video imported after the selection page was rendered must NOT
+    slip into the persisted window — it belongs to the next digest and
+    must surface as a candidate on the next /digest/new."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    from app.services import digest as digest_service
+
+    async def noop(db, *, digest_id, user_id):
+        return None
+    monkeypatch.setattr(digest_service, "run_for_existing_digest", noop)
+
+    with TestClient(app) as client:
+        _seed_route_video(app, "v1", hours_ago=2)
+        cutoff = (
+            datetime.now(UTC) - timedelta(hours=1)
+        ).replace(microsecond=0)
+        _seed_route_video(app, "v2", hours_ago=0)  # arrives after render
+        resp = client.post(
+            "/digest/generate",
+            data={
+                "video_ids": ["v1", "v2"],
+                "period_end": cutoff.isoformat(),
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        digest_id = int(resp.headers["location"].rsplit("/", 1)[1])
+
+        async def fetch():
+            return await digests_repo.get(app.state.db, digest_id)
+        d = asyncio.get_event_loop().run_until_complete(fetch())
+        assert d is not None
+        assert d.selected_video_ids_json == '["v1"]'
+        assert d.period_end == cutoff
+
+        # v2 belongs to the NEXT digest's window
+        resp2 = client.get("/digest/new")
+        assert "Title v2" in resp2.text
+        assert "Title v1" not in resp2.text

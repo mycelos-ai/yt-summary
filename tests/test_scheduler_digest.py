@@ -24,7 +24,7 @@ async def test_sweep_enqueues_when_hour_matches_and_none_today(
     # the digests row's created_at = datetime('now') default.
     today = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
     await sched.sweep_once(now_local=today)
-    fake_generate.assert_awaited_once_with(db, user_id=1, period_hours=24)
+    fake_generate.assert_awaited_once_with(db, user_id=1)
 
 
 @pytest.mark.asyncio

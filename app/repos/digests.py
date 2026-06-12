@@ -4,24 +4,33 @@ One row represents one daily-digest job for one Profile over one window.
 States transition pending → rendering → ready | failed. Scoped by
 `user_id` (Profile) for all read queries.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiosqlite
 
 from app.models import Digest, DigestStatus
 
 
+def _parse_utc(value: str) -> datetime:
+    """Parse a stored timestamp; treat naive legacy values as UTC."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _row_to_digest(row: aiosqlite.Row) -> Digest:
     return Digest(
         id=row["id"],
         user_id=row["user_id"],
-        period_start=datetime.fromisoformat(row["period_start"]),
-        period_end=datetime.fromisoformat(row["period_end"]),
+        period_start=_parse_utc(row["period_start"]),
+        period_end=_parse_utc(row["period_end"]),
         tldr=row["tldr"],
         top_items_json=row["top_items_json"],
         item_count=row["item_count"],
         status=DigestStatus(row["status"]),
         error=row["error"],
+        selected_video_ids_json=row["selected_video_ids_json"],
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -32,14 +41,19 @@ async def create_pending(
     user_id: int,
     period_start: datetime,
     period_end: datetime,
+    selected_video_ids_json: str | None = None,
 ) -> Digest:
     cur = await db.execute(
         """
         INSERT INTO digests (
-            user_id, period_start, period_end, status
-        ) VALUES (?, ?, ?, 'pending')
+            user_id, period_start, period_end,
+            selected_video_ids_json, status
+        ) VALUES (?, ?, ?, ?, 'pending')
         """,
-        (user_id, period_start.isoformat(), period_end.isoformat()),
+        (
+            user_id, period_start.isoformat(), period_end.isoformat(),
+            selected_video_ids_json,
+        ),
     )
     await db.commit()
     digest_id = cur.lastrowid
@@ -107,6 +121,31 @@ async def list_for_user(
         (user_id, limit),
     )
     return [_row_to_digest(r) for r in await cur.fetchall()]
+
+
+async def latest_period_end(
+    db: aiosqlite.Connection, *, user_id: int,
+) -> datetime | None:
+    """period_end of the user's most recent non-failed digest.
+
+    Failed digests are skipped — they summarized nothing, so their
+    window must be retried by the next digest. Returned aware (UTC):
+    rows written by this app store isoformat() of aware datetimes,
+    but be defensive about naive legacy values.
+    """
+    cur = await db.execute(
+        """
+        SELECT period_end FROM digests
+        WHERE user_id=? AND status IN ('pending','rendering','ready')
+        ORDER BY datetime(period_end) DESC, id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return _parse_utc(row["period_end"])
 
 
 async def exists_in_range(

@@ -26,6 +26,25 @@ _EMPTY_POOL_TLDR = (
     "{hours} hours — your queue is quiet."
 )
 
+# Hard cap on how far back a digest window may reach when the last
+# digest is old or missing (spec: fixed 4 days, no setting).
+WINDOW_CAP_HOURS = 96
+
+
+async def compute_window(
+    db: aiosqlite.Connection, *, user_id: int, now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """Candidate window for the next digest of this Profile.
+
+    Starts where the last non-failed digest ended, but never more than
+    WINDOW_CAP_HOURS back. `now` is injectable for tests.
+    """
+    period_end = (now or datetime.now(UTC)).replace(microsecond=0)
+    floor = period_end - timedelta(hours=WINDOW_CAP_HOURS)
+    last_end = await digests_repo.latest_period_end(db, user_id=user_id)
+    period_start = floor if last_end is None else max(last_end, floor)
+    return period_start, period_end
+
 
 _DIGEST_SYSTEM = """\
 You curate a daily digest for one Profile of yt-summary.
@@ -66,24 +85,41 @@ invent video_ids.
 
 
 async def _gather_pool(
-    db: aiosqlite.Connection, *, user_id: int, period_start: datetime,
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    period_start: datetime,
+    video_ids: list[str] | None = None,
 ) -> list[dict]:
     """Return JSON-ready item dicts for the digest prompt.
+
+    `video_ids` restricts the pool to a hand-picked selection (manual
+    digests); None means everything in the window (automatic digests).
+    The highlights gate applies either way.
 
     Uses SQLite's datetime() on both sides of the timestamp comparison
     to normalize the space-vs-T separator mismatch between SQLite's
     column-default datetime('now') and Python's datetime.isoformat().
     """
+    if video_ids is not None and not video_ids:
+        return []
+    params: list = [user_id, period_start.isoformat()]
+    id_clause = ""
+    if video_ids is not None:
+        placeholders = ",".join("?" for _ in video_ids)
+        id_clause = f" AND id IN ({placeholders})"
+        params.extend(video_ids)
     cur = await db.execute(
-        """
+        f"""
         SELECT id, title, kind, url, highlights_json
         FROM videos
         WHERE user_id = ?
           AND datetime(created_at) >= datetime(?)
           AND highlights_json IS NOT NULL
           AND highlights_json != '[]'
+          {id_clause}
         """,
-        (user_id, period_start.isoformat()),
+        params,
     )
     rows = await cur.fetchall()
     items: list[dict] = []
@@ -102,6 +138,57 @@ async def _gather_pool(
             "highlights": highlights,
         })
     return items
+
+
+async def list_candidates(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int,
+    period_start: datetime,
+    period_end: datetime | None = None,
+) -> tuple[list[dict], int]:
+    """Candidates for the /digest/new selection page.
+
+    Returns (eligible, missing_highlights_count): eligible items have
+    highlights and can be picked; the count covers in-window videos
+    without highlights, surfaced as a footnote so the user understands
+    why they are absent.
+
+    When period_end is not None, items that arrived after the selection
+    page was rendered are excluded — they belong to the next digest.
+    """
+    params: list = [user_id, period_start.isoformat()]
+    upper_clause = ""
+    if period_end is not None:
+        upper_clause = "AND datetime(created_at) < datetime(?)"
+        params.append(period_end.isoformat())
+    cur = await db.execute(
+        f"""
+        SELECT id, title, kind, created_at,
+               (highlights_json IS NOT NULL AND highlights_json != '[]')
+                   AS has_highlights
+        FROM videos
+        WHERE user_id = ?
+          AND datetime(created_at) >= datetime(?)
+          {upper_clause}
+        ORDER BY datetime(created_at) DESC
+        """,
+        params,
+    )
+    rows = await cur.fetchall()
+    eligible: list[dict] = []
+    missing = 0
+    for r in rows:
+        if not r["has_highlights"]:
+            missing += 1
+            continue
+        eligible.append({
+            "id": r["id"],
+            "title": r["title"],
+            "kind": r["kind"],
+            "created_at": r["created_at"],
+        })
+    return eligible, missing
 
 
 async def _call_digest_llm(
@@ -166,17 +253,17 @@ def _parse_digest_response(
 
 
 async def generate(
-    db: aiosqlite.Connection, *, user_id: int, period_hours: int = 24,
+    db: aiosqlite.Connection, *, user_id: int,
 ) -> Digest:
-    """Build a digest for the Profile over the last `period_hours`.
+    """Build an automatic digest for the Profile.
 
-    Creates a fresh pending row and runs the job. Used by the cron
-    sweep. The on-demand HTTP path creates the row in the handler so
-    it can redirect to `/digest/<id>` immediately, then calls
-    `run_for_existing_digest` to finish the work in the background.
+    Window = since the last non-failed digest, capped at
+    WINDOW_CAP_HOURS. Takes every candidate (no selection). Used by
+    the cron sweep. The on-demand HTTP path creates the row in the
+    handler so it can redirect to `/digest/<id>` immediately, then
+    calls `run_for_existing_digest` to finish in the background.
     """
-    period_end = datetime.now(UTC).replace(microsecond=0)
-    period_start = period_end - timedelta(hours=period_hours)
+    period_start, period_end = await compute_window(db, user_id=user_id)
 
     d = await digests_repo.create_pending(
         db, user_id=user_id, period_start=period_start, period_end=period_end,
@@ -184,6 +271,7 @@ async def generate(
     return await _run(
         db, digest_id=d.id, user_id=user_id,
         period_start=period_start, period_end=period_end,
+        selected_video_ids=None,
     )
 
 
@@ -192,16 +280,19 @@ async def run_for_existing_digest(
     *,
     digest_id: int,
     user_id: int,
-    period_hours: int,
 ) -> Digest:
     """Run the job for a digest row that's already been inserted as
-    pending. Used by the on-demand route handler so the redirect target
-    exists synchronously."""
-    period_end = datetime.now(UTC).replace(microsecond=0)
-    period_start = period_end - timedelta(hours=period_hours)
+    pending. Window and (optional) hand-picked selection come from the
+    row itself — the route handler persisted both."""
+    d = await digests_repo.get(db, digest_id)
+    assert d is not None and d.user_id == user_id
+    selected: list[str] | None = None
+    if d.selected_video_ids_json:
+        selected = json.loads(d.selected_video_ids_json)
     return await _run(
         db, digest_id=digest_id, user_id=user_id,
-        period_start=period_start, period_end=period_end,
+        period_start=d.period_start, period_end=d.period_end,
+        selected_video_ids=selected,
     )
 
 
@@ -212,12 +303,16 @@ async def _run(
     user_id: int,
     period_start: datetime,
     period_end: datetime,
+    selected_video_ids: list[str] | None,
 ) -> Digest:
     """Shared work loop. The row at `digest_id` must already exist."""
     await digests_repo.mark_rendering(db, digest_id=digest_id)
 
     period_hours = max(1, int((period_end - period_start).total_seconds() // 3600))
-    pool = await _gather_pool(db, user_id=user_id, period_start=period_start)
+    pool = await _gather_pool(
+        db, user_id=user_id, period_start=period_start,
+        video_ids=selected_video_ids,
+    )
     if not pool:
         await digests_repo.mark_ready(
             db, digest_id=digest_id,
