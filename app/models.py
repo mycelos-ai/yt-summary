@@ -230,10 +230,10 @@ class Digest:
     item_count: int
     status: DigestStatus
     error: str | None
-    created_at: datetime
     # JSON-encoded list of hand-picked video ids (manual digests).
     # None = automatic digest: pool is everything in the window.
     selected_video_ids_json: str | None
+    created_at: datetime
 
 
 class SynthesisStatus(StrEnum):
