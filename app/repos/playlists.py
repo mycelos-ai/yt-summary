@@ -94,9 +94,10 @@ async def list_with_stats(
     """
     cursor = await db.execute(
         """
-        SELECT p.*, COUNT(pv.video_id) AS video_count
+        SELECT p.*, COUNT(v.id) AS video_count
         FROM playlists p
         LEFT JOIN playlist_videos pv ON pv.playlist_id = p.id
+        LEFT JOIN videos v ON v.id = pv.video_id AND v.archived_at IS NULL
         WHERE p.user_id = ?
         GROUP BY p.id
         ORDER BY COALESCE(p.last_refreshed_at, p.created_at) DESC, p.id DESC
@@ -151,7 +152,7 @@ async def videos_for_playlist(
         """
         SELECT v.* FROM videos v
         JOIN playlist_videos pv ON v.id = pv.video_id
-        WHERE pv.playlist_id = ?
+        WHERE pv.playlist_id = ? AND v.archived_at IS NULL
         ORDER BY pv.added_at DESC, pv.video_id DESC
         """,
         (playlist_id,),
@@ -206,14 +207,15 @@ async def latest_video_ids(
         f"""
         SELECT playlist_id, video_id FROM (
             SELECT
-                playlist_id,
-                video_id,
+                pv.playlist_id,
+                pv.video_id,
                 ROW_NUMBER() OVER (
-                    PARTITION BY playlist_id
-                    ORDER BY added_at DESC, video_id DESC
+                    PARTITION BY pv.playlist_id
+                    ORDER BY pv.added_at DESC, pv.video_id DESC
                 ) AS rn
-            FROM playlist_videos
-            WHERE playlist_id IN ({placeholders})
+            FROM playlist_videos pv
+            JOIN videos v ON v.id = pv.video_id AND v.archived_at IS NULL
+            WHERE pv.playlist_id IN ({placeholders})
         )
         WHERE rn = 1
         """,

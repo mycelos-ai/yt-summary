@@ -120,6 +120,42 @@ def test_get_playlist_detail_renders(tmp_path, monkeypatch):
     assert "Inner" in resp.text
 
 
+def test_get_playlist_detail_hides_archived_video(tmp_path, monkeypatch):
+    """Archived videos linked to a playlist must NOT appear on its detail page."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import playlists as playlists_repo
+            from app.repos import videos as videos_repo
+            await playlists_repo.create(
+                app.state.db, playlist_id="PLhide", user_id=1,
+                url="u", title="Hide test", description="",
+                thumbnail_path=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v_visible", url="u", title="Visible Video",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v_hidden", url="u", title="Hidden Archived Video",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await playlists_repo.link_video(app.state.db, "PLhide", "v_visible")
+            await playlists_repo.link_video(app.state.db, "PLhide", "v_hidden")
+            await videos_repo.set_archived(
+                app.state.db, "v_hidden", user_id=1, archived=True
+            )
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/p/PLhide")
+    assert resp.status_code == 200
+    assert "Visible Video" in resp.text
+    assert "Hidden Archived Video" not in resp.text
+
+
 def test_get_playlist_404_unknown(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
