@@ -246,3 +246,62 @@ async def test_set_highlights_to_empty_array(db: aiosqlite.Connection):
     )
     await videos_repo.set_highlights(db, "v3", "[]")
     assert await videos_repo.get_highlights(db, "v3") == "[]"
+
+
+async def _seed(db, vid, *, user_id=1):
+    await videos_repo.upsert_metadata(
+        db, video_id=vid, url="u", title=f"T {vid}", description="",
+        thumbnail_path=None, duration_seconds=None, user_id=user_id,
+    )
+
+
+async def test_set_archived_roundtrip(db):
+    await _seed(db, "v1")
+    ok = await videos_repo.set_archived(db, "v1", user_id=1, archived=True)
+    assert ok is True
+    v = await videos_repo.get(db, "v1")
+    assert v.archived_at is not None
+    ok = await videos_repo.set_archived(db, "v1", user_id=1, archived=False)
+    assert ok is True
+    v = await videos_repo.get(db, "v1")
+    assert v.archived_at is None
+
+
+async def test_set_archived_foreign_profile_returns_false(db):
+    await db.execute("INSERT INTO users (id, name) VALUES (2, 'o')")
+    await db.commit()
+    await _seed(db, "v1", user_id=2)
+    ok = await videos_repo.set_archived(db, "v1", user_id=1, archived=True)
+    assert ok is False
+    v = await videos_repo.get(db, "v1")
+    assert v.archived_at is None
+
+
+async def test_list_recent_excludes_archived(db):
+    await _seed(db, "v1")
+    await _seed(db, "v2")
+    await videos_repo.set_archived(db, "v2", user_id=1, archived=True)
+    rows = await videos_repo.list_recent(db, user_id=1)
+    assert [v.id for v in rows] == ["v1"]
+
+
+async def test_list_archived_returns_only_archived(db):
+    await _seed(db, "v1")
+    await _seed(db, "v2")
+    await videos_repo.set_archived(db, "v2", user_id=1, archived=True)
+    rows = await videos_repo.list_archived(db, user_id=1)
+    assert [v.id for v in rows] == ["v2"]
+
+
+async def test_count_archived(db):
+    await _seed(db, "v1")
+    await _seed(db, "v2")
+    await videos_repo.set_archived(db, "v2", user_id=1, archived=True)
+    assert await videos_repo.count_archived(db, user_id=1) == 1
+
+
+async def test_search_fts_excludes_archived(db):
+    await _seed(db, "v1")
+    await videos_repo.set_archived(db, "v1", user_id=1, archived=True)
+    ids = await videos_repo.search_fts(db, "T", user_id=1)
+    assert "v1" not in ids
