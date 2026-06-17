@@ -106,3 +106,24 @@ async def test_backfill_dry_run_writes_nothing(db, tmp_path, monkeypatch):
     v = await videos_repo.get(db, "v1")
     assert v.thumbnail_path is None
     assert summary["checked"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_backfill_since_days_excludes_old_items(db, tmp_path):
+    """run_backfill with since_days=7 only processes the recent item."""
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await _seed(db, "recent")
+    await _seed(db, "old30")
+    # Backdate the old item to 30 days ago.
+    await db.execute(
+        "UPDATE videos SET created_at=datetime('now','-30 days') WHERE id=?",
+        ("old30",),
+    )
+    await db.commit()
+
+    summary = await bf.run_backfill(
+        db, cfg, api_key="K", force=False, dry_run=True, since_days=7,
+    )
+    # Only the recent item should be checked; the 30-day-old one is excluded.
+    assert summary["checked"] == 1

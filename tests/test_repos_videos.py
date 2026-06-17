@@ -315,3 +315,56 @@ async def test_set_image_query_roundtrip(db):
     await videos_repo.set_image_query(db, "v1", "mountain sunrise")
     v = await videos_repo.get(db, "v1")
     assert v.image_query == "mountain sunrise"
+
+
+async def test_list_for_thumbnail_backfill_since_days_filters_old(db):
+    """since_days=7 keeps a 2-day-old item and excludes a 30-day-old one."""
+    from app.models import VideoKind
+
+    await videos_repo.upsert_metadata(
+        db, video_id="recent", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="old", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    # Backdate the old item to 30 days ago.
+    await db.execute(
+        "UPDATE videos SET created_at=datetime('now','-30 days') WHERE id=?",
+        ("old",),
+    )
+    await db.commit()
+
+    results = await videos_repo.list_for_thumbnail_backfill(
+        db, only_missing=True, since_days=7,
+    )
+    ids = [v.id for v in results]
+    assert "recent" in ids
+    assert "old" not in ids
+
+
+async def test_list_for_thumbnail_backfill_since_days_none_includes_all(db):
+    """since_days=None (default) does not filter by age."""
+    from app.models import VideoKind
+
+    await videos_repo.upsert_metadata(
+        db, video_id="recent2", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    await videos_repo.upsert_metadata(
+        db, video_id="old2", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    await db.execute(
+        "UPDATE videos SET created_at=datetime('now','-30 days') WHERE id=?",
+        ("old2",),
+    )
+    await db.commit()
+
+    results = await videos_repo.list_for_thumbnail_backfill(
+        db, only_missing=True, since_days=None,
+    )
+    ids = [v.id for v in results]
+    assert "recent2" in ids
+    assert "old2" in ids
