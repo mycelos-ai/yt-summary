@@ -570,6 +570,17 @@ async def set_image_query(
     await db.commit()
 
 
+async def set_thumbnail_path(
+    db: aiosqlite.Connection, video_id: str, thumbnail_path: str,
+) -> None:
+    await db.execute(
+        "UPDATE videos SET thumbnail_path=?, updated_at=datetime('now') "
+        "WHERE id=?",
+        (thumbnail_path, video_id),
+    )
+    await db.commit()
+
+
 async def get_highlights(
     db: aiosqlite.Connection, video_id: str,
 ) -> str | None:

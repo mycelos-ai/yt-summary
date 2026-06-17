@@ -12,6 +12,9 @@ from pathlib import Path
 import anyio
 import httpx
 
+from app.config import Config
+from app.models import Video, VideoKind
+from app.repos import videos as videos_repo
 from app.services.youtube import download_thumbnail
 
 log = logging.getLogger(__name__)
@@ -50,3 +53,34 @@ async def fetch_pexels_thumbnail(
     except Exception as e:  # pragma: no cover - defensive
         log.info("pexels: thumbnail fetch failed for %r: %s", query, e)
         return False
+
+
+_ELIGIBLE_KINDS = (VideoKind.EMAIL, VideoKind.WEB)
+
+
+async def ensure_stock_thumbnail(
+    db, video: Video, *, config: Config, api_key: str, force: bool,
+) -> bool:
+    """Fetch+set a Pexels thumbnail for an email/web item when missing
+    (or always, when `force`). Returns True if a thumbnail was written.
+
+    No-ops (returns False) for: ineligible kind, empty api_key, no
+    image_query, or an existing thumbnail when not forcing.
+    """
+    if video.kind not in _ELIGIBLE_KINDS:
+        return False
+    if not api_key:
+        return False
+    if video.thumbnail_path and not force:
+        return False
+    query = (video.image_query or "").strip()
+    if not query:
+        return False
+    target = config.thumbnails_dir / f"{video.id}.jpg"
+    ok = await fetch_pexels_thumbnail(
+        query=query, api_key=api_key, target=target,
+    )
+    if not ok:
+        return False
+    await videos_repo.set_thumbnail_path(db, video.id, str(target))
+    return True
