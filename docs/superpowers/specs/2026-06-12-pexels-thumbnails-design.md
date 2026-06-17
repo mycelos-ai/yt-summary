@@ -16,11 +16,13 @@ identischen Platzhalter-Icons besteht.
 - **Suchbegriff vom LLM**: der bestehende Highlights-Extraktions-Call
   liefert zusätzlich `image_query` (2–4 englische, bildtaugliche
   Suchwörter). Bewusst NICHT der per Profil anpassbare Summary-Prompt —
-  der Highlights-Prompt ist systemkontrolliert.
+  der Highlights-Prompt ist systemkontrolliert. Der Wert wird
+  **persistiert** (`videos.image_query`), damit der Backfill ihn ohne
+  erneuten LLM-Call wiederverwenden kann.
 - **Geltungsbereich:** `kind='email'` immer; `kind='web'` nur, wenn nach
   dem og:image-Versuch kein Thumbnail existiert. `kind='youtube'` nie.
-- Bestehende Items bleiben unverändert (kein Backfill in diesem Wurf;
-  optionaler Sweep als Folgeprojekt).
+- **Backfill** als wiederholbares CLI-Skript (`--force` für Re-Runs nach
+  Algorithmus-Änderungen), damit man die Bildqualität iterativ testen kann.
 
 ## 1. Settings
 
@@ -39,8 +41,12 @@ bekommt ein zusätzliches Output-Feld:
 ```
 
 Parsing tolerant: fehlt das Feld oder ist es leer/kein String → `None`,
-niemals ein Fehler. Der Wert wird nicht persistiert, sondern direkt im
-selben Pipeline-Schritt verbraucht.
+niemals ein Fehler. Der Wert wird in der neuen Spalte
+`videos.image_query` (nullable TEXT) **persistiert** — die Live-Pipeline
+verbraucht ihn direkt, der Backfill liest ihn später wieder aus.
+
+Datenmodell-Ergänzung: `videos.image_query TEXT` per `_ensure_column`-
+Migration; `Video`-Dataclass erhält `image_query: str | None`.
 
 ## 3. Service: `app/services/stock_images.py` (neu)
 
@@ -67,8 +73,11 @@ async def fetch_pexels_thumbnail(
 Im Worker-Schritt nach der Highlights-Extraktion (gleiche Stelle, an der
 `highlights_json` gespeichert wird):
 
-1. Gilt nur für `kind in ('email', 'web')` und nur, wenn
-   `thumbnail_path` noch `NULL`/leer ist.
+0. `image_query` aus der Antwort am Video speichern (immer, sofern
+   vorhanden — auch für YouTube, schadet nicht und hält den Backfill
+   konsistent).
+1. Thumbnail-Beschaffung gilt nur für `kind in ('email', 'web')` und nur,
+   wenn `thumbnail_path` noch `NULL`/leer ist.
 2. `pexels_api_key` aus den Settings lesen (User-scoped wie üblich);
    fehlt er oder fehlt `image_query` → Schritt überspringen.
 3. `fetch_pexels_thumbnail(query=image_query, api_key=…,
@@ -76,7 +85,40 @@ Im Worker-Schritt nach der Highlights-Extraktion (gleiche Stelle, an der
 4. Bei `True`: `thumbnail_path` am Video setzen (bestehendes
    Upsert-/Update-Muster wie beim Web-Import).
 
-## 5. Ränder
+## 5. Backfill-CLI
+
+Ein wiederholbares Skript, um bestehende Items nachträglich (und nach
+Algorithmus-Änderungen erneut) mit Thumbnails zu versehen:
+
+```
+python -m app.scripts.backfill_thumbnails [--force] [--user-id N] [--limit N] [--dry-run]
+```
+
+Verhalten:
+
+- Wählt Kandidaten: `kind in ('email','web')`, optional auf `--user-id`
+  beschränkt; ohne `--force` nur Items mit leerem `thumbnail_path`, mit
+  `--force` **alle** (so lassen sich Bilder nach einem geänderten
+  `image_query`-Prompt oder anderer Pexels-Logik neu holen).
+- Pro Item: `image_query` aus der Spalte nutzen; fehlt es, ein günstiger
+  LLM-Mini-Call aus der gespeicherten `summary`, dessen Ergebnis in
+  `videos.image_query` zurückgeschrieben wird (damit ein späterer Lauf
+  ohne erneuten Call auskommt).
+- Dann `fetch_pexels_thumbnail(...)`; bei Erfolg `thumbnail_path` setzen.
+  Bei `--force` wird die Ziel-`.jpg` überschrieben.
+- Teilt sich die Kern-Logik mit der Live-Pipeline über eine gemeinsame
+  Funktion (z. B. `ensure_stock_thumbnail(db, video, *, force)` im
+  `stock_images`-Service oder einem dünnen Pipeline-Helfer) — keine
+  duplizierte Beschaffungslogik.
+- Gibt am Ende eine **Zusammenfassung** aus (geprüft / Query generiert /
+  Bild geholt / kein Treffer / Fehler), damit man die Trefferquote beim
+  Iterieren sieht. `--dry-run` ermittelt nur die Queries und loggt sie,
+  ohne Pexels aufzurufen oder zu schreiben — nützlich, um die LLM-Queries
+  vor einem echten Lauf zu begutachten.
+- Rate-Limit-schonend: kurze Pause zwischen den Pexels-Calls (z. B.
+  ~0,3 s), damit auch große Bestände unter 200/h bleiben.
+
+## 6. Ränder
 
 - Kein Key konfiguriert → exakt heutiges Verhalten (Icon-Platzhalter).
 - Pexels-Rate-Limit (200/h) ist für Newsletter-Volumina irrelevant;
@@ -86,12 +128,19 @@ Im Worker-Schritt nach der Highlights-Extraktion (gleiche Stelle, an der
 - Attribution: Pexels verlangt keine Pflicht-Attribution in der UI
   (im Gegensatz zu Unsplash) — bewusst einer der Gründe für Pexels.
 
-## 6. Tests
+## 7. Tests
 
+- Migration: Legacy-`videos` ohne Spalte → `image_query` vorhanden.
 - `stock_images`: gemocktes HTTP — Treffer (Datei entsteht, `True`),
   kein Treffer (`False`), HTTP-Fehler/Timeout (`False`, kein Raise),
   defektes JSON (`False`).
-- Highlights-Parsing: `image_query` vorhanden / fehlt / falscher Typ.
+- Highlights-Parsing: `image_query` vorhanden / fehlt / falscher Typ;
+  Persistenz in `videos.image_query`.
+- Backfill-CLI (mit gemocktem Pexels + gemocktem LLM): überspringt Items
+  mit Thumbnail ohne `--force`, verarbeitet sie mit `--force`; nutzt
+  gespeichertes `image_query`, generiert+speichert es bei Fehlen;
+  `--dry-run` schreibt nichts und ruft Pexels nicht auf; Zusammenfassungs-
+  zähler stimmen; `--user-id`/`--limit` greifen.
 - Pipeline: E-Mail-Item ohne Thumbnail + Key gesetzt → `thumbnail_path`
   gesetzt; ohne Key → unverändert; YouTube-Item → nie aufgerufen;
   Web-Item mit og:image → nicht überschrieben.
