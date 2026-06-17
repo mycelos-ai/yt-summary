@@ -130,6 +130,9 @@ async def home(
     digest_enabled, _ = await users_repo.get_digest_prefs(
         db, user_id=current_user_id,
     )
+    archived_count = await videos_repo.count_archived(
+        db, user_id=current_user_id,
+    )
 
     return templates.TemplateResponse(
         request,
@@ -149,6 +152,7 @@ async def home(
             "onboarding_done": onboarding_done,
             "recent_digests": recent_digests,
             "digest_enabled": digest_enabled,
+            "archived_count": archived_count,
         },
     )
 

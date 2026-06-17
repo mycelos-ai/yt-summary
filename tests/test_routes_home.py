@@ -486,3 +486,22 @@ def test_archive_page_empty_state(tmp_path, monkeypatch):
         resp = client.get("/archive")
     assert resp.status_code == 200
     assert "Nothing archived" in resp.text
+
+
+def test_home_shows_archive_link_when_items_archived(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_archived(
+                app.state.db, "v1", user_id=1, archived=True,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert 'href="/archive"' in resp.text

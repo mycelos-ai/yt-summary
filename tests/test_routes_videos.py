@@ -1138,3 +1138,40 @@ def test_archived_item_hidden_from_home(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get("/")
     assert "HomeTitle" not in resp.text
+
+
+def test_detail_shows_archive_button_when_active(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1")
+    assert 'action="/v/v1/archive"' in resp.text
+    assert 'action="/v/v1/unarchive"' not in resp.text
+
+
+def test_detail_shows_restore_button_when_archived(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_archived(
+                app.state.db, "v1", user_id=1, archived=True,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1")
+    assert 'action="/v/v1/unarchive"' in resp.text
+    assert "Archived" in resp.text

@@ -116,6 +116,11 @@
     </button>
   </div>
 {% endif %}
+{% if archived_count %}
+  <p class="playlist-strip-more">
+    <a href="/archive">Archive ({{ archived_count }}) →</a>
+  </p>
+{% endif %}
 
 <style>
   .playlist-strip-more {
