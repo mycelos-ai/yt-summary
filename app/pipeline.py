@@ -253,6 +253,28 @@ async def process_video(
     # highlights_json untouched (NULL). The Digest service filters
     # NULL items out of its pool.
 
+    # Stock thumbnail for email/web items lacking one. Cosmetic — every
+    # failure is swallowed inside the stock_images helpers, so this can
+    # never break the pipeline. Skipped entirely when no Pexels key is
+    # configured for the owning profile.
+    if video.kind in (VideoKind.EMAIL, VideoKind.WEB) and not video.thumbnail_path:
+        from app.services import stock_images
+        pexels_key = await settings_repo.get_for_user(
+            db, video.user_id, "pexels_api_key",
+        ) or ""
+        if pexels_key:
+            image_query = await stock_images.generate_image_query(
+                summary=summary or "", model_row=model_row,
+            )
+            if image_query:
+                await videos_repo.set_image_query(db, video_id, image_query)
+                refreshed = await videos_repo.get(db, video_id)
+                if refreshed is not None:
+                    await stock_images.ensure_stock_thumbnail(
+                        db, refreshed, config=config, api_key=pexels_key,
+                        force=False,
+                    )
+
     # Resolve the language metadata to stamp on the final write:
     #   * If source_language is still NULL and we have nothing better
     #     to fall back to, ask the configured LLM what language the

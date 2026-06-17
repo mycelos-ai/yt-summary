@@ -22,6 +22,7 @@ Return your answer as a single JSON object with this exact shape:
 
 {
   "summary": "<the full markdown summary>",
+  "image_query": "<2-4 English keywords for a fitting stock photo>",
   "highlights": [
     {"text": "<one concrete noteworthy point, <40 words>",
      "rank": <integer 1..5, 1 = most noteworthy>,
@@ -29,6 +30,13 @@ Return your answer as a single JSON object with this exact shape:
     ...
   ]
 }
+
+Rules for "image_query":
+- 2 to 4 concrete, visual English keywords describing the main topic,
+  suitable for a stock-photo search (e.g. "data center servers",
+  "wind turbines field"). Avoid abstract words and proper nouns that
+  won't match stock libraries. Omit the field only if nothing visual
+  fits.
 
 Rules for "highlights":
 - 3 to 5 entries is typical. If nothing in the content is genuinely
@@ -133,3 +141,25 @@ def parse_summary_payload(raw: str) -> tuple[str, list[dict] | None]:
         v for v in (_validate_highlight(e) for e in highlights_raw) if v
     ]
     return (summary, highlights)
+
+
+def parse_image_query(raw: str) -> str | None:
+    """Pull the optional `image_query` string out of the LLM envelope.
+
+    Tolerant: returns None when the envelope is unparseable, the field
+    is absent, blank, or not a string. Never raises — image queries are
+    cosmetic.
+    """
+    blob = _extract_json_blob(raw)
+    if blob is None:
+        return None
+    try:
+        payload = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("image_query")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()

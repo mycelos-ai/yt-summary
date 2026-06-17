@@ -511,6 +511,24 @@
     </section>
     <!-- ── /Audio (TTS) ────────────────────────────────────────── -->
 
+    <!-- ── Integrations ─────────────────────────────────────────── -->
+    <section class="settings-card">
+      <header class="settings-card-head">
+        <div class="settings-card-head-text">
+          <h2>Integrations</h2>
+          <p class="settings-card-sub">Optional third-party API keys.</p>
+        </div>
+      </header>
+
+      <label class="settings-field">
+        <span class="settings-label">Pexels API Key <span class="settings-hint-inline">— optional, stock photos for email/web thumbnails</span></span>
+        <input name="pexels_api_key" value="{{ settings.get('pexels_api_key', '') }}"
+               placeholder="Your Pexels API key">
+        <small>Get a free key at <code>pexels.com/api</code>. When set, email summaries (and web articles without their own image) get a fitting stock photo instead of a placeholder icon.</small>
+      </label>
+    </section>
+    <!-- ── /Integrations ─────────────────────────────────────────── -->
+
     <div class="settings-save-row">
       <button type="submit" class="btn btn-primary">Save</button>
     </div>

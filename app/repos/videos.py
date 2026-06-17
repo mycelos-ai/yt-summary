@@ -43,6 +43,10 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         archived_at = row["archived_at"]
     except (IndexError, KeyError):
         archived_at = None
+    try:
+        image_query = row["image_query"]
+    except (IndexError, KeyError):
+        image_query = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -64,6 +68,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         summary_language=summary_language,
         transcript_language=transcript_language,
         archived_at=archived_at,
+        image_query=image_query,
     )
 
 
@@ -553,6 +558,54 @@ async def set_highlights(
         (highlights_json, video_id),
     )
     await db.commit()
+
+
+async def set_image_query(
+    db: aiosqlite.Connection, video_id: str, image_query: str | None,
+) -> None:
+    await db.execute(
+        "UPDATE videos SET image_query=? WHERE id=?",
+        (image_query, video_id),
+    )
+    await db.commit()
+
+
+async def set_thumbnail_path(
+    db: aiosqlite.Connection, video_id: str, thumbnail_path: str,
+) -> None:
+    await db.execute(
+        "UPDATE videos SET thumbnail_path=?, updated_at=datetime('now') "
+        "WHERE id=?",
+        (thumbnail_path, video_id),
+    )
+    await db.commit()
+
+
+async def list_for_thumbnail_backfill(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int | None = None,
+    only_missing: bool = True,
+    limit: int | None = None,
+) -> list[Video]:
+    """Email/web items eligible for a stock-photo backfill.
+
+    only_missing=True restricts to rows without a thumbnail; False
+    returns all (for --force re-runs)."""
+    clauses = ["kind IN ('email','web')"]
+    params: list = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if only_missing:
+        clauses.append("(thumbnail_path IS NULL OR thumbnail_path = '')")
+    sql = "SELECT * FROM videos WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY created_at DESC, id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    cur = await db.execute(sql, tuple(params))
+    return [_row_to_video(r) for r in await cur.fetchall()]
 
 
 async def get_highlights(

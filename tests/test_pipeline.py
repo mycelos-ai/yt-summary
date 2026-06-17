@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import aiosqlite
 
 from app.config import Config
-from app.models import TranscriptSource
+from app.models import TranscriptSource, VideoKind
 from app.repos import llm_models as llm_models_repo
 from app.repos import settings as settings_repo
 from app.repos import videos as videos_repo
@@ -1015,3 +1015,98 @@ async def test_pipeline_leaves_highlights_null_when_parser_returns_none(
 
     stored = await videos_repo.get_highlights(db, "v3")
     assert stored is None
+
+
+async def test_pipeline_sets_stock_thumbnail_for_email(db, tmp_path, monkeypatch):
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await videos_repo.upsert_metadata(
+        db, video_id="e1", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.EMAIL,
+    )
+    await videos_repo.set_transcript(db, "e1", "body", TranscriptSource.EMAIL)
+    await llm_models_repo.insert(
+        db, label="T", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+    await settings_repo.set(db, "pexels_api_key", "PKEY")
+
+    async def set_step(s):
+        pass
+
+    async def fake_fetch(*, query, api_key, target):
+        from pathlib import Path
+        Path(target).write_bytes(b"jpeg")
+        return True
+
+    async def fake_genq(*, summary, model_row):
+        return "city skyline"
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("body", [], TranscriptSource.EMAIL, None)),
+        ),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("SUM", [])),
+        ),
+        patch(
+            "app.services.stock_images.fetch_pexels_thumbnail", fake_fetch,
+        ),
+        patch(
+            "app.services.stock_images.generate_image_query", fake_genq,
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "e1", set_step)
+
+    v = await videos_repo.get(db, "e1")
+    assert v.image_query == "city skyline"
+    assert v.thumbnail_path is not None
+
+
+async def test_pipeline_skips_thumbnail_without_key(db, tmp_path, monkeypatch):
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    await videos_repo.upsert_metadata(
+        db, video_id="e2", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None, kind=VideoKind.EMAIL,
+    )
+    await videos_repo.set_transcript(db, "e2", "body", TranscriptSource.EMAIL)
+    await llm_models_repo.insert(
+        db, label="T", provider_id="openai", model="openai/gpt-4o",
+        api_key="key", base_url="", make_default=True,
+    )
+    # no pexels_api_key set
+
+    async def set_step(s):
+        pass
+
+    fetch_called = False
+
+    async def fake_fetch(*, query, api_key, target):
+        nonlocal fetch_called
+        fetch_called = True
+        return True
+
+    with (
+        patch(
+            "app.pipeline.obtain_transcript",
+            AsyncMock(return_value=("body", [], TranscriptSource.EMAIL, None)),
+        ),
+        patch(
+            "app.pipeline.summarize_with_highlights",
+            AsyncMock(return_value=("SUM", [])),
+        ),
+        patch(
+            "app.services.stock_images.fetch_pexels_thumbnail", fake_fetch,
+        ),
+    ):
+        from app.pipeline import process_video
+        await process_video(db, config, "e2", set_step)
+
+    assert fetch_called is False
+    v = await videos_repo.get(db, "e2")
+    assert v.thumbnail_path is None
