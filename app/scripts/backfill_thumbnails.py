@@ -3,11 +3,13 @@
 Usage:
   python -m app.scripts.backfill_thumbnails [--force] [--dry-run]
                                             [--user-id N] [--limit N]
+                                            [--since-days N]
 
---force      re-fetch even items that already have a thumbnail
---dry-run    resolve image queries and log them; no Pexels call, no write
---user-id N  restrict to one profile
---limit N    process at most N items
+--force        re-fetch even items that already have a thumbnail
+--dry-run      resolve image queries and log them; no Pexels call, no write
+--user-id N    restrict to one profile
+--limit N      process at most N items
+--since-days N restrict to items created within the last N days
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ log = logging.getLogger("backfill_thumbnails")
 async def run_backfill(
     db, config: Config, *, api_key: str, force: bool, dry_run: bool,
     user_id: int | None = None, limit: int | None = None,
-    pause_s: float = 0.3,
+    pause_s: float = 0.3, since_days: int | None = None,
 ) -> dict[str, int]:
     summary = {
         "checked": 0, "query_generated": 0, "fetched": 0,
@@ -37,6 +39,7 @@ async def run_backfill(
     model_row = await llm_models_repo.get_default(db)
     videos = await videos_repo.list_for_thumbnail_backfill(
         db, user_id=user_id, only_missing=False, limit=limit,
+        since_days=since_days,
     )
     for video in videos:
         summary["checked"] += 1
@@ -88,6 +91,7 @@ async def _main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--user-id", type=int, default=None)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--since-days", type=int, default=None)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -112,6 +116,7 @@ async def _main() -> None:
         result = await run_backfill(
             db, config, api_key=api_key, force=args.force,
             dry_run=args.dry_run, user_id=args.user_id, limit=args.limit,
+            since_days=args.since_days,
         )
         log.info("Backfill summary: %s", result)
     finally:

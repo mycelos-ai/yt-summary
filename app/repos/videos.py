@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -587,11 +587,13 @@ async def list_for_thumbnail_backfill(
     user_id: int | None = None,
     only_missing: bool = True,
     limit: int | None = None,
+    since_days: int | None = None,
 ) -> list[Video]:
     """Email/web items eligible for a stock-photo backfill.
 
     only_missing=True restricts to rows without a thumbnail; False
-    returns all (for --force re-runs)."""
+    returns all (for --force re-runs).
+    since_days, when set, restricts to items created within the last N days."""
     clauses = ["kind IN ('email','web')"]
     params: list = []
     if user_id is not None:
@@ -599,6 +601,10 @@ async def list_for_thumbnail_backfill(
         params.append(user_id)
     if only_missing:
         clauses.append("(thumbnail_path IS NULL OR thumbnail_path = '')")
+    if since_days is not None:
+        cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
+        clauses.append("datetime(created_at) >= datetime(?)")
+        params.append(cutoff)
     sql = "SELECT * FROM videos WHERE " + " AND ".join(clauses)
     sql += " ORDER BY created_at DESC, id DESC"
     if limit is not None:
