@@ -33,17 +33,29 @@ identischen Platzhalter-Icons besteht.
 
 ## 2. LLM: `image_query`
 
-Der Highlights-Extraktions-Prompt (dort, wo `highlights_json` entsteht)
-bekommt ein zusätzliches Output-Feld:
+Der `image_query`-Suchbegriff (2–4 englische Wörter) wird per **separatem,
+billigem LLM-Call** aus der fertigen Summary abgeleitet — eine gemeinsame
+Funktion `stock_images.generate_image_query(summary, model_row)`, die
+sowohl die Live-Pipeline als auch der Backfill nutzen (DRY).
 
-```
-"image_query": "<2-4 englische Suchwörter für ein passendes Stockfoto>"
-```
+Begründung für den separaten Call statt eines Feldes im
+Highlights-Envelope: `summarize_with_highlights` gibt `(summary,
+highlights)` zurück und wird in ~25 bestehenden Tests gemockt; eine
+Arity-Änderung oder ein Umstieg der Pipeline auf den rohen Envelope
+würde all diese brechen. Der separate Call läuft ohnehin nur für
+E-Mail/Web-Items mit gesetztem Pexels-Key — im Normalfall (kein Key)
+kostet er nichts.
 
-Parsing tolerant: fehlt das Feld oder ist es leer/kein String → `None`,
-niemals ein Fehler. Der Wert wird in der neuen Spalte
-`videos.image_query` (nullable TEXT) **persistiert** — die Live-Pipeline
-verbraucht ihn direkt, der Backfill liest ihn später wieder aus.
+Der erzeugte Wert wird in der neuen Spalte `videos.image_query`
+(nullable TEXT) **persistiert** — die Live-Pipeline schreibt ihn beim
+Verarbeiten, der Backfill liest ihn wieder aus (und generiert+speichert
+ihn, falls er fehlt). Parsing/Generierung tolerant: leere Summary, kein
+Modell oder ein LLM-Fehler → `None`, niemals ein Fehler.
+
+`HIGHLIGHTS_SCHEMA_HINT` bekommt zusätzlich ein optionales
+`image_query`-Feld samt Parser `parse_image_query` (für den Fall, dass
+das LLM es im Envelope mitliefert) — der Parser ist eigenständig und
+bricht die bestehende `parse_summary_payload`-Signatur nicht.
 
 Datenmodell-Ergänzung: `videos.image_query TEXT` per `_ensure_column`-
 Migration; `Video`-Dataclass erhält `image_query: str | None`.
@@ -73,17 +85,19 @@ async def fetch_pexels_thumbnail(
 Im Worker-Schritt nach der Highlights-Extraktion (gleiche Stelle, an der
 `highlights_json` gespeichert wird):
 
-0. `image_query` aus der Antwort am Video speichern (immer, sofern
-   vorhanden — auch für YouTube, schadet nicht und hält den Backfill
-   konsistent).
 1. Thumbnail-Beschaffung gilt nur für `kind in ('email', 'web')` und nur,
-   wenn `thumbnail_path` noch `NULL`/leer ist.
-2. `pexels_api_key` aus den Settings lesen (User-scoped wie üblich);
-   fehlt er oder fehlt `image_query` → Schritt überspringen.
-3. `fetch_pexels_thumbnail(query=image_query, api_key=…,
-   target=config.thumbnails_dir / f"{video_id}.jpg")`.
-4. Bei `True`: `thumbnail_path` am Video setzen (bestehendes
-   Upsert-/Update-Muster wie beim Web-Import).
+   wenn `thumbnail_path` noch `NULL`/leer ist. YouTube nie.
+2. `pexels_api_key` aus den Settings lesen (User-scoped). Fehlt er →
+   Schritt komplett überspringen (kein LLM-Call, kein Netz).
+3. `generate_image_query(summary, model_row)` → Suchbegriff; ist er leer
+   → überspringen. Erfolg → in `videos.image_query` speichern.
+4. `fetch_pexels_thumbnail(query=…, api_key=…,
+   target=config.thumbnails_dir / f"{video_id}.jpg")`; bei `True`
+   `thumbnail_path` am Video setzen (`videos_repo.set_thumbnail_path`).
+
+Die gemeinsame Funktion `ensure_stock_thumbnail(db, video, *, config,
+api_key, force)` kapselt Schritt 1+4 (Eignungsprüfung + Fetch + Set) und
+wird von Pipeline und Backfill geteilt.
 
 ## 5. Backfill-CLI
 
