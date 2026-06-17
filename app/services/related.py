@@ -42,6 +42,16 @@ async def related_video_ids(
     ]
     if not candidate_ids:
         return []
+    placeholders = ",".join("?" for _ in candidate_ids)
+    active_cur = await db.execute(
+        f"SELECT id FROM videos WHERE id IN ({placeholders})"
+        " AND archived_at IS NULL",
+        candidate_ids,
+    )
+    active_ids = {r[0] for r in await active_cur.fetchall()}
+    candidate_ids = [vid for vid in candidate_ids if vid in active_ids]
+    if not candidate_ids:
+        return []
     rows = await videos_repo.get_many(db, candidate_ids)
 
     out: list[str] = []

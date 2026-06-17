@@ -298,3 +298,30 @@ async def test_list_candidates_respects_period_end_upper_bound(db):
     )
     assert [c["id"] for c in candidates] == ["v1"]
     assert missing == 0
+
+
+async def test_gather_pool_excludes_archived(db):
+    await _seed_video(db, "v1")
+    await db.execute(
+        "UPDATE videos SET archived_at=datetime('now') WHERE id='v1'"
+    )
+    await db.commit()
+    start = datetime.now(UTC) - timedelta(hours=96)
+    pool = await digest_service._gather_pool(
+        db, user_id=1, period_start=start,
+    )
+    assert pool == []
+
+
+async def test_list_candidates_excludes_archived(db):
+    await _seed_video(db, "v1")
+    await db.execute(
+        "UPDATE videos SET archived_at=datetime('now') WHERE id='v1'"
+    )
+    await db.commit()
+    start = datetime.now(UTC) - timedelta(hours=96)
+    candidates, missing = await digest_service.list_candidates(
+        db, user_id=1, period_start=start,
+    )
+    assert candidates == []
+    assert missing == 0

@@ -115,6 +115,7 @@ async def _gather_pool(
         FROM videos
         WHERE user_id = ?
           AND datetime(created_at) >= datetime(?)
+          AND archived_at IS NULL
           AND highlights_json IS NOT NULL
           AND highlights_json != '[]'
           {id_clause}
@@ -170,6 +171,7 @@ async def list_candidates(
         FROM videos
         WHERE user_id = ?
           AND datetime(created_at) >= datetime(?)
+          AND archived_at IS NULL
           {upper_clause}
         ORDER BY datetime(created_at) DESC
         """,
