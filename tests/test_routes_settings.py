@@ -1118,3 +1118,21 @@ def test_settings_renders_empty_state_when_no_models(tmp_path, monkeypatch):
         body = resp.text
         assert "No models configured yet" in body
         assert "#quick-setup" in body
+
+
+def test_pexels_api_key_saved_and_cleared(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        client.post("/settings", data={"pexels_api_key": "PKEY"},
+                    follow_redirects=False)
+
+        async def get_key():
+            from app.repos import settings as settings_repo
+            return await settings_repo.get(app.state.db, "pexels_api_key")
+        assert asyncio.get_event_loop().run_until_complete(get_key()) == "PKEY"
+
+        client.post("/settings", data={"pexels_api_key": ""},
+                    follow_redirects=False)
+        assert asyncio.get_event_loop().run_until_complete(get_key()) is None

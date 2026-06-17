@@ -219,6 +219,7 @@ async def save_settings(
     default_tts_voice_es: str = Form(""),
     default_tts_quality: str = Form("medium"),
     default_tts_length_scale: str = Form(""),
+    pexels_api_key: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM and httpx clients append paths to base; a trailing "/"
@@ -240,6 +241,7 @@ async def save_settings(
         ("default_tts_voice_fr", default_tts_voice_fr.strip()),
         ("default_tts_voice_es", default_tts_voice_es.strip()),
         ("default_tts_quality", default_tts_quality.strip()),
+        ("pexels_api_key", pexels_api_key.strip()),
     ):
         if value:
             await settings_repo.set(db, key, value)
