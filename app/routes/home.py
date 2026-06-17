@@ -153,6 +153,21 @@ async def home(
     )
 
 
+@router.get("/archive", response_class=HTMLResponse)
+async def archive_page(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
+) -> HTMLResponse:
+    videos = await videos_repo.list_archived(db, user_id=current_user_id)
+    return templates.TemplateResponse(
+        request,
+        "archive.html",
+        {"videos": videos, "current_user": current_user},
+    )
+
+
 @router.get("/videos/load-more", response_class=HTMLResponse)
 async def load_more_videos(
     request: Request,
