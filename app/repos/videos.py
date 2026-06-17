@@ -39,6 +39,10 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         transcript_language = row["transcript_language"]
     except (IndexError, KeyError):
         transcript_language = None
+    try:
+        archived_at = row["archived_at"]
+    except (IndexError, KeyError):
+        archived_at = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -59,6 +63,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         source_language=source_language,
         summary_language=summary_language,
         transcript_language=transcript_language,
+        archived_at=archived_at,
     )
 
 

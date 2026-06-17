@@ -67,6 +67,8 @@ class Video:
     # JSON-encoded list of {text, rank, reason}. NULL = not yet extracted
     # (pre-feature backlog). "[]" = LLM said "nothing noteworthy".
     highlights_json: str | None = None
+    # Soft-delete timestamp (ISO string). None = active; set = archived.
+    archived_at: str | None = None
 
 
 @dataclass

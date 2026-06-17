@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS videos (
     transcript_language TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Soft-delete timestamp. NULL = active; set = archived (hidden from
+    -- all active views, restorable from /archive).
+    archived_at TEXT,
     highlights_json TEXT
 );
 
@@ -361,6 +364,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "summary_language",    "TEXT")
         await _ensure_column(conn, "videos", "transcript_language", "TEXT")
         await _ensure_column(conn, "videos", "highlights_json", "TEXT")
+        await _ensure_column(conn, "videos", "archived_at", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
