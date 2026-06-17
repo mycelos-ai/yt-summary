@@ -39,6 +39,10 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         transcript_language = row["transcript_language"]
     except (IndexError, KeyError):
         transcript_language = None
+    try:
+        archived_at = row["archived_at"]
+    except (IndexError, KeyError):
+        archived_at = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -59,6 +63,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         source_language=source_language,
         summary_language=summary_language,
         transcript_language=transcript_language,
+        archived_at=archived_at,
     )
 
 
@@ -234,6 +239,41 @@ async def get(db: aiosqlite.Connection, video_id: str) -> Video | None:
     return _row_to_video(row) if row else None
 
 
+async def set_archived(
+    db: aiosqlite.Connection, video_id: str, *, user_id: int, archived: bool,
+) -> bool:
+    """Archive or restore a video. Returns False when the video does
+    not exist or belongs to another profile (caller answers 404)."""
+    value = "datetime('now')" if archived else "NULL"
+    cur = await db.execute(
+        f"UPDATE videos SET archived_at={value}, updated_at=datetime('now') "
+        "WHERE id=? AND user_id=?",
+        (video_id, user_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def list_archived(
+    db: aiosqlite.Connection, *, user_id: int, limit: int = 100, offset: int = 0,
+) -> list[Video]:
+    cur = await db.execute(
+        "SELECT * FROM videos WHERE user_id=? AND archived_at IS NOT NULL "
+        "ORDER BY datetime(archived_at) DESC, id DESC LIMIT ? OFFSET ?",
+        (user_id, limit, offset),
+    )
+    return [_row_to_video(r) for r in await cur.fetchall()]
+
+
+async def count_archived(db: aiosqlite.Connection, *, user_id: int) -> int:
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM videos WHERE user_id=? AND archived_at IS NOT NULL",
+        (user_id,),
+    )
+    row = await cur.fetchone()
+    return row[0] if row else 0
+
+
 async def delete(
     db: aiosqlite.Connection,
     video_id: str,
@@ -281,14 +321,14 @@ async def list_recent(
 ) -> list[Video]:
     if tag:
         cursor = await db.execute(
-            "SELECT * FROM videos WHERE user_id = ?"
+            "SELECT * FROM videos WHERE user_id = ? AND archived_at IS NULL"
             + _TAG_FILTER_SQL
             + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
             (user_id, tag, limit, offset),
         )
     else:
         cursor = await db.execute(
-            "SELECT * FROM videos WHERE user_id = ? "
+            "SELECT * FROM videos WHERE user_id = ? AND archived_at IS NULL "
             "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
             (user_id, limit, offset),
         )
@@ -318,6 +358,7 @@ async def search_fts(
             JOIN videos_fts f ON v.rowid = f.rowid
             WHERE videos_fts MATCH ?
               AND v.user_id = ?
+              AND v.archived_at IS NULL
               AND EXISTS (
                 SELECT 1 FROM video_tags vt
                 JOIN tags t ON t.id = vt.tag_id
@@ -334,6 +375,7 @@ async def search_fts(
             SELECT v.id FROM videos v
             JOIN videos_fts f ON v.rowid = f.rowid
             WHERE videos_fts MATCH ? AND v.user_id = ?
+              AND v.archived_at IS NULL
             ORDER BY rank
             LIMIT ?
             """,
@@ -401,6 +443,7 @@ async def search(
             placeholders = ",".join("?" * len(vector_ids))
             user_cursor = await db.execute(
                 f"SELECT id FROM videos WHERE user_id = ? "
+                f"AND archived_at IS NULL "
                 f"AND id IN ({placeholders})",
                 (user_id, *vector_ids),
             )

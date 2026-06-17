@@ -130,6 +130,9 @@ async def home(
     digest_enabled, _ = await users_repo.get_digest_prefs(
         db, user_id=current_user_id,
     )
+    archived_count = await videos_repo.count_archived(
+        db, user_id=current_user_id,
+    )
 
     return templates.TemplateResponse(
         request,
@@ -149,7 +152,23 @@ async def home(
             "onboarding_done": onboarding_done,
             "recent_digests": recent_digests,
             "digest_enabled": digest_enabled,
+            "archived_count": archived_count,
         },
+    )
+
+
+@router.get("/archive", response_class=HTMLResponse)
+async def archive_page(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
+) -> HTMLResponse:
+    videos = await videos_repo.list_archived(db, user_id=current_user_id)
+    return templates.TemplateResponse(
+        request,
+        "archive.html",
+        {"videos": videos, "current_user": current_user},
     )
 
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Archive</h1>
+<p class="caption">Archived items are hidden from your library, search, and digests. Restore one to bring it back.</p>
+{% if videos %}
+<section id="video-list">
+  {% for video in videos %}
+    {% include "video_card.html" %}
+  {% endfor %}
+</section>
+{% else %}
+<p class="empty">Nothing archived.</p>
+{% endif %}
+{% endblock %}

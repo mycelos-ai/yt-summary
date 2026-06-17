@@ -5,6 +5,9 @@
 <article class="video-detail">
   <header>
     <h1>{{ video.title }}</h1>
+    {% if video.archived_at %}
+      <p class="archived-banner" role="status">Archived — hidden from your library.</p>
+    {% endif %}
     {% if video.kind.value == 'web' or (video.kind.value == 'email' and video.url) %}
       {# Web articles and newsletters have no inline player. The
          "↗ Open original" link stays at the top — for newsletters it's
@@ -55,6 +58,15 @@
           <form method="post" action="/v/{{ video.id }}/retranscribe"
                 onsubmit="return confirm('Throw away the stored transcript and fetch it fresh? Useful if the transcript looks broken.');">
             <button type="submit" class="link-button">Re-transcribe</button>
+          </form>
+        {% endif %}
+        {% if video.archived_at %}
+          <form method="post" action="/v/{{ video.id }}/unarchive">
+            <button type="submit" class="link-button">Restore from archive</button>
+          </form>
+        {% else %}
+          <form method="post" action="/v/{{ video.id }}/archive">
+            <button type="submit" class="link-button">Archive</button>
           </form>
         {% endif %}
       </div>

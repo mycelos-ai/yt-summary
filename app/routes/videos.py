@@ -478,6 +478,34 @@ async def retranscribe_video(
     return RedirectResponse(f"/v/{video_id}", status_code=303)
 
 
+@router.post("/v/{video_id}/archive")
+async def archive_video(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    ok = await videos_repo.set_archived(
+        db, video_id, user_id=current_user_id, archived=True,
+    )
+    if not ok:
+        raise HTTPException(404)
+    return RedirectResponse("/", status_code=303)
+
+
+@router.post("/v/{video_id}/unarchive")
+async def unarchive_video(
+    video_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    ok = await videos_repo.set_archived(
+        db, video_id, user_id=current_user_id, archived=False,
+    )
+    if not ok:
+        raise HTTPException(404)
+    return RedirectResponse(f"/v/{video_id}", status_code=303)
+
+
 @router.get("/v/{video_id}", response_class=HTMLResponse)
 async def video_detail(
     video_id: str,

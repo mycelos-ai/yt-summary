@@ -68,3 +68,17 @@ async def test_related_respects_max_distance(db: aiosqlite.Connection):
         db, a, user_id=1, max_distance=0.1,
     )
     assert "far" not in ids
+
+
+async def test_related_excludes_archived_neighbour(db: aiosqlite.Connection):
+    await _seed(db, "a", vecval=0.50)
+    await _seed(db, "b", vecval=0.51)  # closest neighbour, but archived
+    await db.execute(
+        "UPDATE videos SET archived_at=datetime('now') WHERE id='b'"
+    )
+    await db.commit()
+    a = await videos_repo.get(db, "a")
+    ids = await related_svc.related_video_ids(
+        db, a, user_id=1, limit=5, max_distance=0.75,
+    )
+    assert "b" not in ids

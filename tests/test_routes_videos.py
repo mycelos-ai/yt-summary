@@ -1068,3 +1068,110 @@ def test_reindex_without_overrides_leaves_them_null(tmp_path, monkeypatch):
             assert job.additional_prompt is None
 
         asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_archive_then_unarchive(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        r1 = client.post("/v/v1/archive", follow_redirects=False)
+        assert r1.status_code == 303
+        assert r1.headers["location"] == "/"
+
+        async def fetch():
+            from app.repos import videos as videos_repo
+            return await videos_repo.get(app.state.db, "v1")
+        v = asyncio.get_event_loop().run_until_complete(fetch())
+        assert v.archived_at is not None
+
+        r2 = client.post("/v/v1/unarchive", follow_redirects=False)
+        assert r2.status_code == 303
+        assert r2.headers["location"] == "/v/v1"
+        v = asyncio.get_event_loop().run_until_complete(fetch())
+        assert v.archived_at is None
+
+
+def test_archive_404_for_foreign_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await app.state.db.execute(
+                "INSERT INTO users (id, name) VALUES (2, 'o')"
+            )
+            await app.state.db.commit()
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v2", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                user_id=2,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        r = client.post("/v/v2/archive", follow_redirects=False)
+    assert r.status_code == 404
+
+
+def test_archived_item_hidden_from_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="HomeTitle",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_archived(
+                app.state.db, "v1", user_id=1, archived=True,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert "HomeTitle" not in resp.text
+
+
+def test_detail_shows_archive_button_when_active(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1")
+    assert 'action="/v/v1/archive"' in resp.text
+    assert 'action="/v/v1/unarchive"' not in resp.text
+
+
+def test_detail_shows_restore_button_when_archived(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_archived(
+                app.state.db, "v1", user_id=1, archived=True,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1")
+    assert 'action="/v/v1/unarchive"' in resp.text
+    assert "Archived" in resp.text

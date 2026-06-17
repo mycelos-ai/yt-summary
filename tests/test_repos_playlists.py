@@ -232,3 +232,56 @@ async def test_latest_video_ids_omits_playlists_without_videos(
 
 async def test_latest_video_ids_empty_input(db: aiosqlite.Connection):
     assert await playlists_repo.latest_video_ids(db, []) == {}
+
+
+# ---------------------------------------------------------------------------
+# Archive-filtering tests
+# ---------------------------------------------------------------------------
+
+async def test_videos_for_playlist_excludes_archived(db: aiosqlite.Connection):
+    """An archived video linked to a playlist must not appear in its listing."""
+    await _make_playlist(db)
+    await _make_video(db, "v_active")
+    await _make_video(db, "v_archived")
+    await playlists_repo.link_video(db, "p1", "v_active")
+    await playlists_repo.link_video(db, "p1", "v_archived")
+    await videos_repo.set_archived(db, "v_archived", user_id=1, archived=True)
+
+    rows = await playlists_repo.videos_for_playlist(db, "p1")
+    ids = [v.id for v in rows]
+    assert "v_active" in ids
+    assert "v_archived" not in ids
+
+
+async def test_list_with_stats_excludes_archived_from_count(db: aiosqlite.Connection):
+    """video_count for a playlist must not include archived videos."""
+    await _make_playlist(db)
+    await _make_video(db, "v_active")
+    await _make_video(db, "v_archived")
+    await playlists_repo.link_video(db, "p1", "v_active")
+    await playlists_repo.link_video(db, "p1", "v_archived")
+    await videos_repo.set_archived(db, "v_archived", user_id=1, archived=True)
+
+    rows = await playlists_repo.list_with_stats(db, 1)
+    counts = {p.id: c for p, c in rows}
+    assert counts["p1"] == 1  # only v_active
+
+
+async def test_latest_video_ids_skips_archived_representative(db: aiosqlite.Connection):
+    """When the newest-linked video is archived the older active one is returned."""
+    await _make_playlist(db)
+    await _make_video(db, "v_old")
+    await _make_video(db, "v_new")
+    await playlists_repo.link_video(db, "p1", "v_old")
+    await playlists_repo.link_video(db, "p1", "v_new")
+    # Force v_new to be unambiguously newest by added_at.
+    await db.execute(
+        "UPDATE playlist_videos SET added_at='2099-01-01 00:00:00' "
+        "WHERE playlist_id='p1' AND video_id='v_new'"
+    )
+    await db.commit()
+    # Archive the newest — the older active one should become the representative.
+    await videos_repo.set_archived(db, "v_new", user_id=1, archived=True)
+
+    result = await playlists_repo.latest_video_ids(db, ["p1"])
+    assert result == {"p1": "v_old"}
