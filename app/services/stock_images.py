@@ -11,6 +11,7 @@ from pathlib import Path
 
 import anyio
 import httpx
+import litellm
 
 from app.config import Config
 from app.models import Video, VideoKind
@@ -84,3 +85,37 @@ async def ensure_stock_thumbnail(
         return False
     await videos_repo.set_thumbnail_path(db, video.id, str(target))
     return True
+
+
+_QUERY_PROMPT = (
+    "Given this article/newsletter summary, output ONLY 2-4 English "
+    "keywords for a fitting stock photo (concrete and visual, no proper "
+    "nouns, no quotes, no punctuation).\n\nSUMMARY:\n{summary}"
+)
+
+
+async def generate_image_query(*, summary: str, model_row) -> str | None:
+    """Cheap one-off LLM call to derive a stock-photo query from a
+    summary. Returns None on empty summary, no model, or any error —
+    image queries are cosmetic and must never block."""
+    if not summary or not summary.strip() or model_row is None:
+        return None
+    try:
+        kwargs: dict = {
+            "model": model_row.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": _QUERY_PROMPT.format(summary=summary),
+                },
+            ],
+            "api_key": model_row.api_key,
+        }
+        if model_row.base_url:
+            kwargs["api_base"] = model_row.base_url
+        resp = await litellm.acompletion(**kwargs)
+        text = (resp.choices[0].message.content or "").strip()
+        return text or None
+    except Exception as e:  # pragma: no cover - defensive
+        log.info("image-query generation failed: %s", e)
+        return None

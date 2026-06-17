@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -213,3 +214,72 @@ async def test_ensure_no_query_skips(db, tmp_path, monkeypatch):
     )
     assert changed is False
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_generate_image_query_from_summary(monkeypatch):
+    class Row:
+        model = "openai/gpt-4o"
+        api_key = "k"
+        base_url = ""
+
+    class Msg:
+        content = "  wind turbines field  "
+
+    class Choice:
+        message = Msg()
+
+    class Resp:
+        choices = [Choice()]
+
+    monkeypatch.setattr(
+        stock_images.litellm, "acompletion", AsyncMock(return_value=Resp()),
+    )
+    q = await stock_images.generate_image_query(
+        summary="An article about renewable energy.", model_row=Row(),
+    )
+    assert q == "wind turbines field"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_query_no_summary(monkeypatch):
+    class Row:
+        model = "m"
+        api_key = "k"
+        base_url = ""
+
+    called = False
+
+    async def boom(**k):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(stock_images.litellm, "acompletion", boom)
+    q = await stock_images.generate_image_query(summary="", model_row=Row())
+    assert q is None
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_generate_image_query_no_model(monkeypatch):
+    q = await stock_images.generate_image_query(
+        summary="something", model_row=None,
+    )
+    assert q is None
+
+
+@pytest.mark.asyncio
+async def test_generate_image_query_llm_error_returns_none(monkeypatch):
+    class Row:
+        model = "m"
+        api_key = "k"
+        base_url = ""
+
+    monkeypatch.setattr(
+        stock_images.litellm, "acompletion",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    q = await stock_images.generate_image_query(
+        summary="x", model_row=Row(),
+    )
+    assert q is None
