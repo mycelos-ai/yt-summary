@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS videos (
     -- Soft-delete timestamp. NULL = active; set = archived (hidden from
     -- all active views, restorable from /archive).
     archived_at TEXT,
-    highlights_json TEXT
+    highlights_json TEXT,
+    -- LLM-suggested stock-photo search query for the thumbnail
+    -- (e.g. "solar panels rooftop"). NULL = not yet generated.
+    image_query TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -365,6 +368,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "transcript_language", "TEXT")
         await _ensure_column(conn, "videos", "highlights_json", "TEXT")
         await _ensure_column(conn, "videos", "archived_at", "TEXT")
+        await _ensure_column(conn, "videos", "image_query", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both

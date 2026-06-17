@@ -69,6 +69,8 @@ class Video:
     highlights_json: str | None = None
     # Soft-delete timestamp (ISO string). None = active; set = archived.
     archived_at: str | None = None
+    # LLM-suggested stock-photo search query (Pexels). None = not set.
+    image_query: str | None = None
 
 
 @dataclass

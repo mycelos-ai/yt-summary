@@ -43,6 +43,10 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         archived_at = row["archived_at"]
     except (IndexError, KeyError):
         archived_at = None
+    try:
+        image_query = row["image_query"]
+    except (IndexError, KeyError):
+        image_query = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -64,6 +68,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         summary_language=summary_language,
         transcript_language=transcript_language,
         archived_at=archived_at,
+        image_query=image_query,
     )
 
 
@@ -551,6 +556,16 @@ async def set_highlights(
     await db.execute(
         "UPDATE videos SET highlights_json=? WHERE id=?",
         (highlights_json, video_id),
+    )
+    await db.commit()
+
+
+async def set_image_query(
+    db: aiosqlite.Connection, video_id: str, image_query: str | None,
+) -> None:
+    await db.execute(
+        "UPDATE videos SET image_query=? WHERE id=?",
+        (image_query, video_id),
     )
     await db.commit()
 

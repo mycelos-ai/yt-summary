@@ -305,3 +305,13 @@ async def test_search_fts_excludes_archived(db):
     await videos_repo.set_archived(db, "v1", user_id=1, archived=True)
     ids = await videos_repo.search_fts(db, "T", user_id=1)
     assert "v1" not in ids
+
+
+async def test_set_image_query_roundtrip(db):
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="u", title="t", description="",
+        thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.set_image_query(db, "v1", "mountain sunrise")
+    v = await videos_repo.get(db, "v1")
+    assert v.image_query == "mountain sunrise"
