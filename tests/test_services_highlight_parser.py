@@ -1,5 +1,6 @@
 from app.services.highlight_parser import (
     HIGHLIGHTS_SCHEMA_HINT,
+    parse_image_query,
     parse_summary_payload,
 )
 
@@ -108,3 +109,27 @@ def test_rejects_bool_rank():
     raw = '{"summary":"s","highlights":[{"text":"x","rank":true,"reason":"y"}]}'
     _, highlights = parse_summary_payload(raw)
     assert highlights == []
+
+
+def test_parse_image_query_present():
+    raw = '{"summary": "s", "highlights": [], "image_query": "solar panels"}'
+    assert parse_image_query(raw) == "solar panels"
+
+
+def test_parse_image_query_missing():
+    raw = '{"summary": "s", "highlights": []}'
+    assert parse_image_query(raw) is None
+
+
+def test_parse_image_query_wrong_type():
+    raw = '{"summary": "s", "image_query": 123}'
+    assert parse_image_query(raw) is None
+
+
+def test_parse_image_query_blank():
+    raw = '{"summary": "s", "image_query": "   "}'
+    assert parse_image_query(raw) is None
+
+
+def test_parse_image_query_unparseable():
+    assert parse_image_query("not json at all") is None
