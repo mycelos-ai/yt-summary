@@ -26,8 +26,10 @@
   </div>
 </section>
 
+<p class="section-title">
+  <a href="/playlists" class="section-title-link">Queues &amp; playlists</a>
+</p>
 {% if playlists %}
-  <p class="section-title">Queues &amp; playlists</p>
   <section class="playlist-strip">
     {% for playlist in playlists %}
       {% include "playlist_card.html" %}
@@ -40,11 +42,6 @@
       </div>
     </a>
   </section>
-  {% if has_more_playlists %}
-    <p class="playlist-strip-more">
-      <a href="/playlists">More →</a>
-    </p>
-  {% endif %}
 {% else %}
   <section class="home-queue-cta">
     <h3>Connect a YouTube queue</h3>
@@ -57,7 +54,9 @@
   </section>
 {% endif %}
 
-<p class="section-title">Digests</p>
+<p class="section-title">
+  <a href="/digest" class="section-title-link">Digests</a>
+</p>
 <section class="playlist-strip digest-strip">
   {% for digest in recent_digests %}
     {% include "digest_card.html" %}
@@ -75,17 +74,13 @@
     </div>
   </a>
 </section>
-{% if recent_digests %}
-  <p class="playlist-strip-more">
-    <a href="/digest">All digests →</a>
-  </p>
-{% endif %}
-
 <p class="playlist-strip-more">
   <a href="/ask">All questions →</a>
 </p>
 
-<p class="section-title">Library</p>
+<p class="section-title">
+  <a href="/library" class="section-title-link">Library</a>
+</p>
 
 {% if active_tag %}
   <div class="filter-banner">

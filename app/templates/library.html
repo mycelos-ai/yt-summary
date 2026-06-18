@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Library — yt-summary{% endblock %}
+{% block content %}
+<h1>Library</h1>
+
+{% if active_tag %}
+  <div class="filter-banner">
+    <span>{{ icon('tag') }} <strong>{{ active_tag }}</strong> — showing {{ videos|length }} video{{ '' if videos|length == 1 else 's' }}</span>
+    <a href="/library" class="clear">✕ Clear filter</a>
+  </div>
+{% endif %}
+
+<section id="video-list">
+  {% for video in videos %}
+    {% include "video_card.html" %}
+  {% else %}
+    {% if active_tag %}
+      <p class="empty">No videos with tag "{{ active_tag }}".</p>
+    {% else %}
+      <p class="empty">No videos yet — use the + Add button to get started.</p>
+    {% endif %}
+  {% endfor %}
+</section>
+{% if has_more_videos %}
+  <div class="load-more-wrap">
+    <button class="btn btn-secondary load-more-btn"
+            hx-get="/videos/load-more?offset={{ video_page_size }}{% if active_tag %}&tag={{ active_tag|urlencode }}{% endif %}"
+            hx-target="this"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this">
+      Load more
+    </button>
+  </div>
+{% endif %}
+
+<style>
+  .load-more-wrap { text-align: center; margin: 24px 0 8px; }
+  .load-more-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--rounded-md);
+    background: var(--canvas);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .load-more-btn:hover { background: var(--surface); }
+  .load-more-btn:disabled { opacity: 0.6; cursor: wait; }
+</style>
+{% endblock %}

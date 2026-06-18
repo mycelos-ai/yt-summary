@@ -25,7 +25,7 @@ register_filters(templates)
 # Page sizes for the home view. Kept as module constants so the
 # load-more fragment route stays in lockstep with the initial render.
 HOME_VIDEO_PAGE_SIZE = 25
-HOME_PLAYLIST_LIMIT = 5
+HOME_PLAYLIST_LIMIT = 7
 
 
 async def _vector_ids_for_query(
@@ -104,13 +104,12 @@ async def home(
         has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
         videos = rows[:HOME_VIDEO_PAGE_SIZE]
 
-    # Same +1 trick for playlists: limit to 5 on home, but ask for 6
-    # so the template knows whether to show the "More →" link.
-    playlists_plus_one = await playlists_repo.list_for_user(
-        db, current_user_id, limit=HOME_PLAYLIST_LIMIT + 1
+    # Cap the home strip at HOME_PLAYLIST_LIMIT cards. The clickable
+    # "Queues & playlists" headline is the path to the full list, so we
+    # no longer need the old +1 over-fetch that drove a "More →" link.
+    playlists = await playlists_repo.list_for_user(
+        db, current_user_id, limit=HOME_PLAYLIST_LIMIT
     )
-    has_more_playlists = len(playlists_plus_one) > HOME_PLAYLIST_LIMIT
-    playlists = playlists_plus_one[:HOME_PLAYLIST_LIMIT]
     latest_video_ids = await playlists_repo.latest_video_ids(
         db, [p.id for p in playlists]
     )
@@ -125,7 +124,7 @@ async def home(
     # surfacing today's. Limit small — the dedicated /digest archive
     # is where you go for the full history.
     recent_digests = await digests_repo.list_for_user(
-        db, user_id=current_user_id, limit=4,
+        db, user_id=current_user_id, limit=7,
     )
     digest_enabled, _ = await users_repo.get_digest_prefs(
         db, user_id=current_user_id,
@@ -146,7 +145,6 @@ async def home(
             "playlist_links": playlist_links,
             "video_tags": video_tags,
             "has_more_videos": has_more_videos,
-            "has_more_playlists": has_more_playlists,
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
             "onboarding_done": onboarding_done,
@@ -169,6 +167,46 @@ async def archive_page(
         request,
         "archive.html",
         {"videos": videos, "current_user": current_user},
+    )
+
+
+@router.get("/library", response_class=HTMLResponse)
+async def library(
+    request: Request,
+    tag: str | None = None,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
+):
+    """Full library listing — the page behind the home 'Library'
+    headline. Mirrors the home Library block (tag filter + video cards
+    + load-more) without the hero or the Queues/Digests strips."""
+    tag = tag.strip() if tag else None
+    # +1 over-fetch so we know whether to show the load-more button,
+    # mirroring the home route.
+    rows = await videos_repo.list_recent(
+        db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag,
+        user_id=current_user_id,
+    )
+    has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
+    videos = rows[:HOME_VIDEO_PAGE_SIZE]
+
+    video_ids = [v.id for v in videos]
+    playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
+    video_tags = await tags_repo.tags_for_videos(db, video_ids)
+
+    return templates.TemplateResponse(
+        request,
+        "library.html",
+        {
+            "videos": videos,
+            "active_tag": tag,
+            "playlist_links": playlist_links,
+            "video_tags": video_tags,
+            "has_more_videos": has_more_videos,
+            "video_page_size": HOME_VIDEO_PAGE_SIZE,
+            "current_user": current_user,
+        },
     )
 
 
