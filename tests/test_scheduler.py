@@ -386,6 +386,42 @@ async def test_scheduler_reembed_continues_after_per_video_failure(
     assert row[0] >= 1
 
 
+async def test_reembed_batch_drains_more_than_ten_per_call(
+    db: aiosqlite.Connection, tmp_path,
+):
+    """One _reembed_pending_batch() call (default limit) drains well more
+    than 10 pending videos, so a backlog clears in a few ticks rather than
+    one-per-10-per-tick. Pins the raised default batch size."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.repos import videos as videos_repo
+
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    # Seed 12 pending videos (more than the old limit of 10).
+    for i in range(12):
+        vid = f"v{i:02d}"
+        await videos_repo.upsert_metadata(
+            db, video_id=vid, url="u", title="t", description="",
+            thumbnail_path=None, duration_seconds=None,
+        )
+        await db.execute(
+            "UPDATE videos SET summary='hello' WHERE id=?", (vid,)
+        )
+    await db.commit()
+
+    with patch(
+        "app.services.embeddings_local.embed_text",
+        AsyncMock(return_value=[0.1] * 384),
+    ):
+        scheduler = PlaylistScheduler(
+            db=db, config=config, sync_fn=AsyncMock(),
+        )
+        n = await scheduler._reembed_pending_batch()
+
+    assert n == 12  # all drained in a single call (default limit > 10)
+
+
 async def test_scheduler_calls_mail_sync_for_each_user(
     db: aiosqlite.Connection, tmp_path
 ):

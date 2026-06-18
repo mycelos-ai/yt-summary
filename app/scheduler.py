@@ -131,7 +131,7 @@ class PlaylistScheduler:
             # Don't let an observability write break the actual work loop.
             log.exception("scheduler: failed to record last-tick timestamp")
 
-    async def _reembed_pending_batch(self, limit: int = 10) -> int:
+    async def _reembed_pending_batch(self, limit: int = 100) -> int:
         """Drain up to `limit` videos that need re-embedding.
 
         Per-video failures are logged and skipped — one bad video must
@@ -199,7 +199,7 @@ class PlaylistScheduler:
                     )
             if self._mail_sync_fn is not None:
                 await self._sync_mailboxes()
-            n_reembedded = await self._reembed_pending_batch(limit=10)
+            n_reembedded = await self._reembed_pending_batch()
             if n_reembedded:
                 self._touch(
                     current_step=f"re-embedded {n_reembedded} videos"
