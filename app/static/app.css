@@ -2434,3 +2434,55 @@ mark.highlight-not_interesting {
 .related-summaries-list { list-style: none; margin: 0; padding: 0; }
 .related-summary-item { margin: 0.4rem 0; }
 .related-summary-reason { display: block; color: var(--muted, #a8a8aa); font-size: 0.85em; }
+
+/* KNN fallback strip: horizontal row of thumbnail cards (Part C.1). */
+.related-strip { margin: 24px 0; }
+.related-strip-cards {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 220px;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x proximity;
+}
+.related-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-lg);
+  overflow: hidden;
+  scroll-snap-align: start;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+.related-card:hover {
+  border-color: var(--stone);
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+.related-card img,
+.related-card-placeholder {
+  width: 100%;
+  height: 124px;
+  object-fit: cover;
+  background: var(--surface);
+  display: block;
+}
+.related-card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.related-card-title {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
