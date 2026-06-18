@@ -392,7 +392,7 @@ def test_home_shows_recent_digest_cards(tmp_path, monkeypatch):
     assert "3 items" in resp.text
     # Add-card label switches once at least one digest exists
     assert "New digest" in resp.text
-    # "All digests →" archive link appears
+    # The Digests headline links to the archive.
     assert 'href="/digest"' in resp.text
 
 
@@ -484,3 +484,14 @@ def test_home_shows_archive_link_when_items_archived(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get("/")
     assert 'href="/archive"' in resp.text
+
+
+def test_home_section_headlines_are_clickable(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert 'href="/playlists"' in resp.text
+    assert 'href="/digest"' in resp.text
+    assert 'href="/library"' in resp.text
