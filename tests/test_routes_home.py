@@ -290,13 +290,13 @@ def test_load_more_last_batch_returns_cards_only(tmp_path, monkeypatch):
     assert "/videos/load-more?offset=50" not in resp.text
 
 
-def test_home_caps_playlists_at_five(tmp_path, monkeypatch):
+def test_home_caps_playlists_at_seven(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         async def setup():
             from app.repos import playlists as playlists_repo
-            for i in range(7):
+            for i in range(9):
                 await playlists_repo.create(
                     app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
                     title=f"Playlist {i}", description="",
@@ -305,49 +305,28 @@ def test_home_caps_playlists_at_five(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get("/")
     assert resp.status_code == 200
-    # Exactly 5 playlist cards rendered (excluding the add card)
-    assert resp.text.count('class="playlist-card-wrap"') == 5
+    # Exactly 7 playlist cards rendered (excluding the add card)
+    assert resp.text.count('class="playlist-card-wrap"') == 7
     # The add-playlist tile is still visible
     assert 'class="playlist-card playlist-card-add"' in resp.text
 
 
-def test_home_shows_more_link_when_over_five_playlists(tmp_path, monkeypatch):
+def test_home_playlists_headline_links_to_playlists_page(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
         async def setup():
             from app.repos import playlists as playlists_repo
-            for i in range(6):
-                await playlists_repo.create(
-                    app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
-                    title=f"Playlist {i}", description="",
-                    thumbnail_path=None,
-                )
+            await playlists_repo.create(
+                app.state.db, playlist_id="PLx", user_id=1, url="u",
+                title="Playlist X", description="", thumbnail_path=None,
+            )
         asyncio.get_event_loop().run_until_complete(setup())
         resp = client.get("/")
     assert resp.status_code == 200
+    # The clickable headline links to the full playlists page.
     assert 'href="/playlists"' in resp.text
-    assert "More" in resp.text
-
-
-def test_home_no_more_link_when_five_or_fewer_playlists(tmp_path, monkeypatch):
-    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    app = create_app()
-    with TestClient(app) as client:
-        async def setup():
-            from app.repos import playlists as playlists_repo
-            for i in range(3):
-                await playlists_repo.create(
-                    app.state.db, playlist_id=f"PL{i}", user_id=1, url="u",
-                    title=f"Playlist {i}", description="",
-                    thumbnail_path=None,
-                )
-        asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.get("/")
-    assert resp.status_code == 200
-    # The "More →" link points at /playlists; when not shown, that
-    # exact href should be absent.
-    assert 'href="/playlists"' not in resp.text
+    assert "Queues" in resp.text
 
 
 def test_home_card_renders_tag_pills(tmp_path, monkeypatch):

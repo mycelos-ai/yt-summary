@@ -25,7 +25,7 @@ register_filters(templates)
 # Page sizes for the home view. Kept as module constants so the
 # load-more fragment route stays in lockstep with the initial render.
 HOME_VIDEO_PAGE_SIZE = 25
-HOME_PLAYLIST_LIMIT = 5
+HOME_PLAYLIST_LIMIT = 7
 
 
 async def _vector_ids_for_query(
@@ -125,7 +125,7 @@ async def home(
     # surfacing today's. Limit small — the dedicated /digest archive
     # is where you go for the full history.
     recent_digests = await digests_repo.list_for_user(
-        db, user_id=current_user_id, limit=4,
+        db, user_id=current_user_id, limit=7,
     )
     digest_enabled, _ = await users_repo.get_digest_prefs(
         db, user_id=current_user_id,
