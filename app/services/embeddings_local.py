@@ -42,10 +42,20 @@ def _load_model_sync():
 
 
 def _encode_sync(text: str) -> list[float]:
-    """Run the actual encode call. Numpy → plain list at the boundary."""
+    """Run the actual encode call. Numpy → plain list at the boundary.
+
+    `normalize_embeddings=True` returns unit-length vectors so that the
+    vec0 table's L2 distance is a monotonic function of cosine distance
+    (L2² = 2·cosine_distance) — see related.related_video_ids.
+    """
     model = _load_model_sync()
     # convert_to_numpy=True keeps memory predictable; we tolist() right after.
-    arr = model.encode(text, convert_to_numpy=True, show_progress_bar=False)
+    arr = model.encode(
+        text,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+        normalize_embeddings=True,
+    )
     return [float(x) for x in arr]
 
 

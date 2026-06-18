@@ -56,3 +56,11 @@ async def test_embed_text_similar_strings_have_similar_vectors():
         return dot / (nu * nv)
 
     assert cos(a, b) > cos(a, c)
+
+
+async def test_embed_text_returns_unit_length_vector():
+    """Embeddings must be normalized to unit length so L2 distance is a
+    monotonic stand-in for cosine distance in the vec0 KNN."""
+    vec = await embed_text("the quick brown fox")
+    norm = sum(x * x for x in vec) ** 0.5
+    assert abs(norm - 1.0) < 1e-3
