@@ -523,6 +523,37 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     # with a freshly created-but-unpopulated videos_fts index.
     await _migrate_v7_embedding_dim(conn)
 
+    # Embedding normalization: vectors are now unit-length (see
+    # embeddings_local.embed_text). Existing embeddings were computed
+    # un-normalized, so their L2 distances are on the wrong scale and
+    # the related-items KNN never matched. Null summary_embedded_at for
+    # all summarized videos so the scheduler's re-embed queue recomputes
+    # them. Gated by a settings marker so it runs exactly once.
+    # Must run here (before executescript(SCHEMA)) for the same reason
+    # as _migrate_v7_embedding_dim: the UPDATE would fire the videos_au
+    # FTS trigger against a freshly-created-but-unbackfilled FTS index
+    # on an upgrade path, corrupting the index. On a fresh install the
+    # tables don't exist yet, so we skip (the marker will be written
+    # by the post-SCHEMA seed in init_schema on first start).
+    if (
+        await _table_exists(conn, "videos")
+        and await _table_exists(conn, "settings")
+    ):
+        cur = await conn.execute(
+            "SELECT value FROM settings "
+            "WHERE user_id=1 AND key='embeddings_normalized'"
+        )
+        if await cur.fetchone() is None:
+            await conn.execute(
+                "UPDATE videos SET summary_embedded_at = NULL "
+                "WHERE summary IS NOT NULL"
+            )
+            await conn.execute(
+                "INSERT INTO settings (user_id, key, value) "
+                "VALUES (1, 'embeddings_normalized', '1')"
+            )
+            await conn.commit()
+
     # ── Multi-model migration ──────────────────────────────────
     #
     # Move the legacy single LLM config (settings.llm_model /
@@ -731,26 +762,6 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
         await conn.execute(
             "INSERT INTO settings (user_id, key, value) "
             "VALUES (1, 'syntheses_threads_migrated', '1')"
-        )
-        await conn.commit()
-    # Embedding normalization: vectors are now unit-length (see
-    # embeddings_local.embed_text). Existing embeddings were computed
-    # un-normalized, so their L2 distances are on the wrong scale and the
-    # related-items KNN never matched. Null summary_embedded_at for all
-    # summarized videos so the scheduler's existing re-embed queue
-    # recomputes them. Gated by a settings marker so it runs exactly once.
-    cur = await conn.execute(
-        "SELECT value FROM settings "
-        "WHERE user_id=1 AND key='embeddings_normalized'"
-    )
-    if await cur.fetchone() is None:
-        await conn.execute(
-            "UPDATE videos SET summary_embedded_at = NULL "
-            "WHERE summary IS NOT NULL"
-        )
-        await conn.execute(
-            "INSERT INTO settings (user_id, key, value) "
-            "VALUES (1, 'embeddings_normalized', '1')"
         )
         await conn.commit()
     # Seed the single default user (id=1) if the table is empty. Every
