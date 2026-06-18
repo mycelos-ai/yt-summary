@@ -2429,3 +2429,8 @@ mark.highlight-not_interesting {
 .add-overlay-form textarea { border: 1px solid var(--hairline); border-radius: var(--rounded-md); padding: 12px; font: inherit; font-size: 14px; resize: none; min-height: 52px; max-height: min(40vh, 320px); overflow-y: auto; outline: none; }
 .add-overlay-form textarea:focus { border-color: var(--brand-green); }
 .add-overlay-hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+/* Curated related-summaries block */
+.related-summaries-list { list-style: none; margin: 0; padding: 0; }
+.related-summary-item { margin: 0.4rem 0; }
+.related-summary-reason { display: block; color: var(--muted, #a8a8aa); font-size: 0.85em; }

@@ -1,0 +1,18 @@
+{# Curated related-summaries block (computed once in the pipeline).
+   Rendered only when `related_links` is non-empty; the include site in
+   video_detail.html falls back to the lazy KNN strip otherwise. #}
+{% if related_links %}
+  <section class="related-strip">
+    <h3 class="section-heading">Related in your library</h3>
+    <ul class="related-summaries-list">
+      {% for link in related_links %}
+        <li class="related-summary-item">
+          <a class="related-summary-link" href="/v/{{ link.video_id }}">{{ link.title }}</a>
+          {% if link.reason %}
+            <span class="related-summary-reason">{{ link.reason }}</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}

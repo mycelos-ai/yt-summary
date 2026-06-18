@@ -544,6 +544,13 @@ async def video_detail(
         }
         for fb in fbs
     ]
+    import json as _json
+    related_links = []
+    if video.related_links_json:
+        try:
+            related_links = _json.loads(video.related_links_json)
+        except (ValueError, TypeError):
+            related_links = []
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -559,6 +566,7 @@ async def video_detail(
             "renderings": audio_renderings,
             "llm_models": llm_models,
             "feedbacks_data": feedbacks_data,
+            "related_links": related_links,
         },
     )
 

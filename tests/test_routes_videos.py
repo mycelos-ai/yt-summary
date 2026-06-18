@@ -1175,3 +1175,67 @@ def test_detail_shows_restore_button_when_archived(tmp_path, monkeypatch):
         resp = client.get("/v/v1")
     assert 'action="/v/v1/unarchive"' in resp.text
     assert "Archived" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Curated related-summaries block (Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_detail_shows_curated_related_block(tmp_path, monkeypatch):
+    """A video with related_links_json set renders a link + title for
+    each curated related item instead of the lazy KNN fragment."""
+    import json as _json
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="cur1", url="u", title="Anchor",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(app.state.db, "cur1", "## Summary\nok", "model")
+            # Plant a second video that will appear as a related link
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="cur2", url="u2", title="Related Video Two",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            related = [{"video_id": "cur2", "title": "Related Video Two", "reason": "because"}]
+            await videos_repo.set_related_links(app.state.db, "cur1", _json.dumps(related))
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/cur1")
+
+    assert resp.status_code == 200
+    assert "/v/cur2" in resp.text
+    assert "Related Video Two" in resp.text
+    # Curated block present → lazy KNN fragment must NOT be emitted
+    assert "/v/cur1/related-fragment" not in resp.text
+
+
+def test_detail_falls_back_to_knn_fragment_when_null(tmp_path, monkeypatch):
+    """A video with related_links_json IS NULL renders the lazy
+    HTMX /v/{id}/related-fragment div instead of a curated block."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="noknn1", url="u", title="NoKnn",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(app.state.db, "noknn1", "## Summary\nok", "model")
+            # related_links_json intentionally left NULL
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/noknn1")
+
+    assert resp.status_code == 200
+    assert "/v/noknn1/related-fragment" in resp.text

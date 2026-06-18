@@ -118,11 +118,16 @@
   {% include "video_summary_section.html" %}
 
   {% if video.summary %}
-    {# Related items load lazily once this placeholder is revealed, so the
-       KNN cost stays off the detail-page render path (Part C.1). #}
-    <div hx-get="/v/{{ video.id }}/related-fragment"
-         hx-trigger="revealed"
-         hx-swap="outerHTML"></div>
+    {% if related_links %}
+      {# Curated block, computed once in the pipeline (forward-only). #}
+      {% include "related_summaries_section.html" %}
+    {% else %}
+      {# No curated block yet (older video or compute failed): fall back to
+         the lazy live-KNN strip. #}
+      <div hx-get="/v/{{ video.id }}/related-fragment"
+           hx-trigger="revealed"
+           hx-swap="outerHTML"></div>
+    {% endif %}
   {% endif %}
 
   {% include "audio_renderings_block.html" %}
