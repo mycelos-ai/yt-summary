@@ -172,6 +172,46 @@ async def archive_page(
     )
 
 
+@router.get("/library", response_class=HTMLResponse)
+async def library(
+    request: Request,
+    tag: str | None = None,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+    current_user=Depends(get_current_user),
+):
+    """Full library listing — the page behind the home 'Library'
+    headline. Mirrors the home Library block (tag filter + video cards
+    + load-more) without the hero or the Queues/Digests strips."""
+    tag = tag.strip() if tag else None
+    # +1 over-fetch so we know whether to show the load-more button,
+    # mirroring the home route.
+    rows = await videos_repo.list_recent(
+        db, limit=HOME_VIDEO_PAGE_SIZE + 1, tag=tag,
+        user_id=current_user_id,
+    )
+    has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
+    videos = rows[:HOME_VIDEO_PAGE_SIZE]
+
+    video_ids = [v.id for v in videos]
+    playlist_links = await playlists_repo.playlists_for_videos(db, video_ids)
+    video_tags = await tags_repo.tags_for_videos(db, video_ids)
+
+    return templates.TemplateResponse(
+        request,
+        "library.html",
+        {
+            "videos": videos,
+            "active_tag": tag,
+            "playlist_links": playlist_links,
+            "video_tags": video_tags,
+            "has_more_videos": has_more_videos,
+            "video_page_size": HOME_VIDEO_PAGE_SIZE,
+            "current_user": current_user,
+        },
+    )
+
+
 @router.get("/videos/load-more", response_class=HTMLResponse)
 async def load_more_videos(
     request: Request,

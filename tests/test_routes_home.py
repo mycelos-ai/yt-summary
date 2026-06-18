@@ -486,6 +486,66 @@ def test_home_shows_archive_link_when_items_archived(tmp_path, monkeypatch):
     assert 'href="/archive"' in resp.text
 
 
+def test_library_page_lists_videos(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="lib1", url="u",
+                title="LibraryVideo", description="d",
+                thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/library")
+    assert resp.status_code == 200
+    assert "LibraryVideo" in resp.text
+    assert 'id="video-list"' in resp.text
+
+
+def test_library_page_filters_by_tag(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import tags as tags_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="lpy", url="u", title="LibPython",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="lcook", url="u", title="LibCooking",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await tags_repo.set_tags_for_video(app.state.db, "lpy", ["python"])
+            await tags_repo.set_tags_for_video(app.state.db, "lcook", ["cooking"])
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/library?tag=python")
+    assert resp.status_code == 200
+    assert "LibPython" in resp.text
+    assert "LibCooking" not in resp.text
+    assert "filter-banner" in resp.text
+
+
+def test_library_page_paginates_over_25(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            for i in range(26):
+                await videos_repo.upsert_metadata(
+                    app.state.db, video_id=f"lv{i:04d}", url="u",
+                    title=f"LVideo {i}", description="d",
+                    thumbnail_path=None, duration_seconds=None,
+                )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/library")
+    assert resp.status_code == 200
+    assert resp.text.count('id="video-lv') == 25
+    assert "Load more" in resp.text
+    assert "/videos/load-more?offset=25" in resp.text
+
+
 def test_home_section_headlines_are_clickable(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
