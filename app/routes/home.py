@@ -104,13 +104,12 @@ async def home(
         has_more_videos = len(rows) > HOME_VIDEO_PAGE_SIZE
         videos = rows[:HOME_VIDEO_PAGE_SIZE]
 
-    # Same +1 trick for playlists: limit to 5 on home, but ask for 6
-    # so the template knows whether to show the "More →" link.
-    playlists_plus_one = await playlists_repo.list_for_user(
-        db, current_user_id, limit=HOME_PLAYLIST_LIMIT + 1
+    # Cap the home strip at HOME_PLAYLIST_LIMIT cards. The clickable
+    # "Queues & playlists" headline is the path to the full list, so we
+    # no longer need the old +1 over-fetch that drove a "More →" link.
+    playlists = await playlists_repo.list_for_user(
+        db, current_user_id, limit=HOME_PLAYLIST_LIMIT
     )
-    has_more_playlists = len(playlists_plus_one) > HOME_PLAYLIST_LIMIT
-    playlists = playlists_plus_one[:HOME_PLAYLIST_LIMIT]
     latest_video_ids = await playlists_repo.latest_video_ids(
         db, [p.id for p in playlists]
     )
@@ -146,7 +145,6 @@ async def home(
             "playlist_links": playlist_links,
             "video_tags": video_tags,
             "has_more_videos": has_more_videos,
-            "has_more_playlists": has_more_playlists,
             "video_page_size": HOME_VIDEO_PAGE_SIZE,
             "current_user": current_user,
             "onboarding_done": onboarding_done,
