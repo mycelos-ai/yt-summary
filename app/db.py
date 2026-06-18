@@ -733,6 +733,26 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
             "VALUES (1, 'syntheses_threads_migrated', '1')"
         )
         await conn.commit()
+    # Embedding normalization: vectors are now unit-length (see
+    # embeddings_local.embed_text). Existing embeddings were computed
+    # un-normalized, so their L2 distances are on the wrong scale and the
+    # related-items KNN never matched. Null summary_embedded_at for all
+    # summarized videos so the scheduler's existing re-embed queue
+    # recomputes them. Gated by a settings marker so it runs exactly once.
+    cur = await conn.execute(
+        "SELECT value FROM settings "
+        "WHERE user_id=1 AND key='embeddings_normalized'"
+    )
+    if await cur.fetchone() is None:
+        await conn.execute(
+            "UPDATE videos SET summary_embedded_at = NULL "
+            "WHERE summary IS NOT NULL"
+        )
+        await conn.execute(
+            "INSERT INTO settings (user_id, key, value) "
+            "VALUES (1, 'embeddings_normalized', '1')"
+        )
+        await conn.commit()
     # Seed the single default user (id=1) if the table is empty. Every
     # existing user_id=1 reference now points at a real row.
     cursor = await conn.execute("SELECT COUNT(*) FROM users")
