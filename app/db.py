@@ -533,8 +533,9 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     # as _migrate_v7_embedding_dim: the UPDATE would fire the videos_au
     # FTS trigger against a freshly-created-but-unbackfilled FTS index
     # on an upgrade path, corrupting the index. On a fresh install the
-    # tables don't exist yet, so we skip (the marker will be written
-    # by the post-SCHEMA seed in init_schema on first start).
+    # tables don't exist yet, so we skip this pre-SCHEMA block entirely;
+    # the marker is instead set by the post-SCHEMA block in init_schema
+    # (safe because a fresh DB has no un-normalized vectors to fix).
     if (
         await _table_exists(conn, "videos")
         and await _table_exists(conn, "settings")
@@ -762,6 +763,21 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
         await conn.execute(
             "INSERT INTO settings (user_id, key, value) "
             "VALUES (1, 'syntheses_threads_migrated', '1')"
+        )
+        await conn.commit()
+    # Fresh-install path for embedding normalization: on an upgrade the
+    # pre-SCHEMA block in _run_migrations already set the marker, so this
+    # is a no-op. On a fresh install that block was skipped (tables didn't
+    # exist yet), so we set the marker here — a fresh DB has no
+    # un-normalized vectors, so no re-embed queue flush is needed.
+    cur = await conn.execute(
+        "SELECT value FROM settings "
+        "WHERE user_id=1 AND key='embeddings_normalized'"
+    )
+    if await cur.fetchone() is None:
+        await conn.execute(
+            "INSERT INTO settings (user_id, key, value) "
+            "VALUES (1, 'embeddings_normalized', '1')"
         )
         await conn.commit()
     # Seed the single default user (id=1) if the table is empty. Every
