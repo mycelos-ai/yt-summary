@@ -46,7 +46,12 @@ CREATE TABLE IF NOT EXISTS videos (
     highlights_json TEXT,
     -- LLM-suggested stock-photo search query for the thumbnail
     -- (e.g. "solar panels rooftop"). NULL = not yet generated.
-    image_query TEXT
+    image_query TEXT,
+    -- JSON array of {video_id, title, reason} curated related summaries,
+    -- computed once after generation (KNN pre-filter + LLM curation).
+    -- NULL = not yet computed (UI falls back to live-KNN strip).
+    -- "[]" = computed, nothing relevant.
+    related_links_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -369,6 +374,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "highlights_json", "TEXT")
         await _ensure_column(conn, "videos", "archived_at", "TEXT")
         await _ensure_column(conn, "videos", "image_query", "TEXT")
+        await _ensure_column(conn, "videos", "related_links_json", "TEXT")
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
