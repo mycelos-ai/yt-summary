@@ -15,6 +15,7 @@ from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import users as users_repo
 from app.repos import videos as videos_repo
+from app.services import related_links
 from app.services.embeddings import embed_text
 from app.services.language_detect import detect_language
 from app.services.reader import fetch_article
@@ -337,6 +338,17 @@ async def process_video(
 
     await _try_embed_summary(db, video_id, summary, settings, set_step)
 
+    # Curated related-summaries block (KNN pre-filter + LLM curation).
+    # Runs AFTER embedding so this video's own vector is searchable, and
+    # is best-effort: failure leaves related_links_json NULL.
+    await set_step("finding related summaries")
+    refreshed = await videos_repo.get(db, video_id)
+    if refreshed is not None:
+        await _store_related_links(
+            db, video=refreshed, user_id=refreshed.user_id,
+            model_row=model_row,
+        )
+
 
 def _segments_for_summarizer(video) -> list[dict] | None:
     """Decode the JSON-stored transcript_segments into a list of
@@ -397,6 +409,31 @@ async def _try_embed_summary(
         log.warning(
             "summary embedding failed for %s: %s: %s",
             video_id,
+            type(e).__name__,
+            e,
+        )
+
+
+async def _store_related_links(
+    db, *, video, user_id: int, model_row,
+) -> None:
+    """Best-effort: compute + persist the curated related-links block.
+
+    Never raises — related links are a nice-to-have and must not break
+    the pipeline. On any failure the column stays NULL and the detail
+    page falls back to the live-KNN strip.
+    """
+    try:
+        links = await related_links.compute_related_links(
+            db, video=video, user_id=user_id, model_row=model_row,
+        )
+        await videos_repo.set_related_links(
+            db, video.id, json.dumps(links, ensure_ascii=False),
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort, must not break
+        log.warning(
+            "related-links computation failed for %s: %s: %s",
+            getattr(video, "id", None),
             type(e).__name__,
             e,
         )

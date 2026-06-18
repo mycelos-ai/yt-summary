@@ -1067,6 +1067,24 @@ async def test_pipeline_sets_stock_thumbnail_for_email(db, tmp_path, monkeypatch
     assert v.thumbnail_path is not None
 
 
+async def test_related_links_failure_does_not_break(monkeypatch):
+    """_store_related_links must swallow any exception from
+    compute_related_links — related links are a nice-to-have and must
+    never break the pipeline."""
+    from app import pipeline
+    from app.services import related_links
+
+    async def boom(*a, **k):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(related_links, "compute_related_links", boom)
+
+    # Must not raise, even with db=None and video=None.
+    await pipeline._store_related_links(
+        db=None, video=None, user_id=1, model_row=object(),
+    )
+
+
 async def test_pipeline_skips_thumbnail_without_key(db, tmp_path, monkeypatch):
     config = Config(data_dir=tmp_path)
     config.ensure_dirs()
