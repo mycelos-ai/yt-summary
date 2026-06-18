@@ -1371,6 +1371,16 @@ button.section-download {
 .section-title-link:hover::after { color: var(--ink); }
 
 /* Responsive */
+/* Playlists strip — single row of 8 cells on desktop (7 cards + the
+   "+" add tile). Defined BEFORE the responsive @media block below so the
+   mobile 4-column override there wins by source order. */
+.playlist-strip {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
 @media (max-width: 768px) {
   main { padding: 24px 16px; }
   .hero {
@@ -1390,14 +1400,6 @@ button.section-download {
      "+" add tile = 4 cells. Add tiles aren't wrapped in
      .playlist-card-wrap / .digest-card-wrap, so this never hides them. */
   .playlist-strip .playlist-card-wrap:nth-of-type(n + 4) { display: none; }
-}
-
-/* Playlists strip */
-.playlist-strip {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 16px;
-  margin-bottom: 32px;
 }
 .playlist-card {
   display: flex;
