@@ -1385,12 +1385,17 @@ button.section-download {
   .summary { padding: 20px; }
   h1 { font-size: 32px; }
   h2 { font-size: 24px; }
+  .playlist-strip { grid-template-columns: repeat(4, 1fr); }
+  /* Show at most 3 real cards on mobile so the row reads 3 cards + the
+     "+" add tile = 4 cells. Add tiles aren't wrapped in
+     .playlist-card-wrap / .digest-card-wrap, so this never hides them. */
+  .playlist-strip .playlist-card-wrap:nth-of-type(n + 4) { display: none; }
 }
 
 /* Playlists strip */
 .playlist-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(8, 1fr);
   gap: 16px;
   margin-bottom: 32px;
 }
