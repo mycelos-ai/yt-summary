@@ -33,7 +33,7 @@ async def test_related_excludes_self_and_ranks_by_similarity(db: aiosqlite.Conne
     await _seed(db, "c", vecval=0.95)   # far
     a = await videos_repo.get(db, "a")
     ids = await related_svc.related_video_ids(
-        db, a, user_id=1, limit=5, max_distance=0.75,
+        db, a, user_id=1, limit=5, max_cosine_distance=0.75,
     )
     assert "a" not in ids                 # never the item itself
     assert ids and ids[0] == "b"          # closest first
@@ -60,14 +60,16 @@ async def test_related_excludes_other_profile_copies_of_same_source(
     assert "1:other" in ids
 
 
-async def test_related_respects_max_distance(db: aiosqlite.Connection):
-    await _seed(db, "a", vecval=0.5)
-    await _seed(db, "far", vecval=-0.5)   # opposite direction → large dist
+async def test_related_respects_max_cosine_distance(db: aiosqlite.Connection):
+    await _seed(db, "a", vecval=0.50)
+    await _seed(db, "b", vecval=0.50)    # identical → L2 distance 0
+    await _seed(db, "c", vecval=0.90)    # far: L2 = sqrt(384)*0.40 ≈ 7.8 >> 0.447
     a = await videos_repo.get(db, "a")
     ids = await related_svc.related_video_ids(
-        db, a, user_id=1, max_distance=0.1,
+        db, a, user_id=1, max_cosine_distance=0.1,   # L2 ceiling sqrt(0.2)≈0.447
     )
-    assert "far" not in ids
+    assert "b" in ids        # identical vector, distance 0, kept
+    assert "c" not in ids    # far vector exceeds the ceiling, dropped
 
 
 async def test_related_excludes_archived_neighbour(db: aiosqlite.Connection):
@@ -79,6 +81,6 @@ async def test_related_excludes_archived_neighbour(db: aiosqlite.Connection):
     await db.commit()
     a = await videos_repo.get(db, "a")
     ids = await related_svc.related_video_ids(
-        db, a, user_id=1, limit=5, max_distance=0.75,
+        db, a, user_id=1, limit=5, max_cosine_distance=0.75,
     )
     assert "b" not in ids

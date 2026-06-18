@@ -7,6 +7,8 @@ itself and other profiles' copies of the same source.
 
 from __future__ import annotations
 
+import math
+
 import aiosqlite
 
 from app.models import Video
@@ -20,17 +22,23 @@ async def related_video_ids(
     *,
     user_id: int,
     limit: int = 5,
-    max_distance: float = 0.75,
+    max_cosine_distance: float = 0.75,
 ) -> list[str]:
     """Ids of items related to `video`, closest first.
 
     Empty when the item has no embedding. Excludes: the item itself,
     items belonging to other profiles, and other-profile copies of the
     same source (same youtube_id or url). Keeps only neighbours within
-    `max_distance` (cosine, [0, 2]); caps at `limit`."""
+    `max_cosine_distance` (cosine distance, [0, 2]); caps at `limit`.
+
+    Embeddings are unit-length (see embeddings_local), so the vec0
+    table's L2 distance is a monotonic function of cosine distance:
+    L2² = 2·cosine_distance. We convert the cosine ceiling to an L2
+    ceiling and compare against the L2 `distance` vec0 returns."""
     own = await embeddings_repo.get_summary_embedding(db, video.id)
     if own is None:
         return []
+    l2_threshold = math.sqrt(2 * max_cosine_distance)
     # Over-fetch: the KNN index is global (all profiles), and we filter
     # down to this profile afterwards, so ask for more than `limit`.
     hits = await embeddings_repo.search_by_summary_vector(
@@ -38,7 +46,7 @@ async def related_video_ids(
     )
     candidate_ids = [
         vid for vid, dist in hits
-        if vid != video.id and dist <= max_distance
+        if vid != video.id and dist <= l2_threshold
     ]
     if not candidate_ids:
         return []
