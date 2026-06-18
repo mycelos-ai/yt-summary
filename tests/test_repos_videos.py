@@ -368,3 +368,18 @@ async def test_list_for_thumbnail_backfill_since_days_none_includes_all(db):
     ids = [v.id for v in results]
     assert "recent2" in ids
     assert "old2" in ids
+
+
+async def test_set_and_get_related_links(db: aiosqlite.Connection):
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="https://x/1", title="One",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    assert await videos_repo.get_related_links(db, "v1") is None
+
+    blob = '[{"video_id": "v2", "title": "Two", "reason": "same topic"}]'
+    await videos_repo.set_related_links(db, "v1", blob)
+
+    assert await videos_repo.get_related_links(db, "v1") == blob
+    v = await videos_repo.get(db, "v1")
+    assert v.related_links_json == blob

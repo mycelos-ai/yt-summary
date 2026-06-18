@@ -71,6 +71,10 @@ class Video:
     archived_at: str | None = None
     # LLM-suggested stock-photo search query (Pexels). None = not set.
     image_query: str | None = None
+    # JSON-encoded list of {video_id, title, reason} curated related
+    # summaries. NULL = not yet computed (UI falls back to live-KNN).
+    # "[]" = computed, nothing relevant found.
+    related_links_json: str | None = None
 
 
 @dataclass

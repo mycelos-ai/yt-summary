@@ -47,6 +47,10 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         image_query = row["image_query"]
     except (IndexError, KeyError):
         image_query = None
+    try:
+        related_links_json = row["related_links_json"]
+    except (IndexError, KeyError):
+        related_links_json = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -69,6 +73,7 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         transcript_language=transcript_language,
         archived_at=archived_at,
         image_query=image_query,
+        related_links_json=related_links_json,
     )
 
 
@@ -619,6 +624,33 @@ async def get_highlights(
 ) -> str | None:
     cur = await db.execute(
         "SELECT highlights_json FROM videos WHERE id=?", (video_id,)
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return row[0]
+
+
+async def set_related_links(
+    db: aiosqlite.Connection, video_id: str, related_links_json: str,
+) -> None:
+    """Set the curated related-links JSON blob.
+
+    Pass `"[]"` for "nothing relevant found". A NULL means "not yet
+    computed" — leave it by simply not calling this function.
+    """
+    await db.execute(
+        "UPDATE videos SET related_links_json=? WHERE id=?",
+        (related_links_json, video_id),
+    )
+    await db.commit()
+
+
+async def get_related_links(
+    db: aiosqlite.Connection, video_id: str,
+) -> str | None:
+    cur = await db.execute(
+        "SELECT related_links_json FROM videos WHERE id=?", (video_id,)
     )
     row = await cur.fetchone()
     if row is None:
