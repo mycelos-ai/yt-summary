@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass
 
 import aiosqlite
@@ -6,9 +7,13 @@ import aiosqlite
 from app.config import Config
 from app.repos import jobs as jobs_repo
 from app.repos import playlists as playlists_repo
+from app.repos import settings as settings_repo
 from app.repos import videos as videos_repo
-from app.services.playlist import PlaylistEntry, fetch_playlist
+from app.services import playlist_index
+from app.services.playlist import PlaylistEntry, PlaylistMetadata, fetch_playlist
 from app.services.youtube import download_thumbnail
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,6 +27,26 @@ async def _resolve_cookies(config: Config):
     p = config.cookies_path
     exists = await asyncio.to_thread(p.exists)
     return p if exists else None
+
+
+async def _index_playlist(db, config, playlist) -> "PlaylistMetadata":
+    """Index a playlist's entries: Data API when a youtube_api_key is set and
+    succeeds, else (or on API error) the yt-dlp fetch_playlist path."""
+    api_key = await settings_repo.get_for_user(
+        db, playlist.user_id, "youtube_api_key",
+    )
+    if api_key:
+        try:
+            return await playlist_index.fetch_via_api(
+                playlist.url, api_key=api_key,
+            )
+        except playlist_index.PlaylistApiError as e:
+            log.warning(
+                "YouTube API index failed for %s, falling back to yt-dlp: %s",
+                playlist.id, e,
+            )
+    cookies = await _resolve_cookies(config)
+    return await fetch_playlist(playlist.url, cookies_path=cookies)
 
 
 async def _process_entries(
@@ -80,8 +105,7 @@ async def sync_playlist(
     if playlist is None:
         raise KeyError(f"Unknown playlist: {playlist_id}")
 
-    cookies = await _resolve_cookies(config)
-    meta = await fetch_playlist(playlist.url, cookies_path=cookies)
+    meta = await _index_playlist(db, config, playlist)
     total = len(meta.entries)
     entries = meta.entries[:initial_limit] if initial_limit else meta.entries
 
@@ -104,8 +128,7 @@ async def load_older_videos(
     if playlist is None:
         raise KeyError(f"Unknown playlist: {playlist_id}")
 
-    cookies = await _resolve_cookies(config)
-    meta = await fetch_playlist(playlist.url, cookies_path=cookies)
+    meta = await _index_playlist(db, config, playlist)
     total = len(meta.entries)
     already_linked = await playlists_repo.linked_video_ids(db, playlist_id)
     candidates = [e for e in meta.entries if e.id not in already_linked]

@@ -3,8 +3,11 @@ from unittest.mock import AsyncMock, patch
 from app.config import Config
 from app.repos import jobs as jobs_repo
 from app.repos import playlists as playlists_repo
+from app.repos import settings as settings_repo
 from app.repos import videos as videos_repo
+from app.services import playlist_sync
 from app.services.playlist import PlaylistEntry, PlaylistMetadata
+from app.services.playlist_index import PlaylistApiError
 
 
 def _meta(plid: str = "p1", entries: list[PlaylistEntry] | None = None) -> PlaylistMetadata:
@@ -220,3 +223,69 @@ async def test_process_entries_reprocess_updates_position_no_reenqueue(db, tmp_p
         "SELECT position FROM playlist_videos WHERE playlist_id='p1' AND video_id='a'"
     )
     assert (await cur.fetchone())[0] == 5
+
+
+# ── _index_playlist tests ────────────────────────────────────────────────────
+
+
+def _meta_src(source: str) -> PlaylistMetadata:
+    return PlaylistMetadata(
+        id="PLx", url="u", title=source, description="",
+        thumbnail_url=None, entries=[],
+    )
+
+
+async def _make_pl(db):
+    await playlists_repo.create(
+        db, playlist_id="p1", user_id=1, url="https://youtube.com/playlist?list=PLx",
+        title="T", description="", thumbnail_path=None,
+    )
+    return await playlists_repo.get(db, "p1")
+
+
+async def test_index_playlist_uses_api_when_key_set(db, tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    pl = await _make_pl(db)
+    await settings_repo.set_for_user(db, 1, "youtube_api_key", "KEY")
+    monkeypatch.setattr(
+        playlist_sync.playlist_index, "fetch_via_api",
+        AsyncMock(return_value=_meta_src("api")),
+    )
+    monkeypatch.setattr(
+        playlist_sync, "fetch_playlist",
+        AsyncMock(return_value=_meta_src("ytdlp")),
+    )
+    meta = await playlist_sync._index_playlist(db, cfg, pl)
+    assert meta.title == "api"
+
+
+async def test_index_playlist_falls_back_when_no_key(db, tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    pl = await _make_pl(db)
+    # no youtube_api_key set
+    monkeypatch.setattr(
+        playlist_sync.playlist_index, "fetch_via_api",
+        AsyncMock(return_value=_meta_src("api")),
+    )
+    monkeypatch.setattr(
+        playlist_sync, "fetch_playlist",
+        AsyncMock(return_value=_meta_src("ytdlp")),
+    )
+    meta = await playlist_sync._index_playlist(db, cfg, pl)
+    assert meta.title == "ytdlp"
+
+
+async def test_index_playlist_falls_back_on_api_error(db, tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    pl = await _make_pl(db)
+    await settings_repo.set_for_user(db, 1, "youtube_api_key", "KEY")
+    monkeypatch.setattr(
+        playlist_sync.playlist_index, "fetch_via_api",
+        AsyncMock(side_effect=PlaylistApiError("boom")),
+    )
+    monkeypatch.setattr(
+        playlist_sync, "fetch_playlist",
+        AsyncMock(return_value=_meta_src("ytdlp")),
+    )
+    meta = await playlist_sync._index_playlist(db, cfg, pl)
+    assert meta.title == "ytdlp"
