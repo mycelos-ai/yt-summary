@@ -32,9 +32,7 @@ async def _resolve_cookies(config: Config):
 async def _index_playlist(db, config, playlist) -> "PlaylistMetadata":
     """Index a playlist's entries: Data API when a youtube_api_key is set and
     succeeds, else (or on API error) the yt-dlp fetch_playlist path."""
-    api_key = await settings_repo.get_for_user(
-        db, playlist.user_id, "youtube_api_key",
-    )
+    api_key = await settings_repo.get(db, "youtube_api_key")
     if api_key:
         try:
             return await playlist_index.fetch_via_api(

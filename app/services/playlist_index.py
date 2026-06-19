@@ -120,6 +120,9 @@ async def fetch_via_api(url: str, *, api_key: str) -> PlaylistMetadata:
             )
     except PlaylistApiError:
         raise
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code if e.response is not None else "?"
+        raise PlaylistApiError(f"YouTube API HTTP {status}") from e
     except Exception as e:  # noqa: BLE001 — uniform fallback signal
         raise PlaylistApiError(f"YouTube API index failed: {e}") from e
 

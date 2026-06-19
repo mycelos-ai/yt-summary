@@ -115,6 +115,43 @@ async def test_fetch_via_api_raises_on_http_error(monkeypatch):
         )
 
 
+async def test_fetch_via_api_http_error_does_not_leak_api_key(monkeypatch):
+    """I2: When an HTTP error occurs, the raised PlaylistApiError must NOT
+    contain the api_key string, even if the underlying httpx error message
+    includes the key (e.g. via the request URL)."""
+    secret = "SECRETKEY"
+
+    # Build a minimal fake response with status_code so the redacted path
+    # can report "HTTP 403" instead of "HTTP ?".
+    fake_response = httpx.Response(403)
+
+    class FakeResp:
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                f"403 Client Error for url with key={secret}",
+                request=None,
+                response=fake_response,
+            )
+
+        def json(self):
+            return {}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None): return FakeResp()
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+    with pytest.raises(PlaylistApiError) as exc_info:
+        await fetch_via_api(
+            "https://youtube.com/playlist?list=PLx", api_key=secret,
+        )
+    error_msg = str(exc_info.value)
+    assert secret not in error_msg, f"API key leaked into error message: {error_msg!r}"
+    assert "403" in error_msg
+
+
 def test_playlist_id_from_url_extracts_list_param():
     url = "https://www.youtube.com/playlist?list=PLabc123"
     assert _playlist_id_from_url(url) == "PLabc123"

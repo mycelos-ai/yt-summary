@@ -289,3 +289,39 @@ async def test_index_playlist_falls_back_on_api_error(db, tmp_path, monkeypatch)
     )
     meta = await playlist_sync._index_playlist(db, cfg, pl)
     assert meta.title == "ytdlp"
+
+
+async def test_index_playlist_uses_api_for_non_default_user(db, tmp_path, monkeypatch):
+    """I1: youtube_api_key is saved household-global (user 1), but must be
+    respected for playlists owned by other users too. Before the fix,
+    get_for_user(db, user_id=2, ...) returned None and the feature was silently
+    disabled for any profile other than user 1."""
+    from app.repos import users as users_repo
+    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+
+    # Create a second user and a playlist owned by that user.
+    second_user = await users_repo.create(db, name="other")
+    user2_id = second_user.id
+
+    await playlists_repo.create(
+        db, playlist_id="p2", user_id=user2_id,
+        url="https://youtube.com/playlist?list=PLx",
+        title="T", description="", thumbnail_path=None,
+    )
+    pl2 = await playlists_repo.get(db, "p2")
+    assert pl2 is not None
+
+    # Save the api key household-globally (as the settings route does).
+    await settings_repo.set(db, "youtube_api_key", "KEY")
+
+    mock_api = AsyncMock(return_value=_meta_src("api"))
+    mock_ytdlp = AsyncMock(return_value=_meta_src("ytdlp"))
+    monkeypatch.setattr(playlist_sync.playlist_index, "fetch_via_api", mock_api)
+    monkeypatch.setattr(playlist_sync, "fetch_playlist", mock_ytdlp)
+
+    meta = await playlist_sync._index_playlist(db, cfg, pl2)
+    # With the fix: should use the API path, not yt-dlp.
+    assert meta.title == "api", (
+        "Expected API path to be taken for user_id != 1; "
+        "got yt-dlp path — household-global key was not read correctly"
+    )
