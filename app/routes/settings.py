@@ -20,6 +20,7 @@ from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import users as users_repo
+from app.repos import videos as videos_repo
 from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 from app.services.providers import (
@@ -683,6 +684,8 @@ async def diagnostics_page(
     )
     scheduled_playlists = await playlists_repo.list_for_user(db, 1)
     reembed_pending = await embeddings_repo.count_pending_reembed(db)
+    last_added = await videos_repo.get_most_recent(db)
+    last_processed = await videos_repo.get_most_recently_summarized(db)
 
     # Bound the requested line count to the buffer capacity.
     log_lines = log_buffer.snapshot(limit=max(1, min(lines, 500)))
@@ -706,6 +709,8 @@ async def diagnostics_page(
             "scheduler_last_tick_at": scheduler_last_tick_at,
             "scheduled_playlists": scheduled_playlists,
             "reembed_pending": reembed_pending,
+            "last_added": last_added,
+            "last_processed": last_processed,
             "log_lines": log_lines,
             "lines_requested": lines,
         },

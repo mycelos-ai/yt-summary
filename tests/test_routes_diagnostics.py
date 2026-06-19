@@ -379,3 +379,39 @@ def test_scheduler_threshold_still_uses_interval(tmp_path, monkeypatch):
         f"Scheduler 2h-old heartbeat should be alive (3h threshold); "
         f"got: {near[:300]!r}"
     )
+
+
+def test_get_diagnostics_shows_last_added_and_processed(tmp_path, monkeypatch):
+    """The 'Letzte Videos' section shows the last-added video (linked) and
+    the last-summarized video (linked)."""
+    import asyncio
+
+    from app.repos import videos as videos_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def seed():
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="vAdded", url="u", title="LastAddedVideo",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await videos_repo.set_summary(app.state.db, "vAdded", "TL;DR", "m")
+        asyncio.get_event_loop().run_until_complete(seed())
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "Letzte Videos" in text
+    assert "LastAddedVideo" in text
+    assert "/v/vAdded" in text          # title is a link to the detail page
+
+
+def test_get_diagnostics_last_videos_empty_state(tmp_path, monkeypatch):
+    """With no videos, the section renders its empty state without error."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings/diagnostics")
+    assert resp.status_code == 200
+    assert "Letzte Videos" in resp.text
+    assert "noch keine Videos" in resp.text

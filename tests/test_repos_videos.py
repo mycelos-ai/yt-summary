@@ -383,3 +383,48 @@ async def test_set_and_get_related_links(db: aiosqlite.Connection):
     assert await videos_repo.get_related_links(db, "v1") == blob
     v = await videos_repo.get(db, "v1")
     assert v.related_links_json == blob
+
+
+async def test_get_most_recent_returns_newest_by_created_at(db: aiosqlite.Connection):
+    await _insert_sample(db, "old")
+    await _insert_sample(db, "new")
+    # Make created_at unambiguous (upsert_metadata stamps the same second).
+    await db.execute("UPDATE videos SET created_at='2026-01-01T00:00:00' WHERE id='old'")
+    await db.execute("UPDATE videos SET created_at='2026-06-19T12:00:00' WHERE id='new'")
+    await db.commit()
+    v = await videos_repo.get_most_recent(db)
+    assert v is not None and v.id == "new"
+
+
+async def test_get_most_recent_ignores_archived(db: aiosqlite.Connection):
+    await _insert_sample(db, "active")
+    await _insert_sample(db, "archived")
+    await db.execute("UPDATE videos SET created_at='2026-01-01T00:00:00' WHERE id='active'")
+    await db.execute(
+        "UPDATE videos SET created_at='2026-06-19T12:00:00', "
+        "archived_at='2026-06-19T13:00:00' WHERE id='archived'"
+    )
+    await db.commit()
+    v = await videos_repo.get_most_recent(db)
+    assert v is not None and v.id == "active"   # newer one is archived → skipped
+
+
+async def test_get_most_recent_none_when_empty(db: aiosqlite.Connection):
+    assert await videos_repo.get_most_recent(db) is None
+
+
+async def test_get_most_recently_summarized_returns_newest_summarized(db: aiosqlite.Connection):
+    await _insert_sample(db, "nosummary")
+    await _insert_sample(db, "summarized")
+    await videos_repo.set_summary(db, "summarized", "TL;DR", "m")
+    # 'nosummary' has the newer updated_at but no summary → must be skipped.
+    await db.execute("UPDATE videos SET updated_at='2026-06-19T14:00:00' WHERE id='nosummary'")
+    await db.execute("UPDATE videos SET updated_at='2026-06-19T12:00:00' WHERE id='summarized'")
+    await db.commit()
+    v = await videos_repo.get_most_recently_summarized(db)
+    assert v is not None and v.id == "summarized"
+
+
+async def test_get_most_recently_summarized_none_when_no_summaries(db: aiosqlite.Connection):
+    await _insert_sample(db, "x")   # no summary
+    assert await videos_repo.get_most_recently_summarized(db) is None

@@ -346,6 +346,39 @@ async def list_recent(
     return [_row_to_video(r) for r in rows]
 
 
+async def get_most_recent(
+    db: aiosqlite.Connection, *, user_id: int = 1,
+) -> Video | None:
+    """The most recently added active video (greatest created_at).
+
+    Used by the diagnostics page to show "last added". None when the
+    library is empty / all archived."""
+    cursor = await db.execute(
+        "SELECT * FROM videos WHERE user_id = ? AND archived_at IS NULL "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        (user_id,),
+    )
+    row = await cursor.fetchone()
+    return _row_to_video(row) if row else None
+
+
+async def get_most_recently_summarized(
+    db: aiosqlite.Connection, *, user_id: int = 1,
+) -> Video | None:
+    """The most recently touched active video that has a summary
+    (greatest updated_at among summarized videos).
+
+    Used by the diagnostics page to show "last processed". None when no
+    summarized videos exist."""
+    cursor = await db.execute(
+        "SELECT * FROM videos WHERE user_id = ? AND archived_at IS NULL "
+        "AND summary IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT 1",
+        (user_id,),
+    )
+    row = await cursor.fetchone()
+    return _row_to_video(row) if row else None
+
+
 def _quote_fts_query(query: str) -> str:
     """Wrap user input as an FTS5 phrase query so reserved syntax doesn't crash."""
     escaped = query.replace('"', '""')
