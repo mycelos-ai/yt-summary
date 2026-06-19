@@ -1136,3 +1136,26 @@ def test_pexels_api_key_saved_and_cleared(tmp_path, monkeypatch):
         client.post("/settings", data={"pexels_api_key": ""},
                     follow_redirects=False)
         assert asyncio.get_event_loop().run_until_complete(get_key()) is None
+
+
+def test_save_youtube_api_key_roundtrips(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    import asyncio
+    with TestClient(app) as client:
+        client.post("/settings", data={"youtube_api_key": "YTKEY"},
+                    follow_redirects=False)
+
+        async def get_key():
+            from app.repos import settings as settings_repo
+            return await settings_repo.get(app.state.db, "youtube_api_key")
+        assert asyncio.get_event_loop().run_until_complete(get_key()) == "YTKEY"
+
+        # Verify it also renders on the settings page.
+        page = client.get("/settings")
+        assert "YTKEY" in page.text
+
+        # Clearing the field removes the key.
+        client.post("/settings", data={"youtube_api_key": ""},
+                    follow_redirects=False)
+        assert asyncio.get_event_loop().run_until_complete(get_key()) is None

@@ -526,6 +526,12 @@
                placeholder="Your Pexels API key">
         <small>Get a free key at <code>pexels.com/api</code>. When set, email summaries (and web articles without their own image) get a fitting stock photo instead of a placeholder icon.</small>
       </label>
+      <label class="settings-field">
+        <span class="settings-label">YouTube Data API Key <span class="settings-hint-inline">— optional, full playlist indexing</span></span>
+        <input name="youtube_api_key" value="{{ settings.get('youtube_api_key', '') }}"
+               placeholder="Your YouTube Data API v3 key">
+        <small>Create a key at <code>console.cloud.google.com</code> and enable "YouTube Data API v3". When set, playlists are indexed via the official API (all videos, in order) instead of yt-dlp.</small>
+      </label>
     </section>
     <!-- ── /Integrations ─────────────────────────────────────────── -->
 
