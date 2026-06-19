@@ -18,13 +18,14 @@ def _meta(plid: str = "p1", entries: list[PlaylistEntry] | None = None) -> Playl
     )
 
 
-def _entry(vid: str, title: str = "x") -> PlaylistEntry:
+def _entry(vid: str, title: str = "x", position: int = 1) -> PlaylistEntry:
     return PlaylistEntry(
         id=vid,
         title=title,
         description="",
         thumbnail_url=None,
         duration_seconds=None,
+        position=position,
     )
 
 

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from app.services.playlist import PlaylistEntry, PlaylistMetadata, fetch_playlist
+from app.services.playlist import PlaylistEntry, PlaylistMetadata, _entry_from_dict, fetch_playlist
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -59,3 +59,15 @@ async def test_fetch_playlist_skips_empty_entries():
     with patch("app.services.playlist._extract_playlist_info", return_value=payload):
         meta = await fetch_playlist("u", cookies_path=None)
     assert [e.id for e in meta.entries] == ["v1"]
+
+
+def test_entry_from_dict_uses_playlist_index_when_present():
+    raw = {"id": "vid1", "title": "T", "playlist_index": 7}
+    entry = _entry_from_dict(raw, fallback_position=2)
+    assert entry.position == 7
+
+
+def test_entry_from_dict_falls_back_to_enumeration_index():
+    raw = {"id": "vid2", "title": "T"}   # no playlist_index
+    entry = _entry_from_dict(raw, fallback_position=4)
+    assert entry.position == 4

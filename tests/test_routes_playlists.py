@@ -23,7 +23,7 @@ def test_post_playlists_imports_and_redirects(tmp_path, monkeypatch):
         entries=[
             PlaylistEntry(
                 id=f"v{i:010d}", title=f"v{i}", description="",
-                thumbnail_url=None, duration_seconds=None,
+                thumbnail_url=None, duration_seconds=None, position=i + 1,
             )
             for i in range(3)
         ]
@@ -194,7 +194,7 @@ def test_post_playlist_load_older(tmp_path, monkeypatch):
     entries = [
         PlaylistEntry(
             id=f"v{i:010d}", title="t", description="",
-            thumbnail_url=None, duration_seconds=None,
+            thumbnail_url=None, duration_seconds=None, position=i + 1,
         )
         for i in range(10)
     ]

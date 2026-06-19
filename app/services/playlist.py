@@ -13,6 +13,7 @@ class PlaylistEntry:
     description: str
     thumbnail_url: str | None
     duration_seconds: int | None
+    position: int
 
 
 @dataclass(frozen=True)
@@ -56,13 +57,16 @@ def _pick_thumbnail(item: dict[str, Any]) -> str | None:
     return item.get("thumbnail")
 
 
-def _entry_from_dict(raw: dict[str, Any]) -> PlaylistEntry:
+def _entry_from_dict(raw: dict[str, Any], *, fallback_position: int) -> PlaylistEntry:
+    idx = raw.get("playlist_index")
+    position = idx if isinstance(idx, int) else fallback_position
     return PlaylistEntry(
         id=raw["id"],
         title=raw.get("title") or "",
         description=raw.get("description") or "",
         thumbnail_url=_pick_thumbnail(raw),
         duration_seconds=raw.get("duration"),
+        position=position,
     )
 
 
@@ -71,7 +75,10 @@ async def fetch_playlist(
 ) -> PlaylistMetadata:
     info = await asyncio.to_thread(_extract_playlist_info, url, cookies_path)
     raw_entries = info.get("entries") or []
-    entries = [_entry_from_dict(e) for e in raw_entries if e]
+    entries = [
+        _entry_from_dict(e, fallback_position=i)
+        for i, e in enumerate((x for x in raw_entries if x), start=1)
+    ]
     return PlaylistMetadata(
         id=info["id"],
         url=info.get("webpage_url", url),
