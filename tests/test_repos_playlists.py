@@ -285,3 +285,31 @@ async def test_latest_video_ids_skips_archived_representative(db: aiosqlite.Conn
 
     result = await playlists_repo.latest_video_ids(db, ["p1"])
     assert result == {"p1": "v_old"}
+
+
+async def test_link_video_stores_position(db: aiosqlite.Connection):
+    await _make_playlist(db)
+    await _make_video(db, "v1")
+    assert await playlists_repo.link_video(db, "p1", "v1", position=3) is True
+    cur = await db.execute(
+        "SELECT position FROM playlist_videos WHERE playlist_id='p1' AND video_id='v1'"
+    )
+    assert (await cur.fetchone())[0] == 3
+
+
+async def test_relink_updates_position_without_new_link(db: aiosqlite.Connection):
+    await _make_playlist(db)
+    await _make_video(db, "v1")
+    await playlists_repo.link_video(db, "p1", "v1", position=5)
+    # Re-link with a new position: not "new", but position must update.
+    assert await playlists_repo.link_video(db, "p1", "v1", position=2) is False
+    cur = await db.execute(
+        "SELECT position, COUNT(*) FROM playlist_videos "
+        "WHERE playlist_id='p1' AND video_id='v1'"
+    )
+    row = await cur.fetchone()
+    assert row[0] == 2          # position updated
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM playlist_videos WHERE playlist_id='p1' AND video_id='v1'"
+    )
+    assert (await cur.fetchone())[0] == 1   # still exactly one row

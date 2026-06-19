@@ -122,16 +122,35 @@ async def set_last_refreshed(db: aiosqlite.Connection, playlist_id: str) -> None
 
 
 async def link_video(
-    db: aiosqlite.Connection, playlist_id: str, video_id: str
+    db: aiosqlite.Connection,
+    playlist_id: str,
+    video_id: str,
+    position: int | None = None,
 ) -> bool:
-    """Insert (playlist_id, video_id). Return True if newly inserted,
-    False if the link already existed."""
-    cursor = await db.execute(
-        "INSERT OR IGNORE INTO playlist_videos (playlist_id, video_id) VALUES (?, ?)",
+    """Link a video to a playlist, storing its playlist position.
+
+    Returns True if the link was newly created, False if it already
+    existed. In BOTH cases `position` is written (insert or update), so a
+    refresh re-numbers existing links. Newness is determined by an
+    explicit existence check BEFORE the upsert, because ON CONFLICT DO
+    UPDATE makes rowcount positive on updates too.
+    """
+    cur = await db.execute(
+        "SELECT 1 FROM playlist_videos WHERE playlist_id=? AND video_id=?",
         (playlist_id, video_id),
     )
+    is_new = await cur.fetchone() is None
+    await db.execute(
+        """
+        INSERT INTO playlist_videos (playlist_id, video_id, position)
+        VALUES (?, ?, ?)
+        ON CONFLICT(playlist_id, video_id)
+        DO UPDATE SET position = excluded.position
+        """,
+        (playlist_id, video_id, position),
+    )
     await db.commit()
-    return cursor.rowcount > 0
+    return is_new
 
 
 async def linked_video_ids(
