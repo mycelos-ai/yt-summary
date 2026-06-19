@@ -15,6 +15,25 @@ import re
 
 log = logging.getLogger(__name__)
 
+
+# JSON allows a backslash only before " \ / b f n r t u. LLMs sometimes
+# escape other characters — most commonly typographic quotes (\“ \”) — which
+# is illegal JSON and makes json.loads raise. This strips a backslash that
+# precedes any non-legal escape character, leaving the character itself.
+_ILLEGAL_ESCAPE = re.compile(r'\\([^"\\/bfnrtu])')
+
+
+def _loads_lenient(blob: str):
+    """json.loads, retried once with illegal backslash-escapes repaired.
+
+    Returns the parsed object, or raises json.JSONDecodeError if it is still
+    invalid after the repair (caller treats that as the legacy fallback)."""
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        repaired = _ILLEGAL_ESCAPE.sub(r"\1", blob)
+        return json.loads(repaired)
+
 _MAX_HIGHLIGHT_TEXT = 400  # chars; anything longer is suspicious
 
 HIGHLIGHTS_SCHEMA_HINT = """\
@@ -123,7 +142,7 @@ def parse_summary_payload(raw: str) -> tuple[str, list[dict] | None]:
     if blob is None:
         return (raw, None)
     try:
-        payload = json.loads(blob)
+        payload = _loads_lenient(blob)
     except json.JSONDecodeError:
         return (raw, None)
     if not isinstance(payload, dict):
@@ -154,7 +173,7 @@ def parse_image_query(raw: str) -> str | None:
     if blob is None:
         return None
     try:
-        payload = json.loads(blob)
+        payload = _loads_lenient(blob)
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):

@@ -133,3 +133,17 @@ def test_parse_image_query_blank():
 
 def test_parse_image_query_unparseable():
     assert parse_image_query("not json at all") is None
+
+
+def test_parses_envelope_with_escaped_smart_quotes():
+    """LLMs sometimes backslash-escape typographic quotes (\\“ \\”) inside
+    the JSON envelope. That is illegal JSON (only \\" \\\\ \\n … are valid
+    escapes), so a strict json.loads fails and the whole raw blob would
+    wrongly surface as the summary. The parser must repair these illegal
+    escapes and unwrap the envelope."""
+    raw = r'''{"summary": "He cited \“Policy on the AI Exponential\” in his essay.", "highlights": [{"text": "A claim", "rank": 1, "reason": "why"}]}'''
+    summary, highlights = parse_summary_payload(raw)
+    # Must be the UNWRAPPED summary, not the raw JSON blob.
+    assert summary.startswith("He cited")
+    assert '"summary"' not in summary       # raw JSON did NOT leak through
+    assert highlights == [{"text": "A claim", "rank": 1, "reason": "why"}]
