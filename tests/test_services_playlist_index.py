@@ -1,6 +1,118 @@
+import httpx
 import pytest
 
 from app.services.playlist_index import PlaylistApiError, _playlist_id_from_url
+from app.services.playlist_index import fetch_via_api
+from app.services import playlist_index
+
+
+def _page(items, next_token=None):
+    """Build a fake playlistItems.list response page."""
+    page = {"items": items}
+    if next_token:
+        page["nextPageToken"] = next_token
+    return page
+
+
+def _item(vid, title, position, *, thumb="https://t/d.jpg", with_video_id=True):
+    snippet = {
+        "title": title,
+        "description": "",
+        "position": position,
+        "thumbnails": {"high": {"url": thumb, "width": 480}},
+    }
+    content = {"videoId": vid} if with_video_id else {}
+    return {"snippet": snippet, "contentDetails": content}
+
+
+def _install_fake_http(monkeypatch, pages, *, playlist_title="My PL"):
+    """Make playlist_index.httpx.AsyncClient return queued pages, then the
+    playlists.list title response."""
+    calls = {"n": 0}
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            if url.endswith("/playlists"):
+                return FakeResp({"items": [{"snippet": {
+                    "title": playlist_title, "description": "",
+                    "thumbnails": {},
+                }}]})
+            # playlistItems pages, in order
+            payload = pages[calls["n"]]
+            calls["n"] += 1
+            return FakeResp(payload)
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+
+
+async def test_fetch_via_api_paginates_and_orders(monkeypatch):
+    pages = [
+        _page([_item("v1", "One", 0), _item("v2", "Two", 1)], next_token="T2"),
+        _page([_item("v3", "Three", 2)]),
+    ]
+    _install_fake_http(monkeypatch, pages)
+    meta = await fetch_via_api(
+        "https://youtube.com/playlist?list=PLx", api_key="KEY",
+    )
+    assert [e.id for e in meta.entries] == ["v1", "v2", "v3"]
+    assert [e.position for e in meta.entries] == [1, 2, 3]   # 0-based +1
+    assert meta.entries[0].title == "One"
+    assert meta.entries[0].thumbnail_url == "https://t/d.jpg"
+    assert meta.entries[0].duration_seconds is None
+    assert meta.title == "My PL"
+
+
+async def test_fetch_via_api_skips_items_without_video_id(monkeypatch):
+    pages = [_page([
+        _item("v1", "One", 0),
+        _item("x", "Deleted", 1, with_video_id=False),
+        _item("v2", "Two", 2),
+    ])]
+    _install_fake_http(monkeypatch, pages)
+    meta = await fetch_via_api(
+        "https://youtube.com/playlist?list=PLx", api_key="KEY",
+    )
+    assert [e.id for e in meta.entries] == ["v1", "v2"]
+
+
+async def test_fetch_via_api_raises_on_http_error(monkeypatch):
+    class FakeResp:
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("403", request=None, response=None)
+
+        def json(self):
+            return {}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None): return FakeResp()
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+    with pytest.raises(PlaylistApiError):
+        await fetch_via_api(
+            "https://youtube.com/playlist?list=PLx", api_key="KEY",
+        )
 
 
 def test_playlist_id_from_url_extracts_list_param():
