@@ -55,7 +55,7 @@ async def _process_entries(
             )
             existing = await videos_repo.get(db, entry.id)
 
-        if await playlists_repo.link_video(db, playlist_id, entry.id):
+        if await playlists_repo.link_video(db, playlist_id, entry.id, position=entry.position):
             newly_linked += 1
             assert existing is not None
             if existing.summary is None:

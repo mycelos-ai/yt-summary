@@ -175,3 +175,52 @@ async def test_sync_raises_for_unknown_playlist(db, tmp_path):
     config.ensure_dirs()
     with pytest.raises(KeyError):
         await sync_playlist(db, config, "unknown_id")
+
+
+async def test_process_entries_writes_positions(db, tmp_path):
+    from unittest.mock import AsyncMock, patch
+
+    import aiosqlite
+
+    from app.services.playlist_sync import _process_entries
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await playlists_repo.create(
+        db, playlist_id="p1", user_id=1, url="u", title="T",
+        description="", thumbnail_path=None,
+    )
+    entries = [_entry("a", position=1), _entry("b", position=2)]
+    with patch("app.services.playlist_sync.download_thumbnail", AsyncMock(return_value=None)):
+        result = await _process_entries(db, cfg, "p1", 1, entries)
+    assert result.newly_linked == 2
+    cur = await db.execute(
+        "SELECT video_id, position FROM playlist_videos "
+        "WHERE playlist_id='p1' ORDER BY position"
+    )
+    assert [tuple(r) async for r in cur] == [("a", 1), ("b", 2)]
+
+
+async def test_process_entries_reprocess_updates_position_no_reenqueue(db, tmp_path):
+    from unittest.mock import AsyncMock, patch
+
+    import aiosqlite
+
+    from app.services.playlist_sync import _process_entries
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    await playlists_repo.create(
+        db, playlist_id="p1", user_id=1, url="u", title="T",
+        description="", thumbnail_path=None,
+    )
+    with patch("app.services.playlist_sync.download_thumbnail", AsyncMock(return_value=None)):
+        await _process_entries(db, cfg, "p1", 1, [_entry("a", position=1)])
+        # Re-process the same video at a new position: no new link, no re-enqueue.
+        result = await _process_entries(db, cfg, "p1", 1, [_entry("a", position=5)])
+    assert result.newly_linked == 0
+    assert result.newly_enqueued == 0
+    cur = await db.execute(
+        "SELECT position FROM playlist_videos WHERE playlist_id='p1' AND video_id='a'"
+    )
+    assert (await cur.fetchone())[0] == 5
