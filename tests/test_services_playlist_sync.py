@@ -180,8 +180,6 @@ async def test_sync_raises_for_unknown_playlist(db, tmp_path):
 async def test_process_entries_writes_positions(db, tmp_path):
     from unittest.mock import AsyncMock, patch
 
-    import aiosqlite
-
     from app.services.playlist_sync import _process_entries
 
     cfg = Config(data_dir=tmp_path)
@@ -203,8 +201,6 @@ async def test_process_entries_writes_positions(db, tmp_path):
 
 async def test_process_entries_reprocess_updates_position_no_reenqueue(db, tmp_path):
     from unittest.mock import AsyncMock, patch
-
-    import aiosqlite
 
     from app.services.playlist_sync import _process_entries
 

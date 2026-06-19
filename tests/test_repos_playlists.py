@@ -309,10 +309,7 @@ async def test_relink_updates_position_without_new_link(db: aiosqlite.Connection
     )
     row = await cur.fetchone()
     assert row[0] == 2          # position updated
-    cur = await db.execute(
-        "SELECT COUNT(*) FROM playlist_videos WHERE playlist_id='p1' AND video_id='v1'"
-    )
-    assert (await cur.fetchone())[0] == 1   # still exactly one row
+    assert row[1] == 1          # still exactly one row
 
 
 async def test_videos_for_playlist_orders_by_position(db: aiosqlite.Connection):
