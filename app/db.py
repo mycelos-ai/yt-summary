@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS playlist_videos (
     playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
     video_id TEXT NOT NULL REFERENCES videos(id),
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- 1-based position in the source YouTube playlist (yt-dlp order),
+    -- written on every sync. NULL on pre-feature links until the next
+    -- refresh backfills them. Drives the detail-page ordering.
+    position INTEGER,
     PRIMARY KEY (playlist_id, video_id)
 );
 CREATE INDEX IF NOT EXISTS idx_playlist_videos_video ON playlist_videos(video_id);
@@ -516,6 +520,12 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(
             conn, "digests", "selected_video_ids_json", "TEXT",
         )
+
+    # Playlist ordering: position tracks the 1-based order of videos
+    # within a playlist, written on every sync. NULL on pre-feature links
+    # until the next refresh backfills them.
+    if await _table_exists(conn, "playlist_videos"):
+        await _ensure_column(conn, "playlist_videos", "position", "INTEGER")
 
     # V7: 768d → 384d embedding dimension. Must run here (before
     # executescript(SCHEMA) creates the FTS triggers) so that the
