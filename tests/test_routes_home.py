@@ -555,3 +555,28 @@ def test_home_section_headlines_are_clickable(tmp_path, monkeypatch):
     assert 'href="/playlists"' in resp.text
     assert 'href="/digest"' in resp.text
     assert 'href="/library"' in resp.text
+
+
+def test_home_video_card_shows_added_date(tmp_path, monkeypatch):
+    """Each video card renders its library-added date via relative_time.
+
+    A freshly-added video (created_at = now) renders an "ago" string
+    inside a .video-card-date element."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            await videos_repo.upsert_metadata(
+                app.state.db,
+                video_id="v1",
+                url="https://youtu.be/v1",
+                title="Dated Video",
+                description="d",
+                thumbnail_path=None,
+                duration_seconds=120,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "video-card-date" in resp.text
+    assert "ago" in resp.text

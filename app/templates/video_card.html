@@ -29,6 +29,7 @@
       {% endif %}
     </div>
   {% endif %}
+  <p class="video-card-date">{{ video.created_at | relative_time }}</p>
   {% if video.summary %}
     <p class="status status-done">✓ summary ready</p>
   {% else %}
