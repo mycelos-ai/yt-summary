@@ -313,3 +313,25 @@ async def test_relink_updates_position_without_new_link(db: aiosqlite.Connection
         "SELECT COUNT(*) FROM playlist_videos WHERE playlist_id='p1' AND video_id='v1'"
     )
     assert (await cur.fetchone())[0] == 1   # still exactly one row
+
+
+async def test_videos_for_playlist_orders_by_position(db: aiosqlite.Connection):
+    await _make_playlist(db)
+    for vid in ("a", "b", "c"):
+        await _make_video(db, vid)
+    # Link out of id-order, with explicit positions (1=top).
+    await playlists_repo.link_video(db, "p1", "a", position=3)
+    await playlists_repo.link_video(db, "p1", "b", position=1)
+    await playlists_repo.link_video(db, "p1", "c", position=2)
+    rows = await playlists_repo.videos_for_playlist(db, "p1")
+    assert [v.id for v in rows] == ["b", "c", "a"]   # position order
+
+
+async def test_videos_for_playlist_null_position_sorts_last(db: aiosqlite.Connection):
+    await _make_playlist(db)
+    for vid in ("pos", "nul"):
+        await _make_video(db, vid)
+    await playlists_repo.link_video(db, "p1", "nul")            # position NULL
+    await playlists_repo.link_video(db, "p1", "pos", position=1)
+    rows = await playlists_repo.videos_for_playlist(db, "p1")
+    assert [v.id for v in rows] == ["pos", "nul"]   # positioned first, NULL last

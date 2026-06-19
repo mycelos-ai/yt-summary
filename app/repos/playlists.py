@@ -172,7 +172,8 @@ async def videos_for_playlist(
         SELECT v.* FROM videos v
         JOIN playlist_videos pv ON v.id = pv.video_id
         WHERE pv.playlist_id = ? AND v.archived_at IS NULL
-        ORDER BY pv.added_at DESC, pv.video_id DESC
+        ORDER BY pv.position IS NULL, pv.position ASC,
+                 pv.added_at DESC, pv.video_id DESC
         """,
         (playlist_id,),
     )
