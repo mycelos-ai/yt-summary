@@ -1159,3 +1159,71 @@ def test_save_youtube_api_key_roundtrips(tmp_path, monkeypatch):
         client.post("/settings", data={"youtube_api_key": ""},
                     follow_redirects=False)
         assert asyncio.get_event_loop().run_until_complete(get_key()) is None
+
+
+# ── API key test-button endpoints ──────────────────────────────
+
+def test_test_pexels_no_key_returns_no_key_fragment(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post("/settings/test-pexels")
+    assert resp.status_code == 200
+    assert "No key" in resp.text
+    assert "status-failed" in resp.text
+
+
+def test_test_pexels_with_stored_key_calls_probe(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.repos import settings as settings_repo
+    from app.services import stock_images
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    async def fake_probe(api_key):
+        return (True, "Pexels key works")
+    monkeypatch.setattr(stock_images, "test_pexels_key", fake_probe)
+
+    with TestClient(app) as client:
+        asyncio.get_event_loop().run_until_complete(
+            settings_repo.set(app.state.db, "pexels_api_key", "KEY")
+        )
+        resp = client.post("/settings/test-pexels")
+    assert resp.status_code == 200
+    assert "Pexels key works" in resp.text
+    assert "status-done" in resp.text
+
+
+def test_test_youtube_with_stored_key_calls_probe(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.repos import settings as settings_repo
+    from app.services import playlist_index
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+
+    async def fake_probe(api_key):
+        return (True, "YouTube key works")
+    monkeypatch.setattr(playlist_index, "test_youtube_key", fake_probe)
+
+    with TestClient(app) as client:
+        asyncio.get_event_loop().run_until_complete(
+            settings_repo.set(app.state.db, "youtube_api_key", "KEY")
+        )
+        resp = client.post("/settings/test-youtube")
+    assert resp.status_code == 200
+    assert "YouTube key works" in resp.text
+    assert "status-done" in resp.text
+
+
+def test_settings_page_shows_test_buttons(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "/settings/test-pexels" in resp.text
+    assert "/settings/test-youtube" in resp.text

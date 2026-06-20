@@ -165,3 +165,55 @@ def test_playlist_id_from_url_with_extra_params():
 def test_playlist_id_from_url_raises_without_list():
     with pytest.raises(PlaylistApiError):
         _playlist_id_from_url("https://www.youtube.com/watch?v=abc")
+
+
+# ── test_youtube_key (API key probe for the Settings test button) ──
+
+async def test_youtube_key_empty_returns_false_without_call():
+    ok, msg = await playlist_index.test_youtube_key("")
+    assert ok is False
+    assert "No key" in msg
+
+
+async def test_youtube_key_200_returns_true(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None): return FakeResp()
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+    ok, msg = await playlist_index.test_youtube_key("KEY")
+    assert ok is True
+
+
+async def test_youtube_key_403_returns_false_without_key_leak(monkeypatch):
+    class FakeResp:
+        status_code = 403
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None): return FakeResp()
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+    ok, msg = await playlist_index.test_youtube_key("SECRETKEY")
+    assert ok is False
+    assert "SECRETKEY" not in msg
+
+
+async def test_youtube_key_network_error_returns_false(monkeypatch):
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None):
+            raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(playlist_index.httpx, "AsyncClient", FakeClient)
+    ok, msg = await playlist_index.test_youtube_key("KEY")
+    assert ok is False

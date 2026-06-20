@@ -565,6 +565,30 @@ async def test_whisper(db: aiosqlite.Connection = Depends(get_db)):
     )
 
 
+@router.post("/settings/test-pexels", response_class=HTMLResponse)
+async def test_pexels(db: aiosqlite.Connection = Depends(get_db)):
+    """Probe the stored Pexels key for the Settings [Test] button."""
+    from app.services import stock_images
+
+    api_key = await settings_repo.get(db, "pexels_api_key") or ""
+    ok, message = await stock_images.test_pexels_key(api_key)
+    cls = "status-done" if ok else "status-failed"
+    mark = "✓" if ok else "✗"
+    return HTMLResponse(f'<p class="status {cls}">{mark} {message}</p>')
+
+
+@router.post("/settings/test-youtube", response_class=HTMLResponse)
+async def test_youtube(db: aiosqlite.Connection = Depends(get_db)):
+    """Probe the stored YouTube Data API key for the Settings [Test] button."""
+    from app.services import playlist_index
+
+    api_key = await settings_repo.get(db, "youtube_api_key") or ""
+    ok, message = await playlist_index.test_youtube_key(api_key)
+    cls = "status-done" if ok else "status-failed"
+    mark = "✓" if ok else "✗"
+    return HTMLResponse(f'<p class="status {cls}">{mark} {message}</p>')
+
+
 @router.post("/settings/youtube-curl")
 async def save_curl(
     curl: str = Form(...),

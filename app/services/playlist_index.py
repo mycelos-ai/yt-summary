@@ -24,6 +24,38 @@ class PlaylistApiError(Exception):
     """Any failure fetching/parsing the Data API response."""
 
 
+# A known public playlist id, used only to probe key validity (the
+# request succeeds with HTTP 200 on a valid key regardless of whether the
+# id resolves; a bad key is rejected with 400/403).
+_PROBE_PLAYLIST_ID = "PLh9GXHYeT6wUvWyDs6hjZQxJEnVEPpOOE"
+
+
+async def test_youtube_key(api_key: str) -> tuple[bool, str]:
+    """Cheap probe for the Settings 'Test YouTube' button. Returns
+    (ok, message). Never raises; never includes the key (or the request
+    URL, which carries key=) in the message — status code only."""
+    if not api_key:
+        return (False, "No key saved")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{_API_BASE}/playlists",
+                params={
+                    "part": "id",
+                    "id": _PROBE_PLAYLIST_ID,
+                    "maxResults": 1,
+                    "key": api_key,
+                },
+            )
+        if resp.status_code == 200:
+            return (True, "YouTube key works")
+        if resp.status_code in (400, 403):
+            return (False, "Key rejected (invalid, not enabled, or quota)")
+        return (False, f"YouTube API returned HTTP {resp.status_code}")
+    except Exception as e:  # noqa: BLE001 — probe must never raise
+        return (False, f"Could not reach YouTube API: {type(e).__name__}")
+
+
 def _playlist_id_from_url(url: str) -> str:
     qs = parse_qs(urlparse(url).query)
     values = qs.get("list")

@@ -283,3 +283,60 @@ async def test_generate_image_query_llm_error_returns_none(monkeypatch):
         summary="x", model_row=Row(),
     )
     assert q is None
+
+
+# ── test_pexels_key (API key probe for the Settings test button) ──
+
+@pytest.mark.asyncio
+async def test_pexels_key_empty_returns_false_without_call():
+    ok, msg = await stock_images.test_pexels_key("")
+    assert ok is False
+    assert "No key" in msg
+
+
+@pytest.mark.asyncio
+async def test_pexels_key_200_returns_true(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, params=None): return FakeResp()
+
+    monkeypatch.setattr(stock_images.httpx, "AsyncClient", FakeClient)
+    ok, msg = await stock_images.test_pexels_key("KEY")
+    assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_pexels_key_403_returns_false(monkeypatch):
+    class FakeResp:
+        status_code = 403
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, params=None): return FakeResp()
+
+    monkeypatch.setattr(stock_images.httpx, "AsyncClient", FakeClient)
+    ok, msg = await stock_images.test_pexels_key("BADKEY")
+    assert ok is False
+    assert "BADKEY" not in msg          # key never leaks into the message
+
+
+@pytest.mark.asyncio
+async def test_pexels_key_network_error_returns_false(monkeypatch):
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, headers=None, params=None):
+            raise httpx.ConnectError("boom")
+
+    import httpx
+    monkeypatch.setattr(stock_images.httpx, "AsyncClient", FakeClient)
+    ok, msg = await stock_images.test_pexels_key("KEY")
+    assert ok is False

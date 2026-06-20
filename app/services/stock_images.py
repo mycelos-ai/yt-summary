@@ -23,6 +23,27 @@ log = logging.getLogger(__name__)
 _PEXELS_SEARCH = "https://api.pexels.com/v1/search"
 
 
+async def test_pexels_key(api_key: str) -> tuple[bool, str]:
+    """Cheap probe for the Settings 'Test Pexels' button. Returns
+    (ok, message). Never raises; never includes the key in the message."""
+    if not api_key:
+        return (False, "No key saved")
+    try:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+            resp = await client.get(
+                _PEXELS_SEARCH,
+                headers={"Authorization": api_key},
+                params={"query": "test", "per_page": 1},
+            )
+        if resp.status_code == 200:
+            return (True, "Pexels key works")
+        if resp.status_code in (401, 403):
+            return (False, "Key rejected (invalid or quota exceeded)")
+        return (False, f"Pexels returned HTTP {resp.status_code}")
+    except Exception as e:  # noqa: BLE001 — probe must never raise
+        return (False, f"Could not reach Pexels: {type(e).__name__}")
+
+
 async def fetch_pexels_thumbnail(
     *, query: str, api_key: str, target: Path,
 ) -> bool:

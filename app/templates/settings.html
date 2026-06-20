@@ -526,12 +526,31 @@
                placeholder="Your Pexels API key">
         <small>Get a free key at <code>pexels.com/api</code>. When set, email summaries (and web articles without their own image) get a fitting stock photo instead of a placeholder icon.</small>
       </label>
+      <div class="settings-test-row">
+        <button type="button" class="btn btn-secondary"
+                hx-post="/settings/test-pexels" hx-target="#pexels-test-result" hx-swap="innerHTML"
+                hx-disabled-elt="this">
+          Test Pexels
+        </button>
+        <div id="pexels-test-result" class="settings-test-result"></div>
+      </div>
+      <p class="settings-test-hint">Tests the saved key with a tiny Pexels search request.</p>
+
       <label class="settings-field">
         <span class="settings-label">YouTube Data API Key <span class="settings-hint-inline">— optional, full playlist indexing</span></span>
         <input name="youtube_api_key" value="{{ settings.get('youtube_api_key', '') }}"
                placeholder="Your YouTube Data API v3 key">
         <small>Create a key at <code>console.cloud.google.com</code> and enable "YouTube Data API v3". When set, playlists are indexed via the official API (all videos, in order) instead of yt-dlp.</small>
       </label>
+      <div class="settings-test-row">
+        <button type="button" class="btn btn-secondary"
+                hx-post="/settings/test-youtube" hx-target="#youtube-test-result" hx-swap="innerHTML"
+                hx-disabled-elt="this">
+          Test YouTube
+        </button>
+        <div id="youtube-test-result" class="settings-test-result"></div>
+      </div>
+      <p class="settings-test-hint">Tests the saved key with a tiny YouTube Data API request.</p>
     </section>
     <!-- ── /Integrations ─────────────────────────────────────────── -->
 
