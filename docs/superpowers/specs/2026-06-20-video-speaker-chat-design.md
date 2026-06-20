@@ -310,17 +310,15 @@ A small shipped registry of "the big ones" — a list of show entries,
 each with a match rule, the known **host(s)**, and a **guest-extraction
 rule** for the description/title.
 
-**Reality check on matching signal:** today we persist only `title`,
+**Matching signal (decided):** today we persist only `title`,
 `description`, `url`, and tags — *not* the channel. yt-dlp's `info`
 already carries `channel` / `channel_id` (see `services/youtube.py`,
-which currently reads only `id`/`title`/`description`), so the cheap,
-robust move is to **capture `channel_id` during fetch** (one extra
-field + a nullable `videos.channel_id` column) and match the registry on
-that. Without it, v1 falls back to matching on title/description
-patterns alone — workable, because these shows brand their titles
-heavily ("… | Lex Fridman Podcast #N", "The Diary Of A CEO"), just less
-bulletproof. **Recommended: add `channel_id` capture.** Example rule
-shapes:
+which currently reads only `id`/`title`/`description`), so v1 **captures
+`channel_id` during fetch** (one extra field read + a nullable
+`videos.channel_id` column, backfilled NULL on existing rows) and the
+registry matches primarily on that. Title/description patterns remain a
+secondary signal (and the only one for pre-existing videos whose
+`channel_id` is NULL until re-fetched). Example rule shapes:
 
 - *Diary of a CEO* → host **Steven Bartlett**; guest = text after
   "with " in the title/description.
@@ -543,7 +541,9 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
 **Phase 1 — leanest shippable: metadata speakers + in-chat persona.**
 Tables `speakers` + `video_speakers` and the `chat_messages.speaker_id`
 column (we keep the profile-global `speakers` table from the start to
-avoid a later migration, but defer `speaker_statements`/embeddings). The
+avoid a later migration, but defer `speaker_statements`/embeddings),
+plus a nullable `videos.channel_id` column and capturing `channel_id`
+from yt-dlp's `info` in `services/youtube.py`. The
 `show_registry` + `identify_from_metadata` (no LLM, no transcript),
 `resolve_speaker`, manual-add, the `speaker_chat` service
 (this-episode-only grounding) modelled on `stream_reply`, the speaker
