@@ -1,4 +1,4 @@
-# Chat with the Speakers (Simulated Speaker Personas) — Design
+# Chat with the Speakers (Cross-Video Personas + Track Record + Seed Catalog) — Design
 
 **Status:** Draft — design phase (awaiting review)
 **Date:** 2026-06-20
@@ -6,331 +6,466 @@
 ## Goal
 
 "Chat over a video" today talks to *the video* — a neutral assistant
-grounded in the transcript. The next step people actually want: argue
-with the **people in the video**.
+grounded in one transcript. The next step people actually want: argue
+with the **people in the video**, and do it *intelligently across
+everything they've ever said in your library*.
 
 You're watching the All-In podcast, Chamath says something that winds
-you up, you pause, and you want to say "that's nonsense, here's why" —
-and get a reply *in his voice*, grounded first in what he actually said
-in this episode and flavoured by how he generally talks. You can step
-into a real back-and-forth with your podcast "heroes" (or villains).
+you up, you pause, and you want to say "that's nonsense" — and get a
+reply *in his voice*. But the real payoff: the system knows Chamath as a
+**persistent person across every episode he appears in**, with a
+**track record of the positions he's taken over time**. So you can
+confront the persona with "but three episodes ago you argued the
+opposite," and it actually has that history to work with.
 
-Everything is **clearly labelled as simulated** — these are AI
+Everything stays **clearly labelled as simulated** — these are AI
 impressions, not the real person's words. That transparency is a
 first-class design constraint, not a footnote.
 
-This builds directly on the existing chat plumbing
-(`services/chat.py` → `chat_core.build_messages` → LiteLLM stream,
-history in `chat_messages`). A speaker conversation is, mechanically,
-"same machinery, persona system prompt, speaker-scoped history."
+This builds on the existing chat plumbing (`services/chat.py` →
+`chat_core.build_messages` → LiteLLM stream, history in `chat_messages`).
+Mechanically: same machinery, persona system prompt, speaker-scoped
+history — now enriched with a cross-video statement dossier.
 
 ## Terminology
 
 As in earlier specs: every "user" is a Netflix-style **Profile**.
-A **speaker** is one named participant in a video (a host/guest of a
-podcast, an interviewer/interviewee). A **persona reply** is a
-simulated, in-character answer from one speaker.
+- A **speaker** is one named person (a podcast host/guest), a
+  **profile-global** entity that persists across all videos they appear
+  in — *not* a per-video row.
+- An **appearance** links a speaker to one video they speak in.
+- A **statement** is one notable claim/position that speaker made,
+  attributed to the video + timestamp it came from. The accumulated
+  statements are the speaker's **track record / dossier**.
+- A **persona reply** is a simulated, in-character answer from one
+  speaker, grounded in *this* episode plus their track record.
 
 ## Decisions (from brainstorming)
 
-1. **Speaker detection: auto via LLM, manually editable.** A pipeline
-   step asks the LLM to name the speakers from the transcript + title +
-   description + tags. The user can rename, re-avatar, delete, or add
-   speakers by hand. Auto-detected names that are wrong are the user's
-   to fix — we don't pretend the LLM is always right.
-2. **Three entry points into a speaker chat** (all land in the same
-   place — the chat panel switched into "speaker mode"):
-   - a **speaker picker** in the chat panel ("Talk to: 🟦 Chamath /
-     🟩 Jason / …" vs. the default "the video"),
-   - a **"💬 Discuss" affordance per transcript block**, seeding the
-     conversation with that block's timestamp + text,
-   - the interesting one: **"💬 Discuss this moment"** next to the
-     embedded player, which reads the *live* playback position
-     (`player.getCurrentTime()`) and seeds from the transcript block at
-     that timestamp — so pausing the video and jumping straight into
-     "wait, what you just said…" works.
-3. **Grounding: episode-first, persona-flavoured.** The persona answers
-   primarily from what *that named speaker* said in this episode;
-   it may draw on the speaker's generally-known public positions to stay
-   in character, but must never fabricate specific facts/quotes as
-   things they "said in this episode." (Prompt-enforced; see Service.)
+1. **Speakers are profile-global, identity-resolved across videos.**
+   Detecting "Chamath" in a new video links to the *existing* Chamath if
+   he's already known (matched on a normalised name key), otherwise
+   creates him. One person → one row → one growing dossier.
+2. **Auto-detected, manually editable** — rename, re-avatar, set a
+   persona note, **merge** two rows that are the same person under
+   different spellings, or delete. The LLM seeds; the user corrects.
+3. **A track record per speaker.** During processing we also extract
+   each speaker's notable statements from that episode (paraphrased
+   claim + topic + timestamp) into a `speaker_statements` dossier.
+4. **Persona chat is episode-first + track-record-aware.** The reply is
+   grounded primarily in what the speaker said in *this* episode, and is
+   additionally handed a relevant slice of their **prior** statements
+   from other videos so it can be consistent — or be caught being
+   inconsistent. Never fabricate episode-specific facts.
+5. **Three entry points** (unchanged from the prior draft): speaker
+   picker in the chat panel, "💬 Discuss" per transcript block, and
+   "💬 Discuss this moment" off the live player position
+   (`player.getCurrentTime()`), which seeds from the transcript block at
+   that timestamp.
+6. **A speaker page.** `/speaker/{id}` is the home of one person: their
+   avatar/role, the dossier of what they've said (grouped by topic,
+   each line linking back to the video + timestamp), the list of
+   appearances, and a direct chat with the persona spanning their whole
+   track record.
+7. **A shipped seed catalog of well-known speakers.** The app ships with
+   a curated catalog of recurring podcast figures (e.g. the All-In
+   hosts, frequent guests like Elon Musk, big interview shows) carrying
+   a baseline persona note + characteristic topics/positions. When
+   detection names a person already in the catalog, the local speaker
+   links to the catalog entry and the persona gets substance *before*
+   you've processed many of their episodes. The user's own per-episode
+   track record always takes precedence over the generic catalog
+   baseline.
 
 ## Why an LLM detection step (and not diarization)
 
-Neither faster-whisper nor YouTube captions give us speaker *names*.
-Auto-captions only mark speaker *changes* (`>>`), handled today in
-`services/transcript_format.py` for paragraphing — there's no "this is
-Chamath" anywhere. So the reliable source of "who is in this video" is
-the LLM reading the transcript + metadata. For a named-host podcast this
-is easy; for an anonymous video it may yield nothing, and that's fine —
-the feature simply doesn't surface speakers there.
-
-Real audio diarization (pyannote) is explicitly **out of scope** (see
-below). We do not need per-segment speaker attribution for v1: the
-persona is grounded in the whole transcript with a name-focus
-instruction, not in a hard speaker-filtered slice.
+Neither faster-whisper nor YouTube captions give us speaker *names* —
+captions only mark speaker *changes* (`>>`), already used in
+`services/transcript_format.py` for paragraphing. So the reliable source
+of "who is in this video" and "what did they claim" is the LLM reading
+the transcript + metadata. For a named-host podcast this is easy; for an
+anonymous video it yields nothing, and the feature simply stays quiet
+there. Real audio diarization (pyannote) is out of scope (below).
 
 ## Data model
 
-### New table `video_speakers`
+Four tables. The first three are new; `chat_messages` gains one column.
 
-Added to `db.SCHEMA` (`CREATE TABLE IF NOT EXISTS`, idempotent):
+### `speakers` — the profile-global person
+
+```sql
+CREATE TABLE IF NOT EXISTS speakers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL DEFAULT 1,
+    name         TEXT    NOT NULL,        -- "Chamath Palihapitiya"
+    name_key     TEXT    NOT NULL,        -- normalised for matching/dedupe
+    role         TEXT,                    -- general descriptor: "investor, co-host"
+    avatar_id    TEXT,                    -- curated id from services/avatars.py
+    persona_note TEXT,                    -- user-editable style/persona hint
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name_key)
+);
+```
+
+`name_key` = lower-cased, punctuation/whitespace-collapsed name. The
+`UNIQUE(user_id, name_key)` is the identity anchor: detecting the same
+person twice resolves to the same row. (Aliases like "Chamath" vs
+"Chamath Palihapitiya" are an accepted fuzziness — see Open Risks; the
+manual **merge** action is the escape hatch.)
+
+An extra nullable column links a profile-local speaker to a shipped
+catalog entry (see "Seed speaker catalog"):
+
+```sql
+ALTER TABLE speakers ADD COLUMN catalog_id INTEGER REFERENCES catalog_speakers(id);
+```
+
+### `video_speakers` — an appearance (video ↔ speaker link)
 
 ```sql
 CREATE TABLE IF NOT EXISTS video_speakers (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id    TEXT    NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-    user_id     INTEGER NOT NULL DEFAULT 1,
-    name        TEXT    NOT NULL,        -- "Chamath Palihapitiya"
-    role        TEXT,                    -- short descriptor: "co-host, investor"
-    avatar_id   TEXT,                    -- curated id from services/avatars.py (cosmetic)
-    persona_note TEXT,                   -- optional user-editable style hint
-    source      TEXT NOT NULL CHECK(source IN ('auto','manual')) DEFAULT 'auto',
-    sort_order  INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id   TEXT    NOT NULL REFERENCES videos(id)   ON DELETE CASCADE,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    role       TEXT,                    -- role in THIS video, if it differs
+    source     TEXT NOT NULL CHECK(source IN ('auto','manual')) DEFAULT 'auto',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(video_id, speaker_id)
 );
 CREATE INDEX IF NOT EXISTS idx_video_speakers_video
     ON video_speakers(video_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS idx_video_speakers_speaker
+    ON video_speakers(speaker_id);
 ```
 
-Scoped to a profile via `user_id` (videos are already per-profile;
-`video_speakers` mirrors that for defence in depth and foreign-profile
-404s).
+### `speaker_statements` — the dossier / track record
+
+```sql
+CREATE TABLE IF NOT EXISTS speaker_statements (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    video_id   TEXT    NOT NULL REFERENCES videos(id)   ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL DEFAULT 1,
+    statement  TEXT    NOT NULL,        -- a claim/position in their words (paraphrase or short quote)
+    topic      TEXT,                    -- short topical tag, for grouping + retrieval
+    ts_seconds INTEGER,                 -- where in the video (jump-back link)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_speaker_statements_speaker
+    ON speaker_statements(speaker_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_speaker_statements_video
+    ON speaker_statements(video_id);
+```
+
+Statements are re-derivable, so on re-summarize we delete this video's
+rows for the speaker and re-insert (forward-only, no stale duplicates).
 
 ### `chat_messages` gains a nullable `speaker_id`
 
-The existing per-video chat thread and each per-speaker thread live in
-the **same** table, distinguished by a new nullable column:
+Per-video chat and each per-speaker thread share one table:
 
 ```sql
--- migration (matches the existing ALTER TABLE ADD COLUMN pattern in db.py)
-ALTER TABLE chat_messages ADD COLUMN speaker_id INTEGER REFERENCES video_speakers(id);
+ALTER TABLE chat_messages ADD COLUMN speaker_id INTEGER REFERENCES speakers(id);
 ```
 
-- `speaker_id IS NULL` → the existing "chat with the video" thread
-  (behaviour unchanged — see regression note).
-- `speaker_id = N` → the conversation with speaker `N`.
+- `speaker_id IS NULL` → today's "chat with the video" thread
+  (behaviour unchanged).
+- `speaker_id = N` → the conversation with speaker `N` **on this video**
+  (`video_id` already on the row scopes it to the episode). A
+  whole-track-record chat from the speaker page uses the same column
+  with a sentinel/`NULL` video — see Speaker page.
 
-`repos/chat.history` gains a `speaker_id: int | None = None` parameter
-and filters `speaker_id IS NULL` / `speaker_id = ?` accordingly;
-`append` gains the same optional `speaker_id`. The existing default-NULL
-call sites keep working untouched.
+`repos/chat.{history,append}` gain an optional `speaker_id` param;
+existing default-NULL call sites are untouched.
 
-The jump-in seed (timestamp + quote) is **not** a new column — it's
-folded into the system prompt for that one reply (and, optionally,
-prepended to the stored user message as a small "(re: 12:04 — '…')"
-prefix so the thread reads sensibly later). Decided: prefix the stored
-user message; keep the schema clean.
+## Statement retrieval for the persona (the "intelligence")
+
+The dossier can grow large, so the persona chat is handed only a
+**relevant slice** of prior statements, not the whole thing. Two
+options, **flagged for review**:
+
+- **(Recommended) Embedding-ranked.** Reuse the existing local
+  embeddings + sqlite-vec infra: embed each statement on insert into a
+  `speaker_statement_embeddings` vec table, then KNN the user's question
+  (and/or the current episode topic) against this speaker's statements,
+  excluding the current video. Top-K (capped, e.g. 12) feed the prompt.
+- **(MVP) Recency + topic-match.** No new vec table — select this
+  speaker's most recent statements, optionally filtered by `topic`
+  keyword overlap with the question. Simpler; less precise.
+
+Either way: cross-video only (exclude the episode you're in, which is
+already fully in-context), capped, each carrying its source video title
++ `ts_seconds` so the prompt — and a side "track record" panel — can
+cite "in *{title}*, you said …".
+
+## Seed speaker catalog (shipped knowledge base)
+
+A curated, **profile-independent, read-only** catalog of well-known
+recurring figures, so a persona has substance from the first chat —
+before the user has processed many of that person's episodes.
+
+### Catalog tables
+
+```sql
+CREATE TABLE IF NOT EXISTS catalog_speakers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    name_key     TEXT NOT NULL UNIQUE,   -- same normalisation as speakers.name_key
+    role         TEXT,                   -- "investor / All-In co-host"
+    shows        TEXT,                   -- e.g. "All-In; <other shows>"
+    persona_note TEXT,                   -- characteristic style/voice
+    seed_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS catalog_statements (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_speaker_id INTEGER NOT NULL REFERENCES catalog_speakers(id) ON DELETE CASCADE,
+    statement          TEXT NOT NULL,    -- a characteristic position/topic, conservatively framed
+    topic              TEXT
+);
+```
+
+### Seeding mechanism
+
+The catalog is a **versioned data file in the repo** (e.g.
+`app/data/speaker_catalog.json`), loaded idempotently on boot like the
+existing one-time migrations: a `settings` marker
+(`speaker_catalog_seed_version`) gates re-seeding, so bumping the file's
+version re-imports cleanly without duplicating. No network, no per-user
+data — it's shipped content. Curating the file itself (which shows,
+which people, what counts as a "characteristic position") is a content
+task; the data file can be drafted with LLM assistance and then
+hand-reviewed for tone and fairness before it ships.
+
+### How the catalog feeds a persona
+
+On `resolve_speaker`, also try to match the detected `name_key` against
+`catalog_speakers`; on a hit, set `speakers.catalog_id`. The persona
+prompt then blends, in strict priority order:
+
+1. **This episode's transcript** (primary, factual grounding),
+2. the user's **own cross-video track record** for this speaker,
+3. the **catalog baseline** (persona_note + characteristic positions),
+   clearly framed as "general, public-perception background — not
+   something said in your library."
+
+So a brand-new Elon Musk appearance already chats in character from the
+catalog, and as the user accumulates real episodes, their own track
+record progressively takes over.
 
 ## Services
 
-### New `services/speakers.py` — detection
+### `services/speakers.py` — detection, resolution, extraction
 
-```python
-@dataclass(frozen=True)
-class DetectedSpeaker:
-    name: str
-    role: str | None
+- `detect_and_extract(*, transcript, title, description, tags, model,
+  api_key, base_url) -> list[SpeakerExtraction]` — one LLM call returns,
+  per named speaker: `name`, `role`, and a list of `statements`
+  (`{statement, topic, ts_seconds?}`). Robust JSON parse reusing
+  `highlight_parser._extract_json_blob` (same path related-links and
+  highlights use). Returns `[]` when no one can be confidently named.
+  Never raises.
+- `resolve_speaker(db, *, user_id, name, role) -> speaker_id` — upsert
+  on `(user_id, name_key)`: link to the existing person or create one.
+- The pipeline glue (below) calls these, links `video_speakers`, and
+  inserts `speaker_statements`.
 
-async def detect_speakers(
-    *, transcript: str, title: str, description: str | None,
-    tags: list[str], model: str, api_key: str, base_url: str | None,
-) -> list[DetectedSpeaker]:
-    """Ask the LLM for the named speakers in this video. Returns [] when
-    it can't confidently name anyone (anonymous/single-narrator video).
-    Robust JSON parse — reuse the same envelope-unwrap the summarizer
-    uses for highlights (the 'illegal JSON escapes' repair path), so a
-    chatty model wrapping JSON in prose still parses; on total parse
-    failure return []."""
+### `services/speaker_chat.py` — the persona reply
+
+Mirrors `chat.stream_reply` (same LiteLLM streaming kwargs, reuses
+`chat_core.build_messages`) with a persona system prompt that now has a
+**track-record block**:
+
+```
+You are role-playing as {name}{role_clause}, in conversation with a
+viewer. Reply in the first person, in their voice and style.
+
+GROUNDING RULES:
+- Base what you say FIRST on what {name} actually says in THIS episode's
+  transcript below.
+- You have a TRACK RECORD of positions {name} took in earlier videos
+  (below). Stay consistent with it. If the viewer points out a
+  contradiction between the episode and the track record, engage with it
+  honestly in character — don't pretend it isn't there.
+- You MAY draw on {name}'s generally-known public views to stay in
+  character, but NEVER invent specific facts/numbers/quotes as things
+  said in this episode or the track record.
+- Don't break character to disclaim you're an AI — the interface already
+  tells the viewer this is a simulation.
+
+{persona_note_block}
+{seed_block}              # only on a jump-in: "[12:04] '…the quote…'"
+
+TRACK RECORD (earlier statements by {name} in the user's library, each
+with its source):
+{track_record}           # selected per "Statement retrieval" above
+
+GENERAL BACKGROUND (public-perception baseline from the shipped catalog,
+NOT something said in the user's library — use only to stay in voice):
+{catalog_baseline}       # persona_note + characteristic positions, when catalog-linked
+
+FORMAT AS MARKDOWN: short, scannable.
+
+THIS EPISODE TRANSCRIPT:
+{transcript}
 ```
 
-- Caps the list (e.g. ≤ 8 speakers) and de-dupes by normalised name.
-- No network beyond the one LiteLLM call; never raises (best-effort,
-  like related-links / stock-image-query in the pipeline).
-
-### New `services/speaker_chat.py` — the persona reply
-
-Mirrors `chat.stream_reply` exactly (same LiteLLM streaming kwargs,
-reuses `chat_core.build_messages`) but with a persona system prompt:
-
-```python
-SPEAKER_SYSTEM_TEMPLATE = (
-    "You are role-playing as {name}{role_clause}, a speaker in this "
-    "video, in a conversation with a viewer. Reply in the first person, "
-    "in their voice and style.\n\n"
-    "GROUNDING RULES (important):\n"
-    "- Base what you say FIRST on what {name} actually says in the "
-    "transcript below. Stay consistent with the positions they take in "
-    "THIS episode.\n"
-    "- You MAY draw on {name}'s generally-known public views to stay in "
-    "character, but NEVER invent specific facts, numbers, or quotes and "
-    "present them as things said in this episode.\n"
-    "- If the viewer pushes you on something not covered in the episode, "
-    "you may respond in character but make clear you're going beyond what "
-    "was said here.\n"
-    "- Don't break character to disclaim you're an AI — the interface "
-    "already tells the viewer this is a simulation.\n\n"
-    "{persona_note_block}"
-    "{seed_block}"
-    "FORMAT AS MARKDOWN: short, scannable paragraphs; **bold** key "
-    "terms; bullets for lists.\n\n"
-    "TRANSCRIPT:\n{transcript}"
-)
-```
-
-- `seed_block` is present only on a jump-in: *"The viewer is reacting to
-  this moment of the episode — [12:04] '…the actual quote…'. Take that
-  as the thing they're responding to."*
-- `persona_note_block` injects the user's optional `persona_note`.
-- `stream_speaker_reply(*, speaker, transcript, history, user_message,
-  seed_ts, seed_quote, model, api_key, base_url)` → async token
-  iterator, identical mechanics to `stream_reply`.
-
-The whole transcript is the context (same as today's video chat — no
-retrieval step, consistent with the existing design).
+`stream_speaker_reply(*, speaker, transcript, track_record, history,
+user_message, seed_ts, seed_quote, model, api_key, base_url)` → async
+token iterator, identical mechanics to `stream_reply`.
 
 ## Routes
 
-### Speaker chat (`routes/speaker_chat.py`, or extend `routes/chat.py`)
+### Speaker chat — `routes/speaker_chat.py`
 
 `POST /v/{video_id}/speaker/{speaker_id}/chat` — the persona turn.
-Same shape as `post_chat`: ownership-checks the video AND the speaker
-(foreign profile / wrong video → 404), resolves the model the same way,
-loads **speaker-scoped** history, appends the user message (with the
-optional `(re: …)` seed prefix), streams via `stream_speaker_reply`,
-collects, persists the assistant turn with `speaker_id`, returns the
-same `_msg_html` user+assistant fragment. Optional form fields
-`seed_ts` (int seconds) and `seed_quote` (str) drive the seed block.
+Ownership-checks video + speaker (foreign profile / not an appearance of
+this video → 404), resolves the model, loads speaker-scoped history,
+selects the track-record slice (retrieval above), appends the user
+message (with the optional `(re: …)` seed prefix), streams via
+`stream_speaker_reply`, persists the assistant turn with `speaker_id`,
+returns the same `_msg_html` user+assistant fragment. Optional
+`seed_ts`/`seed_quote` form fields drive the jump-in seed block.
 
-### Speaker management (`routes/speakers.py`)
+### Speaker management — `routes/speakers.py`
 
-- `POST /v/{video_id}/speakers/detect` — runs `detect_speakers`,
-  inserts any new `auto` rows (skips names already present), returns the
-  refreshed speaker-picker fragment. For older videos with no speakers
-  yet, and as a "re-detect" button.
-- `POST /v/{video_id}/speakers` — add a `manual` speaker (name, role,
-  avatar_id) → refreshed picker fragment.
-- `POST /v/{video_id}/speakers/{id}/edit` — rename / role / avatar /
-  persona_note.
-- `POST /v/{video_id}/speakers/{id}/delete` — remove (cascades its chat
-  messages via the FK / explicit delete).
+- `POST /v/{video_id}/speakers/detect` — run detection on demand
+  (older videos / re-detect); resolve + link + extract statements;
+  return the refreshed picker fragment.
+- `POST /v/{video_id}/speakers` — add a `manual` appearance (resolves or
+  creates the speaker).
+- `POST /speaker/{id}/edit` — name / role / avatar / persona_note.
+- `POST /speaker/{id}/merge` — merge speaker B into A (re-point
+  `video_speakers`, `speaker_statements`, `chat_messages`; delete B).
+  The fix for alias drift.
+- `POST /v/{video_id}/speakers/{id}/unlink` — remove an appearance
+  (keeps the global speaker + dossier).
 
-All HTMX fragment swaps, consistent with the rest of the app.
+### Speaker page — `routes/speakers.py`
 
-## UI (`video_detail.html` + a few partials)
+- `GET /speaker/{id}` — the person's home: avatar/role, the dossier
+  grouped by `topic` (each statement linking to its video + `ts_seconds`),
+  the appearances list, and a **whole-track-record chat** (a
+  `speaker_id`-scoped thread not tied to one episode; the persona prompt
+  uses the dossier as primary grounding instead of a single transcript).
+- `POST /speaker/{id}/chat` — the track-record-wide persona turn.
 
-### Speaker picker + mode switch
+All HTMX fragment swaps, consistent with the app.
 
-A row at the top of the existing `<section class="chat">`:
+## UI (`video_detail.html`, `speaker.html`, partials)
 
-> **Talk to:** [ the video ] [ 🟦 Chamath ] [ 🟩 Jason ] … [ + ⚙ ]
-
-- "the video" is the default and posts to the unchanged
-  `/v/{id}/chat`. Each speaker chip, when selected, `hx-get`s a chat
-  panel fragment (`/v/{id}/speaker/{sid}/panel`) that swaps the
-  history + composer into speaker mode (composer now posts to the
-  speaker endpoint; a **disclaimer banner** appears).
-- Avatars reuse the curated `services/avatars.py` library — assign one
-  per speaker (round-robin default at detection time, user-editable).
-- "⚙" opens the small manage panel (detect / add / rename / delete).
-
-### Disclaimer banner (transparency — non-negotiable)
-
-In speaker mode, a persistent banner sits above the thread:
-
-> ⚠️ **Simulated.** This is an AI impression of *{name}* based on this
-> episode — not their real words or views.
-
-Visually distinct speaker bubbles (tinted with the speaker's avatar
-colour) reinforce "this isn't the neutral assistant."
-
-### Transcript jump-in
-
-Each `transcript-block` already renders a timestamp anchor. Add a small
-`💬 Discuss` button per block. With a speaker selected it seeds that
-speaker's composer with `seed_ts`/`seed_quote` from the block; with none
-selected it opens the picker first. Pure progressive enhancement —
-no behaviour change to the existing timestamp-seek links.
-
-### "Discuss this moment" (live player position)
-
-A button next to the player. The existing player IIFE in
-`video_detail.html` owns the `YT.Player` instance and a `[data-yt-
-timestamp]` click handler. Extend that script to expose a tiny helper
-(e.g. set `window.__ytCurrentTime = () => player && player.getCurrentTime()`
-once the player is ready, plus a nearest-block lookup over the rendered
-`[data-yt-timestamp]` blocks). The button reads the current time, finds
-the transcript block at/just-before it, and opens the speaker chat
-seeded with that block — i.e. *pause the video, hit "discuss this
-moment," start arguing.* Gracefully no-ops (falls back to the plain
-picker) if the player hasn't been instantiated yet.
+- **Speaker picker + mode switch** at the top of `<section class="chat">`:
+  "Talk to: [ the video ] [ 🟦 Chamath ] [ 🟩 Jason ] … [ ⚙ ]". Each
+  speaker chip `hx-get`s a chat panel fragment in speaker mode; the
+  chip links its avatar (curated `services/avatars.py`) and its name
+  also deep-links to `/speaker/{id}`.
+- **Disclaimer banner** (transparency, non-negotiable) in speaker mode:
+  "⚠️ **Simulated.** AI impression of *{name}* based on this episode and
+  what they've said in your library — not their real words." Speaker
+  bubbles tinted with the avatar colour.
+- **Track-record peek**: a collapsible "What {name} has said before"
+  list beside the speaker chat, populated from the dossier slice, each
+  line linking back to its source video + timestamp.
+- **Transcript jump-in**: a small `💬 Discuss` per `transcript-block`,
+  seeding `seed_ts`/`seed_quote`.
+- **"Discuss this moment"**: a button by the player; extend the existing
+  player IIFE to expose `getCurrentTime()` + a nearest-block lookup over
+  the rendered `[data-yt-timestamp]` blocks, opening the speaker chat
+  seeded at the live position. No-ops gracefully before the player
+  exists.
+- **Speaker page** (`speaker.html`): dossier-by-topic, appearances,
+  whole-history chat.
 
 ## Pipeline integration (`pipeline.py`)
 
-Add a best-effort `set_step("identifying speakers")` step **after**
-summarization, forward-only and gated like the other enrichment steps:
-YouTube-kind, transcript present, an LLM configured. It calls
-`detect_speakers` and inserts `auto` rows. Failure leaves the video with
-no speakers (the picker just shows "the video" + a "Detect speakers"
-button) — never fails the job. Older videos get speakers on demand via
-the detect endpoint. (Same best-effort posture as `_store_related_links`
-and the stock-image query.)
+After summarization, a best-effort `set_step("identifying speakers")`,
+gated like the other enrichment steps (YouTube-kind, transcript present,
+LLM configured): call `detect_and_extract`, `resolve_speaker` each,
+upsert `video_speakers`, replace this video's `speaker_statements` for
+each speaker, (recommended) embed new statements. Failure leaves the
+video speaker-less and never fails the job (same posture as
+`_store_related_links`). Older videos get speakers via the detect
+endpoint.
 
 ## Testing strategy
 
 House style: no live LLM/network (completions mocked); render via
 TestClient; in-memory SQLite + sqlite-vec; no browser.
 
-- **`detect_speakers`** (mocked completion): clean JSON list → parsed &
-  capped & de-duped; prose-wrapped JSON → still parsed (envelope
-  unwrap); garbage → `[]`; empty/short transcript handled.
-- **Schema/migration:** `video_speakers` exists; `chat_messages.speaker_id`
-  added idempotently; `init_schema` + migration run twice cleanly.
-- **`video_speakers` repo:** CRUD; per-profile scoping; ordering by
-  `sort_order, id`.
-- **`chat` repo:** `history(video_id)` (speaker_id IS NULL) excludes
-  speaker turns; `history(video_id, speaker_id=N)` returns only that
-  speaker's; `append` with `speaker_id` round-trips.
-- **`stream_speaker_reply`** (stubbed completion): persona system prompt
-  carries the speaker name + grounding rules + transcript; seed block
-  present only when `seed_ts`/`seed_quote` given; reuses
+- **`detect_and_extract`** (mocked completion): clean JSON → speakers +
+  statements parsed/capped; prose-wrapped JSON → still parsed (envelope
+  unwrap); garbage → `[]`.
+- **`resolve_speaker`:** same `name_key` across two videos → one row +
+  two `video_speakers`; different names → two rows; normalisation of
+  spacing/case/punctuation.
+- **Schema/migration:** the three tables + `chat_messages.speaker_id`
+  created idempotently; `init_schema` + migration run twice cleanly.
+- **`speakers` / `speaker_statements` repos:** CRUD; per-profile
+  scoping; statement replace-on-re-summarize; `merge` re-points
+  appearances + statements + chat messages and deletes B.
+- **Statement retrieval:** cross-video only (excludes current video);
+  capped; (embedding variant) KNN ordering; (MVP variant) recency.
+- **`stream_speaker_reply`:** prompt carries name + grounding rules +
+  transcript + track-record block; seed block only when seeded; reuses
   `build_messages` ordering.
-- **Routes:** `POST /v/{id}/speaker/{sid}/chat` persists user+assistant
-  with `speaker_id`, renders the fragment; foreign profile / mismatched
-  video → 404; detect/add/edit/delete endpoints update the picker;
-  seed fields produce the `(re: …)` user-message prefix.
+- **Routes:** per-episode + whole-history persona turns persist with
+  `speaker_id` and render; detect/add/edit/merge/unlink update the UI;
+  `/speaker/{id}` renders the dossier; foreign profile → 404.
 - **Video-chat regression (critical):** existing
   `tests/test_services_chat.py` + `tests/test_routes_chat.py` stay green
   **unchanged** — proves the `speaker_id`-defaults-NULL extension is
-  behaviour-preserving for the existing thread.
+  behaviour-preserving.
 
 ## Out of scope (v1)
 
-- Real audio **diarization** (pyannote) / per-segment speaker
-  attribution. The persona is whole-transcript-grounded with a name
-  focus.
-- **Voice** for the persona (could later pair with the existing Piper
-  TTS to *hear* the simulated reply — natural follow-up, not now).
-- Cross-episode / cross-video persona memory (each thread is one video).
-- Live token streaming (keep the current collect-then-render, same as
-  today's video chat).
-- Auto-detecting speakers for web articles / newsletters (YouTube-kind
-  only in v1).
+- Real audio **diarization** (pyannote) / per-segment attribution.
+- **Voice** for the persona (natural follow-up: pair with the existing
+  Piper TTS to *hear* the simulated Chamath — later).
+- Cross-**profile** speaker sharing (speakers stay per-profile, like
+  videos).
+- Automatic alias clustering beyond exact `name_key` (manual **merge**
+  covers the rest in v1).
+- Speaker detection for web articles / newsletters (YouTube-kind only).
 
-## Transparency & ethics (design constraint)
+## Open risks / notes
 
-Simulating identifiable public figures is acceptable here **because of
-explicit, persistent labelling**: the disclaimer banner, the distinct
-speaker styling, and a prompt rule against fabricating episode-specific
-facts. The model speaks in-character but the *interface* — never the
-fake person — owns the "this is a simulation" message. No persona reply
-is presented as the real individual's actual words.
+- **Identity resolution is fuzzy.** `name_key` exact-match will both
+  over-merge (two different "John"s) and under-merge ("Chamath" vs
+  "Chamath Palihapitiya"). v1 accepts this and ships a manual **merge**
+  + rename as the correction path; smarter clustering is a later pass.
+- **Statement extraction quality** depends on the model; statements are
+  paraphrases, clearly framed as "positions taken," never presented as
+  verbatim quotes unless the model copied exact transcript text.
+- **Decision needed:** embedding-ranked vs recency/topic statement
+  retrieval (see that section) — affects whether we add a
+  `speaker_statement_embeddings` vec table this PR.
+- **Transparency stays interface-owned**: the banner + styling + the
+  "AI impression" framing carry the disclaimer; the persona never speaks
+  as the real individual's actual words, and the prompt forbids
+  fabricating episode- or record-specific facts.
+- **Catalog content is the sharpest accuracy/fairness risk.** Shipping
+  baked-in "what person X typically claims" about real, named public
+  figures invites both inaccuracy and defamation concerns. Mitigations:
+  keep catalog entries to *characteristic topics and speaking style*,
+  not specific contestable factual assertions; frame everything as
+  "general public perception, simulated"; hand-review the data file
+  before shipping; make it easy to ship empty (the rest of the feature
+  works fine with zero catalog rows). The catalog is deliberately the
+  last, optional phase for exactly this reason.
 
-## Rollout
+## Rollout (phased)
 
-Single PR. One new table + one `ALTER TABLE ADD COLUMN` (both via the
-existing SCHEMA / migration mechanism), one new detection service, one
-persona-chat service modelled on `stream_reply`, a speakers repo, two
-small route modules, and the `video_detail.html` additions. The existing
-video chat is untouched (new column defaults NULL), guarded by its
-current tests. The pipeline gains one best-effort enrichment step.
+**Phase 1 — per-video + cross-video personas (the core).** Three new
+tables (`speakers`, `video_speakers`, `speaker_statements`) + one
+`ALTER TABLE ADD COLUMN` on `chat_messages` (+ optionally one vec table)
+via the existing SCHEMA / migration mechanism; the
+detection/resolution/extraction service; a persona-chat service modelled
+on `stream_reply`; speakers + statements repos; speaker-chat and
+speaker-management/page routes; the `video_detail.html` additions and a
+`speaker.html`; one best-effort pipeline step. The existing video chat
+is untouched (new column defaults NULL), guarded by its current tests.
+
+**Phase 2 — seed catalog (optional, separate PR).** The two
+`catalog_*` tables, the `speakers.catalog_id` link, the versioned seed
+data file + idempotent loader, and the catalog-baseline block in the
+persona prompt. Kept separate so the accuracy/fairness review of the
+shipped content doesn't gate the core feature, and so Phase 1 stays a
+reviewable size.
