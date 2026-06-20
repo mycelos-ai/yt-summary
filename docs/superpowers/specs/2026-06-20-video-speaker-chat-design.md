@@ -39,6 +39,44 @@ This builds on the existing chat plumbing (`services/chat.py` →
 Mechanically: same machinery, persona system prompt, speaker-scoped
 history — now enriched with a cross-video statement dossier.
 
+## Scope — leanest v1 (decided)
+
+The feature only makes sense where **people talk** (podcasts /
+interviews), and it's only worth it for shows people actually care
+about. So v1 deliberately narrows:
+
+1. **Only "the big ones" auto-enable.** A small, shipped **supported-
+   shows registry** (by channel + title/description patterns) covers
+   well-known talk formats — Diary of a CEO, Lex Fridman, the All-In
+   pod, Joe Rogan, etc. Outside that registry the feature stays quiet
+   unless the user opts in.
+2. **Speakers come from metadata first, not the transcript.** For
+   interview shows the participants are right there: the **host** is
+   known from the registry, the **guest** is parsed from the
+   description/title (Diary of a CEO "… with {Guest}", Lex's
+   "{Guest}: {Topic} | Lex Fridman Podcast #N"). No heavy transcript
+   diarization or statement-mining needed to ship.
+3. **Manual add is the universal escape hatch.** On any video the user
+   can add a speaker by hand (name + avatar) and chat with them — so the
+   feature isn't hostage to the registry.
+4. **It lives inside the existing chat box, not a new surface.** A
+   "**Chat with:** [the video] · [{Host}] · [{Guest}]" selector sits at
+   the top of the current chat section. Picking a speaker switches that
+   same chat into persona mode (composer + disclaimer banner) — no
+   separate page in v1.
+5. **Jump in from where you are.** Reusing the time markers we already
+   render, the "💬 Discuss this moment" affordance (off the live player
+   position) and the per-block "💬 Discuss" both drop you into the
+   speaker chat **with that moment as context**, so you talk about
+   exactly the bit you just heard.
+
+Everything below this line — cross-video identity, the track-record
+dossier, the speaker page, the shipped knowledge catalog — is the
+**fuller vision**, scheduled into later phases (see Rollout). v1 is just:
+*known shows → host+guest from metadata (or manual) → persona chat in the
+existing box, grounded in this one episode, seedable from the current
+timestamp.*
+
 ## Terminology
 
 As in earlier specs: every "user" is a Netflix-style **Profile**.
@@ -266,15 +304,52 @@ record progressively takes over.
 
 ## Services
 
-### `services/speakers.py` — detection, resolution, extraction
+### `services/show_registry.py` — supported shows (v1 source of truth)
 
-- `detect_and_extract(*, transcript, title, description, tags, model,
-  api_key, base_url) -> list[SpeakerExtraction]` — one LLM call returns,
-  per named speaker: `name`, `role`, and a list of `statements`
-  (`{statement, topic, ts_seconds?}`). Robust JSON parse reusing
-  `highlight_parser._extract_json_blob` (same path related-links and
-  highlights use). Returns `[]` when no one can be confidently named.
-  Never raises.
+A small shipped registry of "the big ones" — a list of show entries,
+each with a match rule, the known **host(s)**, and a **guest-extraction
+rule** for the description/title.
+
+**Reality check on matching signal:** today we persist only `title`,
+`description`, `url`, and tags — *not* the channel. yt-dlp's `info`
+already carries `channel` / `channel_id` (see `services/youtube.py`,
+which currently reads only `id`/`title`/`description`), so the cheap,
+robust move is to **capture `channel_id` during fetch** (one extra
+field + a nullable `videos.channel_id` column) and match the registry on
+that. Without it, v1 falls back to matching on title/description
+patterns alone — workable, because these shows brand their titles
+heavily ("… | Lex Fridman Podcast #N", "The Diary Of A CEO"), just less
+bulletproof. **Recommended: add `channel_id` capture.** Example rule
+shapes:
+
+- *Diary of a CEO* → host **Steven Bartlett**; guest = text after
+  "with " in the title/description.
+- *Lex Fridman Podcast* → host **Lex Fridman**; guest = text before the
+  first ":" in the title (`"{Guest}: {Topic} | Lex Fridman Podcast #N"`).
+- *All-In* → fixed host set (Chamath, Jason, Sacks, Friedberg); guests
+  parsed from the description when present.
+
+`identify_from_metadata(video) -> list[DetectedSpeaker]` matches the
+video against the registry and returns the host(s) + parsed guest(s),
+or `[]` for an unsupported show. Pure string/pattern work — **no LLM,
+no transcript** needed for the v1 path. This is what makes v1 cheap and
+reliable: for interview formats the participants are already in the
+metadata we store.
+
+### `services/speakers.py` — resolution, and (Phase 2) LLM extraction
+
+- **v1:** glue that takes `identify_from_metadata` results (or a manual
+  add), `resolve_speaker`s them, and links `video_speakers`. No
+  transcript LLM call.
+- **Phase 2:** `detect_and_extract(*, transcript, title, description,
+  tags, model, api_key, base_url) -> list[SpeakerExtraction]` — one LLM
+  call returns, per named speaker: `name`, `role`, and a list of
+  `statements` (`{statement, topic, ts_seconds?}`). Robust JSON parse
+  reusing `highlight_parser._extract_json_blob` (same path related-links
+  and highlights use). Returns `[]` when no one can be confidently
+  named. Never raises. This is the richer path that also feeds the
+  track-record dossier, and the fallback for talk videos that aren't in
+  the registry but clearly have named speakers.
 - `resolve_speaker(db, *, user_id, name, role) -> speaker_id` — upsert
   on `(user_id, name_key)`: link to the existing person or create one.
 - The pipeline glue (below) calls these, links `video_speakers`, and
@@ -465,19 +540,29 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
 
 ## Rollout (phased)
 
-**Phase 1 — per-video + cross-video personas (the core).** Three new
-tables (`speakers`, `video_speakers`, `speaker_statements`) + one
-`ALTER TABLE ADD COLUMN` on `chat_messages` (+ optionally one vec table)
-via the existing SCHEMA / migration mechanism; the
-detection/resolution/extraction service; a persona-chat service modelled
-on `stream_reply`; speakers + statements repos; speaker-chat and
-speaker-management/page routes; the `video_detail.html` additions and a
-`speaker.html`; one best-effort pipeline step. The existing video chat
-is untouched (new column defaults NULL), guarded by its current tests.
+**Phase 1 — leanest shippable: metadata speakers + in-chat persona.**
+Tables `speakers` + `video_speakers` and the `chat_messages.speaker_id`
+column (we keep the profile-global `speakers` table from the start to
+avoid a later migration, but defer `speaker_statements`/embeddings). The
+`show_registry` + `identify_from_metadata` (no LLM, no transcript),
+`resolve_speaker`, manual-add, the `speaker_chat` service
+(this-episode-only grounding) modelled on `stream_reply`, the speaker
+routes, and the **in-chat** UI: the "Chat with: …" selector at the top
+of the existing chat box, the disclaimer banner, and the
+seed-from-current-position jump-in (reusing the player's time markers).
+The pipeline gains a cheap best-effort step that runs
+`identify_from_metadata` and links speakers for supported shows. The
+existing video chat is untouched (new column defaults NULL), guarded by
+its current tests. **No track record, no catalog, no speaker page yet.**
 
-**Phase 2 — seed catalog (optional, separate PR).** The two
-`catalog_*` tables, the `speakers.catalog_id` link, the versioned seed
-data file + idempotent loader, and the catalog-baseline block in the
-persona prompt. Kept separate so the accuracy/fairness review of the
-shipped content doesn't gate the core feature, and so Phase 1 stays a
-reviewable size.
+**Phase 2 — cross-video track record + speaker page.** Add
+`speaker_statements` (+ optional vec table), the LLM
+`detect_and_extract` path (also a fallback for talk shows outside the
+registry), the dossier retrieval in the persona prompt, and the
+`/speaker/{id}` page with the whole-history chat.
+
+**Phase 3 — shipped seed catalog (separate PR).** The two `catalog_*`
+tables, the `speakers.catalog_id` link, the versioned seed data file +
+idempotent loader, and the catalog-baseline block in the persona prompt.
+Kept last so the accuracy/fairness review of the shipped content about
+real public figures doesn't gate anything earlier.
