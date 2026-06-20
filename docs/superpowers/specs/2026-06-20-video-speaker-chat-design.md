@@ -77,6 +77,21 @@ dossier, the speaker page, the shipped knowledge catalog — is the
 existing box, grounded in this one episode, seedable from the current
 timestamp.*
 
+### Refinements (decided 2026-06-20)
+
+- **In-character voice.** The persona speaks the way the real person
+  speaks — their tone and mannerisms — not as a neutral assistant.
+- **Banner is enough** for transparency; no forced "I'm an AI" line in
+  every reply.
+- **A chip per speaker.** Panel shows (All-In) surface every host + guest
+  as its own chip — no host/main-guest reduction.
+- **Reply in the viewer's language**, matching the language of their
+  question, regardless of the episode's language.
+- **Registry lives in the DB**: shipped shows are *seeded*, and the user
+  *maintains their own* on top (not a static code file).
+- **Player entry point** exists; its exact visual placement is still to
+  be eyeballed (feasibility is settled — the player exposes the hook).
+
 ## Terminology
 
 As in earlier specs: every "user" is a Netflix-style **Profile**.
@@ -304,35 +319,68 @@ record progressively takes over.
 
 ## Services
 
-### `services/show_registry.py` — supported shows (v1 source of truth)
+### Supported-shows registry — DB-seeded + user-extensible (v1 source of truth)
 
-A small shipped registry of "the big ones" — a list of show entries,
-each with a match rule, the known **host(s)**, and a **guest-extraction
-rule** for the description/title.
+The registry of "the big ones" lives **in the database**, not in a code
+file: shipped shows are **seeded** on boot (idempotent, versioned), and
+the user can **add and maintain their own** shows on top. New `shows`
+table:
+
+```sql
+CREATE TABLE IF NOT EXISTS shows (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER,                    -- NULL = shipped/seeded (global); set = user-added
+    name          TEXT NOT NULL,              -- "Lex Fridman Podcast"
+    channel_id    TEXT,                       -- primary match signal
+    title_pattern TEXT,                       -- optional secondary substring/regex match
+    hosts_json    TEXT NOT NULL DEFAULT '[]', -- known host names
+    guest_rule    TEXT,                       -- how to parse the guest (see below); NULL = hosts only
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    seed_version  INTEGER NOT NULL DEFAULT 1, -- shipped rows only; gates idempotent re-seed
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_shows_channel ON shows(channel_id);
+```
+
+- **Seeded rows** (`user_id IS NULL`) come from a shipped data file
+  (`app/data/shows.json`), loaded idempotently behind a settings marker
+  (`shows_seed_version`) — bump the version to re-import cleanly, exactly
+  like the planned catalog seed. This is the "we seed the speakers/shows"
+  part.
+- **User rows** (`user_id` set) are added/edited/disabled from the UI —
+  the "maintain your own" part. A user row can be minimal: a
+  `channel_id` (or `title_pattern`) + a host list, `guest_rule` NULL
+  (fixed cast, no parsing).
 
 **Matching signal (decided):** today we persist only `title`,
 `description`, `url`, and tags — *not* the channel. yt-dlp's `info`
 already carries `channel` / `channel_id` (see `services/youtube.py`,
 which currently reads only `id`/`title`/`description`), so v1 **captures
 `channel_id` during fetch** (one extra field read + a nullable
-`videos.channel_id` column, backfilled NULL on existing rows) and the
-registry matches primarily on that. Title/description patterns remain a
+`videos.channel_id` column, backfilled NULL on existing rows). A video
+matches a show by `channel_id` (primary); `title_pattern` is the
 secondary signal (and the only one for pre-existing videos whose
-`channel_id` is NULL until re-fetched). Example rule shapes:
+`channel_id` is NULL until re-fetched). Both shipped rows and the
+profile's own rows are consulted.
 
-- *Diary of a CEO* → host **Steven Bartlett**; guest = text after
-  "with " in the title/description.
-- *Lex Fridman Podcast* → host **Lex Fridman**; guest = text before the
-  first ":" in the title (`"{Guest}: {Topic} | Lex Fridman Podcast #N"`).
-- *All-In* → fixed host set (Chamath, Jason, Sacks, Friedberg); guests
-  parsed from the description when present.
+`guest_rule` is a tiny enumerated parser, not free code — e.g.
+`after:with ` (Diary of a CEO: guest after "with " in title/desc),
+`before:: ` (Lex: `"{Guest}: {Topic} | Lex Fridman Podcast #N"`), or
+NULL for a fixed cast (All-In: hosts Chamath/Jason/Sacks/Friedberg,
+guests only if a known rule later applies). Keeping it enumerated means
+user-added shows stay safe (no arbitrary regex execution risk) and the
+settings form is a simple dropdown.
 
-`identify_from_metadata(video) -> list[DetectedSpeaker]` matches the
-video against the registry and returns the host(s) + parsed guest(s),
-or `[]` for an unsupported show. Pure string/pattern work — **no LLM,
-no transcript** needed for the v1 path. This is what makes v1 cheap and
-reliable: for interview formats the participants are already in the
-metadata we store.
+### `repos/shows.py` + `services/show_match.py`
+
+- `repos/shows.py` — CRUD + `seed_from_file(db, version)` (idempotent).
+- `services/show_match.py`:
+  `identify_from_metadata(db, video) -> list[DetectedSpeaker]` — finds the
+  matching enabled show (shipped or the video-owner's own) and returns
+  host(s) + parsed guest(s), or `[]` for an unsupported show. Pure
+  string/pattern work — **no LLM, no transcript** needed for the v1 path.
+  This is what makes v1 cheap and reliable: for interview formats the
+  participants are already in the metadata we store.
 
 ### `services/speakers.py` — resolution, and (Phase 2) LLM extraction
 
@@ -361,7 +409,13 @@ Mirrors `chat.stream_reply` (same LiteLLM streaming kwargs, reuses
 
 ```
 You are role-playing as {name}{role_clause}, in conversation with a
-viewer. Reply in the first person, in their voice and style.
+viewer. Reply in the first person, fully in their voice: match how they
+actually talk — their tone, rhetorical habits, bluntness or warmth,
+favourite phrasings and pet topics. Be them, not a neutral narrator.
+
+LANGUAGE: Reply in the SAME language the viewer's latest message is
+written in, regardless of the language of the episode or the track
+record. (A German question gets a German answer, in character.)
 
 GROUNDING RULES:
 - Base what you say FIRST on what {name} actually says in THIS episode's
@@ -424,6 +478,18 @@ returns the same `_msg_html` user+assistant fragment. Optional
 - `POST /v/{video_id}/speakers/{id}/unlink` — remove an appearance
   (keeps the global speaker + dossier).
 
+### Show management — `routes/shows.py` (Settings)
+
+A small section on the Settings page to **maintain your own shows** on
+top of the seeded ones (the "pflege eigene weiter" part):
+- `GET /settings/shows` — list shipped (read-only) + the profile's own
+  rows.
+- `POST /settings/shows` — add a user show (name, channel_id and/or
+  title_pattern, hosts, optional guest_rule from a dropdown).
+- `POST /settings/shows/{id}/edit` / `.../delete` / `.../toggle` — edit,
+  remove, or enable/disable a user row. Shipped rows can be **disabled**
+  by the profile (a per-profile override flag) but not edited/deleted.
+
 ### Speaker page — `routes/speakers.py`
 
 - `GET /speaker/{id}` — the person's home: avatar/role, the dossier
@@ -438,10 +504,13 @@ All HTMX fragment swaps, consistent with the app.
 ## UI (`video_detail.html`, `speaker.html`, partials)
 
 - **Speaker picker + mode switch** at the top of `<section class="chat">`:
-  "Talk to: [ the video ] [ 🟦 Chamath ] [ 🟩 Jason ] … [ ⚙ ]". Each
-  speaker chip `hx-get`s a chat panel fragment in speaker mode; the
-  chip links its avatar (curated `services/avatars.py`) and its name
-  also deep-links to `/speaker/{id}`.
+  "Talk to: [ the video ] [ 🟦 Chamath ] [ 🟩 Jason ] … [ ⚙ ]". **Every
+  speaker gets its own chip** — a panel show like All-In surfaces all
+  four hosts (plus any guest) as separate chips, not a "host + main
+  guest" reduction. Each speaker chip `hx-get`s a chat panel fragment in
+  speaker mode; the chip carries its avatar (curated
+  `services/avatars.py`) and its name deep-links to `/speaker/{id}`
+  (Phase 2). The chips wrap to multiple rows when there are many.
 - **Disclaimer banner** (transparency, non-negotiable) in speaker mode:
   "⚠️ **Simulated.** AI impression of *{name}* based on this episode and
   what they've said in your library — not their real words." Speaker
@@ -455,7 +524,9 @@ All HTMX fragment swaps, consistent with the app.
   player IIFE to expose `getCurrentTime()` + a nearest-block lookup over
   the rendered `[data-yt-timestamp]` blocks, opening the speaker chat
   seeded at the live position. No-ops gracefully before the player
-  exists.
+  exists. (Exact visual placement of this entry point at the player is
+  still to be eyeballed — the player already exposes the hook, so it's a
+  styling/placement call, not a feasibility one.)
 - **Speaker page** (`speaker.html`): dossier-by-topic, appearances,
   whole-history chat.
 
@@ -539,16 +610,19 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
 ## Rollout (phased)
 
 **Phase 1 — leanest shippable: metadata speakers + in-chat persona.**
-Tables `speakers` + `video_speakers` and the `chat_messages.speaker_id`
-column (we keep the profile-global `speakers` table from the start to
-avoid a later migration, but defer `speaker_statements`/embeddings),
-plus a nullable `videos.channel_id` column and capturing `channel_id`
-from yt-dlp's `info` in `services/youtube.py`. The
-`show_registry` + `identify_from_metadata` (no LLM, no transcript),
-`resolve_speaker`, manual-add, the `speaker_chat` service
-(this-episode-only grounding) modelled on `stream_reply`, the speaker
-routes, and the **in-chat** UI: the "Chat with: …" selector at the top
-of the existing chat box, the disclaimer banner, and the
+Tables `speakers` + `video_speakers` + `shows` and the
+`chat_messages.speaker_id` column (we keep the profile-global `speakers`
+table from the start to avoid a later migration, but defer
+`speaker_statements`/embeddings), plus a nullable `videos.channel_id`
+column and capturing `channel_id` from yt-dlp's `info` in
+`services/youtube.py`. The seeded `shows` registry (shipped
+`app/data/shows.json` + idempotent loader) with the Settings UI to add
+your own; `show_match.identify_from_metadata` (no LLM, no transcript);
+`resolve_speaker`; manual speaker add; the `speaker_chat` service
+(this-episode grounding, viewer-language replies, in-character voice)
+modelled on `stream_reply`; the speaker + show routes; and the
+**in-chat** UI: the "Chat with: …" selector (a chip per speaker) at the
+top of the existing chat box, the disclaimer banner, and the
 seed-from-current-position jump-in (reusing the player's time markers).
 The pipeline gains a cheap best-effort step that runs
 `identify_from_metadata` and links speakers for supported shows. The
