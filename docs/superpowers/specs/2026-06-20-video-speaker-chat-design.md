@@ -3,6 +3,18 @@
 **Status:** Draft — design phase (awaiting review)
 **Date:** 2026-06-20
 
+## Positioning (the claim)
+
+> **You follow them on Twitter. You adore them on YouTube.
+> Now talk to them in real time.**
+
+That's the hook. The product promise is *access* — stepping from passive
+fandom (scrolling their takes, watching their episodes) into an actual
+back-and-forth. The one honest asterisk the interface always carries:
+it's a **simulation** — an AI impression grounded in what they actually
+said, not the real person. The pitch sells the experience; the UI never
+hides the asterisk.
+
 ## Goal
 
 "Chat over a video" today talks to *the video* — a neutral assistant
