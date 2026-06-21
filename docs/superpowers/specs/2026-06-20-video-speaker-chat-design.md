@@ -1,7 +1,9 @@
 # Chat with the Speakers (Cross-Video Personas + Track Record + Seed Catalog) — Design
 
-**Status:** Superseded by
-[`2026-06-21-speaker-dossiers-and-persona-chat-design.md`](2026-06-21-speaker-dossiers-and-persona-chat-design.md)
+**Status:** Superseded. The product direction now lives in the merged spec
+[`2026-06-21-chat-with-speakers-v1_5-design.md`](2026-06-21-chat-with-speakers-v1_5-design.md),
+which reconciles this draft's "talk to them in real time" hook with the
+evidence-first dossier model. Kept for history only — do not build from this.
 **Date:** 2026-06-20
 
 ## Supersession note

@@ -1,6 +1,10 @@
 # Speaker Dossiers and Persona Chat - Design
 
-**Status:** Draft - successor to the 2026-06-20 speaker chat draft
+**Status:** Superseded by the merged spec
+[`2026-06-21-chat-with-speakers-v1_5-design.md`](2026-06-21-chat-with-speakers-v1_5-design.md).
+That spec carries this dossier model forward as the grounding layer and
+re-joins it with the roleplay hook. Kept for history only — do not build from
+this.
 **Date:** 2026-06-21
 
 ## Positioning

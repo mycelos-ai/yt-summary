@@ -3,6 +3,9 @@
 **Date:** 2026-06-21
 **Supersedes:** `2026-06-20-video-speaker-chat-design.md`
 **New spec:** `2026-06-21-speaker-dossiers-and-persona-chat-design.md`
+**Now folded into:** `2026-06-21-chat-with-speakers-v1_5-design.md` — the merged,
+implementation-ready spec that re-joins the roleplay hook with this dossier
+model. This change log is retained as history of the pivot.
 
 ## Why this change exists
 
