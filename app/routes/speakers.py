@@ -17,6 +17,12 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 register_filters(templates)
 
+# Photo upload size limit: 5 MB
+_MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+# Allowlisted photo extensions
+_ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
 
 async def _owned_video(db, video_id: str, current_user_id: int):
     """Load a video or 404 — including foreign-profile rows (404, not 403,
@@ -138,11 +144,19 @@ async def edit_speaker(
     if photo is not None and photo.filename:
         if not (photo.content_type or "").startswith("image/"):
             raise HTTPException(400, "Photo must be an image file")
+        # Check extension against allowlist
+        suffix = Path(photo.filename).suffix.lower()
+        if suffix not in _ALLOWED_PHOTO_EXTENSIONS:
+            raise HTTPException(400, "Unsupported image type")
+        # Read and check size
+        data = await photo.read()
+        if len(data) > _MAX_PHOTO_BYTES:
+            raise HTTPException(400, "Photo too large (max 5 MB)")
+        # Write file
         dest_dir = Path(config.data_dir) / "speaker_photos"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        suffix = Path(photo.filename).suffix or ".jpg"
         dest = dest_dir / f"{speaker_id}{suffix}"
-        dest.write_bytes(await photo.read())
+        dest.write_bytes(data)
         await sp_repo.set_photo_path(db, speaker_id, str(dest))
     return RedirectResponse(f"/speaker/{speaker_id}", status_code=303)
 

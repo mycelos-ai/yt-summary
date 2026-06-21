@@ -265,3 +265,16 @@ def test_photo_serve_no_photo_is_404(tmp_path, monkeypatch):
 
         resp = client.get(f"/speaker/{speaker_id}/photo")
         assert resp.status_code == 404
+
+
+def test_photo_serve_foreign_is_404(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        async def make_foreign():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(
+                app.state.db, user_id=999, name="Foreign Photo Speaker"
+            )
+        speaker_id = _run(make_foreign())
+        resp = client.get(f"/speaker/{speaker_id}/photo")
+        assert resp.status_code == 404
