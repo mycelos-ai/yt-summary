@@ -44,3 +44,14 @@ async def test_append_accepts_explicit_user(db: aiosqlite.Connection):
     row = await cursor.fetchone()
     assert row is not None
     assert row[0] == 7
+
+
+async def test_append_and_history_by_thread_with_null_video(db: aiosqlite.Connection):
+    await db.execute("INSERT INTO speakers (user_id, name, name_key) VALUES (1,'X','x')")
+    await db.execute("INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)")
+    await db.commit()
+    await chat_repo.append(db, None, "user", "hi", thread_id=1)
+    await chat_repo.append(db, None, "assistant", "yo", thread_id=1)
+    msgs = await chat_repo.history(db, thread_id=1)
+    assert [m.role for m in msgs] == ["user", "assistant"]
+    assert msgs[0].video_id is None

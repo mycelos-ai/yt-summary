@@ -114,7 +114,7 @@ class TtsJob:
 @dataclass
 class ChatMessage:
     id: int
-    video_id: str
+    video_id: str | None
     role: ChatRole
     content: str
     created_at: datetime
