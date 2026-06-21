@@ -87,3 +87,25 @@ def test_unlink_foreign_video_is_404(tmp_path, monkeypatch):
         _run(_seed_video(app.state.db, vid="vforeign", user_id=999))
         resp = client.post("/v/vforeign/speakers/42/unlink")
         assert resp.status_code == 404
+
+
+def test_add_blank_name_rejected(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+
+        # Get speaker count before
+        async def count_speakers():
+            from app.repos import source_speakers as ss_repo
+            speakers = await ss_repo.list_for_source(app.state.db, "vc1")
+            return len(speakers)
+
+        count_before = _run(count_speakers())
+
+        # Attempt to add blank name
+        resp = client.post("/v/vc1/speakers", data={"name": "   "})
+        assert resp.status_code == 400
+
+        # Verify no speaker was created
+        count_after = _run(count_speakers())
+        assert count_before == count_after

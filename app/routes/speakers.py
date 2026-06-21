@@ -53,8 +53,11 @@ async def add_speaker(
     current_user_id: int = Depends(get_current_user_id),
 ):
     video = await _owned_video(db, video_id, current_user_id)
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(400, "Speaker name required")
     speaker_id = await sp_repo.resolve_speaker(
-        db, user_id=current_user_id, name=name.strip(), role=role.strip() or None,
+        db, user_id=current_user_id, name=clean_name, role=role.strip() or None,
     )
     await ss_repo.link_speaker(
         db, video_id, speaker_id,
