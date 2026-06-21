@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL DEFAULT 1,
     kind TEXT NOT NULL DEFAULT 'youtube'
-        CHECK(kind IN ('youtube','web','email')),
+        CHECK(kind IN ('youtube','web','email','text')),
     url TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -51,7 +51,11 @@ CREATE TABLE IF NOT EXISTS videos (
     -- computed once after generation (KNN pre-filter + LLM curation).
     -- NULL = not yet computed (UI falls back to live-KNN strip).
     -- "[]" = computed, nothing relevant.
-    related_links_json TEXT
+    related_links_json TEXT,
+    -- YouTube channel id (e.g. UC...) for matching speaker dossiers.
+    -- NULL for web / email / text kinds, or pre-feature YouTube rows
+    -- until the next metadata refresh backfills them.
+    channel_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -379,6 +383,79 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(conn, "videos", "archived_at", "TEXT")
         await _ensure_column(conn, "videos", "image_query", "TEXT")
         await _ensure_column(conn, "videos", "related_links_json", "TEXT")
+
+        # The kind CHECK gained 'text'. SQLite can't ALTER a CHECK in place,
+        # so rebuild the table once (same pattern as settings/feedback below).
+        # Trigger the rebuild when channel_id is missing — that column is added
+        # in the SAME rebuild, so its absence is a reliable "not yet rebuilt"
+        # signal. (We can't cheaply introspect the CHECK text, but channel_id
+        # presence is a faithful proxy.)
+        if "channel_id" not in video_cols:
+            # Re-read the columns AFTER _ensure_column calls above so we
+            # transfer everything that is actually present in the old table.
+            # Legacy DBs may lack columns that were never added via
+            # _ensure_column (e.g. transcript_source, updated_at in very old
+            # test fixtures).  Only copy what exists; the videos_new DDL
+            # provides defaults for everything else.
+            current_video_cols = await _table_columns(conn, "videos")
+            # Canonical ordered list of all pre-channel_id columns; omit any
+            # that aren't present in the source table.
+            _all_pre_cols = [
+                "id", "user_id", "kind", "url", "title", "description",
+                "thumbnail_path", "duration_seconds", "transcript",
+                "transcript_segments", "transcript_source", "summary",
+                "summary_model", "summary_embedded_at", "youtube_id",
+                "source_language", "summary_language", "transcript_language",
+                "created_at", "updated_at", "archived_at", "highlights_json",
+                "image_query", "related_links_json",
+            ]
+            copy_cols = [c for c in _all_pre_cols if c in current_video_cols]
+            col_list = ", ".join(copy_cols)
+            await conn.execute("PRAGMA foreign_keys=OFF")
+            await conn.executescript(
+                """
+                CREATE TABLE videos_new (
+                    id TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    kind TEXT NOT NULL DEFAULT 'youtube'
+                        CHECK(kind IN ('youtube','web','email','text')),
+                    url TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    thumbnail_path TEXT,
+                    duration_seconds INTEGER,
+                    transcript TEXT,
+                    transcript_segments TEXT,
+                    transcript_source TEXT,
+                    summary TEXT,
+                    summary_model TEXT,
+                    summary_embedded_at TEXT,
+                    youtube_id TEXT,
+                    source_language TEXT,
+                    summary_language TEXT,
+                    transcript_language TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    archived_at TEXT,
+                    highlights_json TEXT,
+                    image_query TEXT,
+                    related_links_json TEXT,
+                    channel_id TEXT
+                );
+                """
+            )
+            await conn.execute(
+                f"INSERT INTO videos_new ({col_list}) "
+                f"SELECT {col_list} FROM videos"
+            )
+            await conn.executescript(
+                """
+                DROP TABLE videos;
+                ALTER TABLE videos_new RENAME TO videos;
+                """
+            )
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await conn.commit()
 
     if await _table_exists(conn, "chat_messages"):
         # Legacy chat_messages may lack user_id and created_at, both
