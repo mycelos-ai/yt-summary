@@ -227,6 +227,7 @@ async def _import_youtube(
         kind=VideoKind.YOUTUBE,
         user_id=user_id,
         youtube_id=meta.id,
+        channel_id=meta.channel_id,
     )
     if meta.tags:
         await tags_repo.set_tags_for_video(db, item_id, list(meta.tags))

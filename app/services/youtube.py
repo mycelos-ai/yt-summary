@@ -33,6 +33,7 @@ class VideoMetadata:
     duration_seconds: int | None
     thumbnail_url: str | None
     tags: tuple[str, ...] = ()
+    channel_id: str | None = None
 
 
 def _base_opts(cookies_path: Path | None) -> dict[str, Any]:
@@ -101,6 +102,7 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
         duration_seconds=info.get("duration"),
         thumbnail_url=_pick_best_thumbnail(info),
         tags=tags,
+        channel_id=info.get("channel_id"),
     )
 
 

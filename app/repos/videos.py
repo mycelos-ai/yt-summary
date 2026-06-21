@@ -99,14 +99,15 @@ async def upsert_metadata(
     user_id: int = 1,
     kind: VideoKind = VideoKind.YOUTUBE,
     youtube_id: str | None = None,
+    channel_id: str | None = None,
 ) -> None:
     await db.execute(
         """
         INSERT INTO videos (
             id, user_id, kind, url, title, description,
-            thumbnail_path, duration_seconds, youtube_id
+            thumbnail_path, duration_seconds, youtube_id, channel_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url=excluded.url,
             title=excluded.title,
@@ -114,11 +115,12 @@ async def upsert_metadata(
             thumbnail_path=COALESCE(excluded.thumbnail_path, videos.thumbnail_path),
             duration_seconds=COALESCE(excluded.duration_seconds, videos.duration_seconds),
             youtube_id=COALESCE(excluded.youtube_id, videos.youtube_id),
+            channel_id=COALESCE(excluded.channel_id, videos.channel_id),
             updated_at=datetime('now')
         """,
         (
             video_id, user_id, kind.value, url, title, description,
-            thumbnail_path, duration_seconds, youtube_id,
+            thumbnail_path, duration_seconds, youtube_id, channel_id,
         ),
     )
     await db.commit()

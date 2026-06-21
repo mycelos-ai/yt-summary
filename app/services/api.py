@@ -168,6 +168,7 @@ async def submit_video(
             user_id=user_id,
             kind=VideoKind.YOUTUBE,
             youtube_id=meta.id,
+            channel_id=meta.channel_id,
         )
         if meta.tags:
             await _tags_repo.set_tags_for_video(db, item_id, list(meta.tags))
