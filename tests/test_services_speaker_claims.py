@@ -185,6 +185,105 @@ def test_reprocess_replaces_prior_claims(db):
     _run(go())
 
 
+def test_retrieve_ranks_topic_overlap_then_recency(db):
+    async def go():
+        from app.services import speaker_claims
+        from app.repos import speaker_claims as repo
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
+        sid = cur.lastrowid
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('v1', 1, 'youtube', 'u', 'Markets Episode')")
+        await db.commit()
+        await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                claim="inflation will fall", topic="inflation rates",
+                                evidence_start_s=10)
+        await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                claim="AI is overhyped", topic="ai bubble",
+                                evidence_start_s=20)
+        out = await speaker_claims.retrieve_for_prompt(
+            db, sid, query="what about inflation?", limit=12)
+        # the topic-overlapping claim ranks first; both carry source title + ts
+        assert out[0]["claim"] == "inflation will fall"
+        assert out[0]["source_title"] == "Markets Episode"
+        assert out[0]["evidence_start_s"] == 10
+    _run(go())
+
+
+def test_retrieve_respects_limit_and_is_cross_source(db):
+    async def go():
+        from app.services import speaker_claims
+        from app.repos import speaker_claims as repo
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
+        sid = cur.lastrowid
+        for v in ("v1", "v2"):
+            await db.execute(
+                "INSERT INTO videos (id, user_id, kind, url, title) "
+                "VALUES (?, 1, 'youtube', 'u', ?)", (v, f"Ep {v}"))
+        await db.commit()
+        for i in range(5):
+            await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                    claim=f"a{i}", topic="x")
+        for i in range(5):
+            await repo.insert_claim(db, speaker_id=sid, source_id="v2",
+                                    claim=f"b{i}", topic="y")
+        out = await speaker_claims.retrieve_for_prompt(db, sid, query="x", limit=3)
+        assert len(out) == 3
+        sources = {c["source_id"] for c in await speaker_claims.retrieve_for_prompt(
+            db, sid, query="", limit=12)}
+        assert sources == {"v1", "v2"}  # cross-source
+    _run(go())
+
+
+def test_retrieve_excludes_rejected(db):
+    async def go():
+        from app.services import speaker_claims
+        from app.repos import speaker_claims as repo
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
+        sid = cur.lastrowid
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('v1', 1, 'youtube', 'u', 'Ep')")
+        await db.commit()
+        row_id = await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                         claim="rejected claim", topic="t")
+        await db.execute(
+            "UPDATE speaker_claims SET review_status='rejected' WHERE id=?", (row_id,))
+        await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                claim="good claim", topic="t")
+        await db.commit()
+        out = await speaker_claims.retrieve_for_prompt(db, sid, query="", limit=12)
+        assert len(out) == 1
+        assert out[0]["claim"] == "good claim"
+    _run(go())
+
+
+def test_retrieve_returns_exactly_9_contract_keys(db):
+    async def go():
+        from app.services import speaker_claims
+        from app.repos import speaker_claims as repo
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
+        sid = cur.lastrowid
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('v1', 1, 'youtube', 'u', 'Ep')")
+        await db.commit()
+        await repo.insert_claim(db, speaker_id=sid, source_id="v1",
+                                claim="some claim", topic="finance")
+        out = await speaker_claims.retrieve_for_prompt(db, sid, query="", limit=12)
+        assert len(out) == 1
+        assert set(out[0].keys()) == {
+            "claim", "topic", "evidence_text", "evidence_start_s",
+            "source_id", "source_title", "attribution_method",
+            "attribution_confidence", "review_status",
+        }
+    _run(go())
+
+
 def test_garbage_does_not_wipe_existing_claims(db):
     """Proves that when extraction fails (garbage response), previously-persisted
     claims are NOT deleted. The replace_for_source_speakers call happens AFTER

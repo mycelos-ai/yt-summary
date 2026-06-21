@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import litellm
@@ -258,6 +259,7 @@ async def extract_claims_for_source(
         })
 
     # Replace-on-reprocess: clear THIS source's rows for these speakers,
+
     # then insert fresh. Prevents duplicates on re-extraction.
     await claims_repo.replace_for_source_speakers(db, source.id, speaker_ids)
     for c in accepted:
@@ -280,3 +282,72 @@ async def extract_claims_for_source(
             attribution_reason=c["attribution_reason"],
         )
     return accepted
+
+
+# ---------------------------------------------------------------------------
+# Retrieval — PR 3: recency + topic-text overlap
+# PR 4 will add an embedding-ranked branch behind this same signature.
+# ---------------------------------------------------------------------------
+
+_WORD = re.compile(r"\w+", re.UNICODE)
+
+
+def _tokens(text: str) -> set[str]:
+    return {w.lower() for w in _WORD.findall(text or "")}
+
+
+async def retrieve_for_prompt(
+    db, speaker_id: int, *, query: str, limit: int = 12,
+) -> list[dict]:
+    """Cross-source claim slice for the persona prompt.
+
+    PR 3 ranking: claims whose topic/claim text overlaps the viewer's
+    query first, then most-recent. Capped at `limit`. Each row carries
+    the source title + timestamp for in-reply citation.
+
+    PR 4 will add an embedding-ranked branch behind this signature; the
+    recency/topic path stays as the fallback when no embedding exists or
+    the embedding backend is off.
+    """
+    cur = await db.execute(
+        "SELECT c.*, v.title AS source_title "
+        "FROM speaker_claims c JOIN videos v ON v.id = c.source_id "
+        "WHERE c.speaker_id=? AND c.review_status != 'rejected' "
+        "ORDER BY c.created_at DESC, c.id DESC",
+        (speaker_id,),
+    )
+    rows = await cur.fetchall()
+    q = _tokens(query)
+
+    def score(r) -> int:
+        if not q:
+            return 0
+        hay = _tokens(f"{r['topic'] or ''} {r['claim']}")
+        return len(q & hay)
+
+    # Stable sort: overlap score desc, then the recency order from SQL.
+    ranked = sorted(enumerate(rows), key=lambda iz: (-score(iz[1]), iz[0]))
+    return [_claim_to_prompt_dict(r) for _i, r in ranked[:limit]]
+
+
+def _claim_to_prompt_dict(r) -> dict:
+    """THE fixed-key contract for a retrieved claim.
+
+    speaker_chat's prompt builder, the routes, the persona-turn tests, and
+    PR 4's track-record peek + embedding-ranked retrieval all consume exactly
+    these 9 keys. PR 4 reuses this function so the shape never drifts.
+
+    The row `r` must expose `source_title` (the JOIN alias on videos.title)
+    alongside the speaker_claims columns.
+    """
+    return {
+        "claim": r["claim"],
+        "topic": r["topic"],
+        "evidence_text": r["evidence_text"],
+        "evidence_start_s": r["evidence_start_s"],
+        "source_id": r["source_id"],
+        "source_title": r["source_title"],
+        "attribution_method": r["attribution_method"],
+        "attribution_confidence": r["attribution_confidence"],
+        "review_status": r["review_status"],
+    }
