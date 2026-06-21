@@ -711,6 +711,101 @@ button.section-download {
   margin: 2px 3px;
 }
 .chat-source-chip:hover { border-color: var(--brand-green); }
+
+/* Speaker chips strip at the top of the chat section */
+.speaker-chips {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.speaker-chips-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--steel);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, var(--avatar-bg, #e7f1fa) 0%, rgba(255, 255, 255, 0.3) 100%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  padding: 6px 12px;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+.speaker-chip.is-inactive {
+  opacity: 0.6;
+  color: var(--muted);
+}
+.speaker-chip.is-active {
+  border-color: var(--brand-green);
+  background: linear-gradient(135deg, var(--avatar-bg, #e7f1fa) 0%, rgba(255, 255, 255, 0.5) 100%);
+}
+.speaker-chip-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 500;
+}
+.speaker-chip-name:hover {
+  text-decoration: underline;
+}
+.speaker-chip-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--avatar-bg, #e7f1fa);
+}
+.speaker-chip-activate,
+.speaker-chip-unlink {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.speaker-chip-activate:hover,
+.speaker-chip-unlink:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--ink);
+}
+.speaker-chip-add {
+  flex: 0 1 auto;
+  display: flex;
+  gap: 4px;
+}
+.speaker-chip-add input {
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 160px;
+  transition: all 0.2s ease;
+}
+.speaker-chip-add input::placeholder {
+  color: var(--muted);
+}
+.speaker-chip-add input:focus {
+  outline: none;
+  border-color: var(--brand-green);
+  background: var(--surface-soft);
+}
+
 .chat-composer {
   position: sticky;
   bottom: 0;

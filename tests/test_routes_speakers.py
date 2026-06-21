@@ -27,6 +27,8 @@ async def _seed_video(db, vid="vc1", user_id=1):
         channel_id="UCSHZKyawb77ixDdsGog4iWA",
     )
     await videos_repo.set_transcript(db, vid, "body", TranscriptSource.MANUAL_SUBS)
+    # Set a summary so the chat section (and chips) render
+    await videos_repo.set_summary(db, vid, "Test summary", "test-model")
     await db.commit()
 
 
@@ -109,3 +111,14 @@ def test_add_blank_name_rejected(tmp_path, monkeypatch):
         # Verify no speaker was created
         count_after = _run(count_speakers())
         assert count_before == count_after
+
+
+def test_detail_page_shows_chips_after_detection(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+        client.post("/v/vc1/speakers/detect")          # creates the links
+        page = client.get("/v/vc1")                     # full detail page
+        assert page.status_code == 200
+        assert 'id="speaker-chips"' in page.text
+        assert "Lex Fridman" in page.text

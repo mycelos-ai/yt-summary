@@ -12,6 +12,7 @@ from app.repos import chat as chat_repo
 from app.repos import feedback as feedback_repo
 from app.repos import jobs as jobs_repo
 from app.repos import llm_models as llm_models_repo
+from app.repos import source_speakers as source_speakers_repo
 from app.repos import tags as tags_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
@@ -552,6 +553,7 @@ async def video_detail(
             related_links = _json.loads(video.related_links_json)
         except (ValueError, TypeError):
             related_links = []
+    speakers = await source_speakers_repo.list_for_source(db, video.id)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -568,6 +570,7 @@ async def video_detail(
             "llm_models": llm_models,
             "feedbacks_data": feedbacks_data,
             "related_links": related_links,
+            "speakers": speakers,
         },
     )
 

@@ -175,6 +175,7 @@
   {% if video.summary %}
     <section class="chat">
       <h2>Chat</h2>
+      {% include "_speaker_chips.html" %}
       <div id="chat-history" class="chat-thread">
         {% for msg in chat_history %}
           {% include "_chat_message.html" %}
