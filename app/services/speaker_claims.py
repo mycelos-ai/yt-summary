@@ -177,6 +177,13 @@ async def extract_claims_for_source(
             log.debug("get_context_window failed, using transcript: %s", e)
             # On window-resolution failure, default to transcript (safest: no info lost)
 
+    if use_summary and not (source.summary or "").strip():
+        log.warning(
+            "claim extraction for %s: transcript exceeds context window but "
+            "source.summary is empty — extracting nothing",
+            getattr(source, "id", None),
+        )
+
     user_msg = _user_message(source, use_summary=use_summary)
 
     kwargs: dict[str, Any] = {

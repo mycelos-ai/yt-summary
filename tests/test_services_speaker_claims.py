@@ -183,3 +183,37 @@ def test_reprocess_replaces_prior_claims(db):
                 db, source, ids, model="m", api_key="k", base_url=None)
         assert len(await repo.list_for_speaker(db, ids[0])) == 1
     _run(go())
+
+
+def test_garbage_does_not_wipe_existing_claims(db):
+    """Proves that when extraction fails (garbage response), previously-persisted
+    claims are NOT deleted. The replace_for_source_speakers call happens AFTER
+    successful parsing, so garbage responses skip the delete-then-re-insert cycle."""
+    async def go():
+        from app.services import speaker_claims
+        from app.repos import speaker_claims as repo
+        ids, source = await _seed(db)
+
+        # First extraction: seed with good claims
+        with patch("app.services.speaker_claims.litellm.acompletion", _completion(_CLEAN)):
+            first_out = await speaker_claims.extract_claims_for_source(
+                db, source, ids, model="m", api_key="k", base_url=None,
+            )
+        assert len(first_out) == 2
+        assert len(await repo.list_for_speaker(db, ids[0])) == 1
+        first_claim = (await repo.list_for_speaker(db, ids[0]))[0].claim
+        assert first_claim == "SPACs are mispriced"
+
+        # Second extraction: garbage response (invalid JSON)
+        with patch("app.services.speaker_claims.litellm.acompletion", _completion("not json at all")):
+            second_out = await speaker_claims.extract_claims_for_source(
+                db, source, ids, model="m", api_key="k", base_url=None,
+            )
+        # Garbage path returns empty
+        assert second_out == []
+
+        # Verify: existing claim is still there (NOT wiped by garbage)
+        persisted = await repo.list_for_speaker(db, ids[0])
+        assert len(persisted) == 1
+        assert persisted[0].claim == first_claim
+    _run(go())
