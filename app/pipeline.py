@@ -31,6 +31,17 @@ from app.services.youtube import fetch_metadata
 log = logging.getLogger(__name__)
 
 
+def _content_kind_for(kind: VideoKind) -> str:
+    # Email gets the newsletter-tuned prompt; everything else (incl. TEXT and
+    # WEB) uses the standard path.
+    return "email" if kind == VideoKind.EMAIL else "youtube"
+
+
+def _wants_stock_thumbnail(kind: VideoKind) -> bool:
+    # Items with no native thumbnail source get a Pexels fallback.
+    return kind in (VideoKind.EMAIL, VideoKind.WEB, VideoKind.TEXT)
+
+
 def _resolve_cookies(config: Config) -> Path | None:
     p = config.cookies_path
     return p if p.exists() else None
@@ -226,7 +237,7 @@ async def process_video(
     summary_language_setting = (settings.get("summary_language") or "").strip()
     # Email-kind items get the newsletter-tuned prompt (triage + drop
     # ad/tracking/footer cruft); everything else uses the standard path.
-    content_kind = "email" if video.kind == VideoKind.EMAIL else "youtube"
+    content_kind = _content_kind_for(video.kind)
     summary, highlights = await summarize_with_highlights(
         transcript=text,
         model=model,
@@ -258,7 +269,7 @@ async def process_video(
     # failure is swallowed inside the stock_images helpers, so this can
     # never break the pipeline. Skipped entirely when no Pexels key is
     # configured for the owning profile.
-    if video.kind in (VideoKind.EMAIL, VideoKind.WEB) and not video.thumbnail_path:
+    if _wants_stock_thumbnail(video.kind) and not video.thumbnail_path:
         from app.services import stock_images
         pexels_key = await settings_repo.get_for_user(
             db, video.user_id, "pexels_api_key",
