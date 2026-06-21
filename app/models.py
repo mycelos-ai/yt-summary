@@ -325,3 +325,26 @@ class DetectedSpeaker:
     name: str
     role: str | None
     is_host: bool
+
+
+@dataclass
+class SpeakerClaim:
+    id: int
+    user_id: int
+    speaker_id: int
+    source_id: str
+    source_speaker_id: int | None
+    claim: str
+    topic: str | None
+    evidence_text: str | None
+    evidence_start_s: int | None
+    evidence_end_s: int | None
+    text_start_offset: int | None
+    text_end_offset: int | None
+    confidence: float | None
+    extraction_method: str
+    attribution_method: str | None
+    attribution_confidence: float | None
+    attribution_reason: str | None
+    review_status: str
+    created_at: datetime
