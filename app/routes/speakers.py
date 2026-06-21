@@ -205,6 +205,7 @@ async def activate_speaker(
     request: Request,
     speaker_id: int,
     caller: str = "",
+    video_id: str = "",
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -216,6 +217,10 @@ async def activate_speaker(
     speaker = await sp_repo.get_speaker(db, speaker_id)
     if caller == "page":
         return _actions_panel(request, speaker)
+    if caller == "chips" and video_id:
+        video = await _owned_video(db, video_id, current_user_id)
+        speakers = await ss_repo.list_for_source(db, video_id)
+        return _chips_response(request, video, speakers)
     return _chip_panel(request, speaker)
 
 
@@ -224,6 +229,7 @@ async def deactivate_speaker(
     request: Request,
     speaker_id: int,
     caller: str = "",
+    video_id: str = "",
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -232,4 +238,8 @@ async def deactivate_speaker(
     speaker = await sp_repo.get_speaker(db, speaker_id)
     if caller == "page":
         return _actions_panel(request, speaker)
+    if caller == "chips" and video_id:
+        video = await _owned_video(db, video_id, current_user_id)
+        speakers = await ss_repo.list_for_source(db, video_id)
+        return _chips_response(request, video, speakers)
     return _chip_panel(request, speaker)

@@ -17,8 +17,8 @@
         </a>
         {% if not sp.is_active %}
           <button type="button" class="speaker-chip-activate"
-                  hx-post="/speaker/{{ sp.id }}/activate"
-                  hx-target="closest .speaker-chip" hx-swap="outerHTML"
+                  hx-post="/speaker/{{ sp.id }}/activate?caller=chips&video_id={{ video.id }}"
+                  hx-target="#speaker-chips" hx-swap="outerHTML"
                   title="Activate {{ sp.name }}">＋</button>
         {% endif %}
         <button type="button" class="speaker-chip-unlink"

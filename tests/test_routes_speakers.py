@@ -371,3 +371,52 @@ def test_activate_from_page_returns_self_reproducing_fragment(tmp_path, monkeypa
         assert "speaker-chip" not in resp2.text
         # Fragment must again carry ?caller=page (loop is stable)
         assert "?caller=page" in resp2.text
+
+
+def test_activate_from_chips_returns_full_strip_with_unlink(tmp_path, monkeypatch):
+    """Activating from chip strip returns full strip, preserving unlink button.
+
+    Bug: After activating a chip inline, that chip can no longer be unlinked
+    until a full page reload (the returned _speaker_chip_panel.html has no video
+    context to render the unlink button).
+
+    Fix: When activated via caller=chips&video_id=<vid>, return the full
+    _speaker_chips.html strip (which has video context) instead of the
+    single-chip panel.
+    """
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+        client.post("/v/vc1/speakers", data={"name": "Chip Activatable"})
+
+        async def sid():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Chip Activatable")
+        speaker_id = _run(sid())
+
+        # Activate via chip strip: POST with caller=chips&video_id=vc1
+        resp = client.post(f"/speaker/{speaker_id}/activate?caller=chips&video_id=vc1")
+        assert resp.status_code == 200
+        # Must return the full chip strip (id="speaker-chips")
+        assert 'id="speaker-chips"' in resp.text
+        # Must contain the unlink button (targets /speakers/{id}/unlink)
+        assert f"/speakers/{speaker_id}/unlink" in resp.text
+        # Must NOT return just a single-chip panel (no chip-panel-specific marker)
+        # (the panel has different structure than the strip)
+
+
+def test_activate_from_chips_foreign_video_is_404(tmp_path, monkeypatch):
+    """Activating from chip strip with foreign video_id returns 404."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+        client.post("/v/vc1/speakers", data={"name": "Chip Activatable 2"})
+
+        async def sid():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Chip Activatable 2")
+        speaker_id = _run(sid())
+
+        # Activate with foreign video_id
+        resp = client.post(f"/speaker/{speaker_id}/activate?caller=chips&video_id=vforeign")
+        assert resp.status_code == 404
