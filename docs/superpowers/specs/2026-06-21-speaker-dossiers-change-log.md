@@ -25,7 +25,7 @@ evidence-backed speaker dossiers.
   speaker's record across your videos and sources."
 - Kept simulated persona chat, but made it secondary to the sourced dossier.
 - Added speaker pages to the first useful release instead of deferring them.
-- Added user-provided speaker sources: URLs, pasted text, and manual notes.
+- Added user-controlled source linking for speaker dossiers.
 - Added sourced claims as the core track-record unit.
 - Made claim evidence visible and reviewable.
 - Tightened the persona posture so it does not claim to be the real person.
@@ -44,7 +44,11 @@ evidence-backed speaker dossiers.
 
 - Renamed the concept from a generic seed catalog to two narrower concepts:
   `known_shows` and `known_speakers`.
-- Added `speaker_sources` so the dossier has source material beyond videos.
+- Rejected a separate speaker body store: dossiers should link to existing
+  library items instead of duplicating URL, article, email, or pasted content.
+- Replaced `video_speakers` with the broader `source_speakers` concept so
+  YouTube videos, web articles, and emails/newsletters can all contain
+  speakers.
 - Replaced thin `speaker_statements` with evidence-backed `speaker_claims`.
 - Added evidence fields: evidence text, timestamp range, text offsets,
   confidence, extraction method, and review status.
@@ -66,5 +70,15 @@ evidence-backed speaker dossiers.
 - Called out that metadata detects participants, not statement attribution.
 - Treated LLM claim extraction as imperfect by default.
 - Made manual correction and review status part of the core workflow.
-- Treated pasted text as user-owned evidence, not global truth.
+- Treated user-added source material as user-owned library evidence, not
+  global truth.
 - Reduced public-figure risk by removing seeded position catalogs.
+
+## 2026-06-21 amendment - reuse library sources
+
+After review, the spec was corrected to avoid storing pasted content or URL
+bodies inside speaker-specific tables. The app already stores YouTube videos,
+web articles, and emails/newsletters as library items in the `videos` table
+with summaries and embeddings. Speaker dossiers should reference those
+existing items, so source search, summaries, embeddings, and future pasted-text
+ingestion stay centralized.

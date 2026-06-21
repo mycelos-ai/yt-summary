@@ -30,8 +30,9 @@ The useful version needs an evidence layer early:
 
 1. The app knows common shows and recurring speakers.
 2. The user can open a speaker page.
-3. The user and pipeline can attach sources to that speaker.
-4. The app extracts or records claims from those sources with citations.
+3. Existing library items can be linked to that speaker.
+4. The app extracts or records claims from those linked library items with
+   citations.
 5. The chat answers from this sourced dossier, not from a generic public
    position catalog.
 
@@ -54,15 +55,15 @@ This replaces the earlier "lean v1" with a small but more complete v1.5.
 - Speaker chips on the video detail page for detected or manually added
   speakers.
 - A simple speaker page where the speaker is clickable from the chip.
-- Speaker sources: videos, URLs, pasted text, and manual notes attached to a
-  speaker.
-- Evidence-first claims extracted from sources, with source type,
+- Speaker-source links: any existing library item can include a speaker,
+  including YouTube videos, web articles, and emails/newsletters.
+- Evidence-first claims extracted from linked library items, with source type,
   timestamp or text location when available, quote/evidence text, confidence,
   and review status.
 - Persona chat scoped either to the current video or to the speaker dossier,
   using explicit chat thread scoping.
-- Manual correction: edit speaker, merge speakers, unlink appearance, delete
-  or hide weak claims, and add material by hand.
+- Manual correction: edit speaker, merge speakers, unlink appearances, delete
+  or hide weak claims, and link sources by hand.
 
 ### Out of scope for the first release
 
@@ -85,13 +86,13 @@ This replaces the earlier "lean v1" with a small but more complete v1.5.
   identity and presentation metadata, not positions.
 - **Speaker:** A profile-local person entity. It can link to a known speaker
   but remains editable by the profile.
-- **Appearance:** A link between a speaker and a video.
-- **Speaker source:** Any material attached to a speaker: a video, URL,
-  pasted text, or manual note.
+- **Speaker appearance/source link:** A link between a speaker and one
+  existing library item. The current `videos` table already represents
+  YouTube videos, web articles, and emails/newsletters through `kind`.
 - **Claim:** A sourced statement, position, promise, prediction, argument,
   or notable assertion attributed to a speaker.
-- **Dossier:** The accumulated speaker sources and claims.
-- **Persona reply:** A simulated answer grounded in the current episode and
+- **Dossier:** The accumulated library-item links and claims for a speaker.
+- **Persona reply:** A simulated answer grounded in the current source item and
   dossier, written in the user's language and optionally styled after the
   speaker.
 
@@ -102,12 +103,14 @@ This replaces the earlier "lean v1" with a small but more complete v1.5.
 2. **Claims need evidence.** A track record item is only useful if it points
    back to a source.
 3. **Attribution beats style.** If the app cannot attribute a statement to a
-   speaker, it may use that text as episode context, but not as a claim in
+   speaker, it may use that text as source context, but not as a claim in
    that speaker's dossier.
 4. **Roleplay is bounded.** The model may answer with the speaker's style,
    but must not imply it is the real person.
-5. **User-provided sources are first-class.** Pasted material and URLs are
-   valid dossier inputs, not a later add-on.
+5. **The existing library is the source store.** URLs, articles, emails,
+   newsletters, videos, and future pasted-text items should enter the normal
+   library pipeline and then be linked to speakers. Speaker tables should not
+   duplicate source bodies.
 6. **Manual correction is part of the product.** Names, sources, claims, and
    merges must be easy to fix because automatic extraction will be imperfect.
 
@@ -185,52 +188,37 @@ CREATE TABLE IF NOT EXISTS speakers (
 Exact `name_key` matching is the conservative anchor. Alias drift is handled
 through manual merge rather than aggressive auto-clustering.
 
-### `video_speakers`
+### `source_speakers`
 
-Appearance links.
+Links between speakers and existing library items. The column name
+`source_id` points to `videos(id)` because that table is already the app's
+polymorphic content table (`kind IN ('youtube','web','email')`).
 
 ```sql
-CREATE TABLE IF NOT EXISTS video_speakers (
+CREATE TABLE IF NOT EXISTS source_speakers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
     speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
     role TEXT,
-    source TEXT NOT NULL CHECK(source IN ('show_rule','manual','llm')),
+    detection_source TEXT NOT NULL
+        CHECK(detection_source IN ('show_rule','manual','llm')),
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(video_id, speaker_id)
+    UNIQUE(source_id, speaker_id)
 );
-CREATE INDEX IF NOT EXISTS idx_video_speakers_video
-    ON video_speakers(video_id, sort_order, id);
-CREATE INDEX IF NOT EXISTS idx_video_speakers_speaker
-    ON video_speakers(speaker_id);
+CREATE INDEX IF NOT EXISTS idx_source_speakers_source
+    ON source_speakers(source_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS idx_source_speakers_speaker
+    ON source_speakers(speaker_id);
 ```
 
-### `speaker_sources`
+This replaces the earlier idea of a `speaker_sources` table with `body`
+content. A web article, newsletter email, or YouTube video should be stored
+once as a library item, summarized and embedded through the existing pipeline,
+then linked to one or more speakers through `source_speakers`.
 
-The source layer behind the dossier.
-
-```sql
-CREATE TABLE IF NOT EXISTS speaker_sources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL DEFAULT 1,
-    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
-    source_type TEXT NOT NULL
-        CHECK(source_type IN ('video','url','pasted_text','manual_note')),
-    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
-    url TEXT,
-    title TEXT NOT NULL DEFAULT '',
-    body TEXT,
-    added_by TEXT NOT NULL CHECK(added_by IN ('auto','manual')) DEFAULT 'manual',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_speaker_sources_speaker
-    ON speaker_sources(speaker_id, created_at);
-```
-
-For video sources, `video_id` points to the existing video and `body` can be
-NULL because the transcript already lives on `videos`. For pasted text and
-manual notes, `body` contains the user-provided material.
+If pasted text becomes an input, it should be added as a normal library item
+first, not stored only inside a speaker-specific table.
 
 ### `speaker_claims`
 
@@ -241,7 +229,8 @@ CREATE TABLE IF NOT EXISTS speaker_claims (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL DEFAULT 1,
     speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
-    source_id INTEGER NOT NULL REFERENCES speaker_sources(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    source_speaker_id INTEGER REFERENCES source_speakers(id) ON DELETE SET NULL,
     claim TEXT NOT NULL,
     topic TEXT,
     evidence_text TEXT,
@@ -264,7 +253,8 @@ CREATE INDEX IF NOT EXISTS idx_speaker_claims_source
 ```
 
 For v1.5, retrieval can use recency plus topic text matching. A later pass can
-add sqlite-vec embeddings for `speaker_claims`.
+reuse existing source embeddings as a pre-filter and optionally add sqlite-vec
+embeddings for `speaker_claims`.
 
 ### `chat_threads` and `chat_messages`
 
@@ -275,20 +265,20 @@ thread scope instead.
 CREATE TABLE IF NOT EXISTS chat_threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL DEFAULT 1,
-    scope TEXT NOT NULL CHECK(scope IN ('video','video_speaker','speaker')),
-    video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK(scope IN ('source','source_speaker','speaker')),
+    source_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
     speaker_id INTEGER REFERENCES speakers(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(user_id, scope, video_id, speaker_id)
+    UNIQUE(user_id, scope, source_id, speaker_id)
 );
 
 ALTER TABLE chat_messages ADD COLUMN thread_id INTEGER
     REFERENCES chat_threads(id);
 ```
 
-Migration can backfill one `video` thread per existing `(user_id, video_id)`
-chat history. Existing `video_id` remains for compatibility until the repo
-layer is fully thread-based.
+Migration can backfill one `source` thread per existing `(user_id, video_id)`
+chat history. Existing `chat_messages.video_id` remains for compatibility
+until the repo layer is fully thread-based.
 
 ## Services
 
@@ -308,24 +298,26 @@ Responsibilities:
 
 - Resolve speaker identity from known speaker, show match, or manual input.
 - Link appearances.
-- Merge speakers by re-pointing appearances, sources, claims, and chat
+- Merge speakers by re-pointing appearances/source links, claims, and chat
   threads.
-- Create speaker sources from videos, URLs, pasted text, and manual notes.
+- Link existing library items to speakers. URL, article, email, newsletter,
+  and future pasted-text ingestion should happen through the normal library
+  pipeline first.
 
 ### `services/speaker_claims.py`
 
 Responsibilities:
 
-- Extract candidate claims from a speaker source.
+- Extract candidate claims from a linked library item.
 - Store evidence text and timestamp/offsets when available.
 - Keep extracted claims `unreviewed` by default.
 - Replace claims for a reprocessed source without duplicating stale rows.
 - Retrieve relevant claims for a persona prompt.
 
-For videos without speaker-level attribution, extraction should be
-conservative. It may create source context, but should only create claims
-when metadata, transcript markers, or user correction makes attribution
-plausible.
+For library items without speaker-level attribution, extraction should be
+conservative. It may use the item as context, but should only create claims
+when metadata, transcript markers, author/from metadata, or user correction
+makes attribution plausible.
 
 ### `services/speaker_chat.py`
 
@@ -341,13 +333,13 @@ You are not {name}, and you must not claim to be the real person.
 Reply in the same language as the viewer's latest message.
 
 Use the speaker's style only as presentation. Ground factual claims in the
-CURRENT EPISODE CONTEXT and the SOURCED DOSSIER below.
+CURRENT SOURCE CONTEXT and the SOURCED DOSSIER below.
 
 Rules:
 - Do not attribute words to {name} unless they appear in a sourced claim or
   an attributed source excerpt.
-- If the transcript contains multiple speakers and attribution is unclear,
-  say the episode context is ambiguous.
+- If the source contains multiple speakers and attribution is unclear, say the
+  source context is ambiguous.
 - If the viewer asks about contradictions, compare sourced claims and cite
   the sources.
 - Do not invent specific facts, quotes, numbers, or beliefs.
@@ -356,7 +348,7 @@ Rules:
 STYLE NOTE:
 {style_note}
 
-CURRENT EPISODE CONTEXT:
+CURRENT SOURCE CONTEXT:
 {episode_context}
 
 SOURCED DOSSIER:
@@ -375,7 +367,7 @@ not depend on the banner as the only safety boundary.
 - `POST /v/{video_id}/speakers/{speaker_id}/unlink`
 - `POST /v/{video_id}/speaker/{speaker_id}/chat`
 
-The chat route loads the `video_speaker` thread, current episode context,
+The chat route loads the `source_speaker` thread, current source context,
 and a capped dossier slice.
 
 ### Speaker routes
@@ -383,7 +375,7 @@ and a capped dossier slice.
 - `GET /speaker/{speaker_id}`
 - `POST /speaker/{speaker_id}/edit`
 - `POST /speaker/{speaker_id}/merge`
-- `POST /speaker/{speaker_id}/sources`
+- `POST /speaker/{speaker_id}/sources/link`
 - `POST /speaker/{speaker_id}/sources/{source_id}/extract`
 - `POST /speaker/{speaker_id}/claims/{claim_id}/edit`
 - `POST /speaker/{speaker_id}/claims/{claim_id}/review`
@@ -433,9 +425,11 @@ should ask which speaker perspective to use instead of guessing.
 The first useful version needs only:
 
 - Header: name, role, avatar, style note, edit action.
-- Appearances: videos where the speaker appears.
-- Sources: videos, URLs, pasted text, and manual notes.
-- Add source form with URL and pasted text support.
+- Appearances/sources: library items where the speaker appears.
+- Sources: linked library items, including videos, articles, and emails.
+- Add source/link form: search existing library items, paste a URL into the
+  normal add-source pipeline and link the resulting item, or link an imported
+  email/newsletter.
 - Claims: grouped by topic, each with evidence, source, timestamp/link when
   available, confidence, and review state.
 - Chat: ask the dossier.
@@ -449,14 +443,14 @@ look as authoritative as accepted claims.
 
 - Add known shows and known speakers seed data.
 - Store YouTube `channel_id`.
-- Add speakers, video appearances, speaker sources, speaker claims, and chat
-  thread scoping.
+- Add speakers, source-speaker links, speaker claims, and chat thread scoping.
 - Add show matching from metadata.
 - Add speaker chips to video detail.
 - Add the simple speaker page.
-- Add manual source input: URL and pasted text.
-- Add conservative claim extraction for pasted text and video sources.
-- Add simulated persona chat grounded in current episode context plus
+- Add source linking from existing library items, plus URL ingestion through
+  the normal source pipeline.
+- Add conservative claim extraction for linked library items.
+- Add simulated persona chat grounded in current source context plus
   sourced dossier.
 - Keep existing video chat behavior unchanged.
 
@@ -472,7 +466,8 @@ look as authoritative as accepted claims.
 
 - Better alias suggestions and merge recommendations.
 - Bulk backfill for existing videos.
-- Optional source importers for PDFs or documents.
+- Optional source importers for pasted text, PDFs, or documents as normal
+  library items.
 - Better review workflows for large dossiers.
 
 No phase includes seeded known positions unless this product decision is
@@ -482,18 +477,19 @@ explicitly reopened.
 
 - Existing chat tests remain green.
 - Migration tests cover idempotent creation of known shows, known speakers,
-  speakers, sources, claims, and chat thread scoping.
+  speakers, source-speaker links, claims, and chat thread scoping.
 - Show matching tests cover channel id, title fallback, disabled seeded
   rules, and user-added rules.
 - Speaker resolution tests cover known speaker linking, profile scoping,
   exact `name_key`, and manual merge.
-- Source tests cover video, URL, pasted text, and manual note creation.
+- Source-link tests cover YouTube videos, web articles, and emails/newsletters
+  without duplicating source bodies in speaker tables.
 - Claim extraction tests mock the LLM and verify evidence text, timestamp or
   offsets, confidence, and `unreviewed` status.
 - Persona prompt tests verify that the prompt includes the simulation
   boundary, avoids real-person claims, carries current context, and includes
   only sourced dossier items.
-- Route tests verify speaker page rendering, source add, extraction action,
+- Route tests verify speaker page rendering, source linking, extraction action,
   claim review, and foreign-profile 404s.
 
 ## Open risks
@@ -502,8 +498,8 @@ explicitly reopened.
   sentence.
 - LLM extraction will produce imperfect claims; review state and evidence are
   mandatory mitigations.
-- Pasted text can be unreliable or adversarial. It should be user-owned
-  source material, not global truth.
+- User-added sources can be unreliable or adversarial. They should be
+  user-owned library material, not global truth.
 - Public figures invite politically charged interpretation. The app should
   make evidence visible instead of shipping its own view of their positions.
 - The UX must not bury the simulation disclaimer, but it also should not
