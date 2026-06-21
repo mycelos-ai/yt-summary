@@ -1,7 +1,27 @@
 # Chat with the Speakers (Cross-Video Personas + Track Record + Seed Catalog) — Design
 
-**Status:** Draft — design phase (awaiting review)
+**Status:** Superseded by
+[`2026-06-21-speaker-dossiers-and-persona-chat-design.md`](2026-06-21-speaker-dossiers-and-persona-chat-design.md)
 **Date:** 2026-06-20
+
+## Supersession note
+
+This draft captured the original "Chat with the Speakers" concept. It is
+kept for history, but the product direction has moved to a tighter,
+evidence-first design:
+
+- Seed known shows and known speakers, but do not seed known positions.
+- Make speaker pages and user-added sources part of the first useful
+  release.
+- Treat the track record as sourced claims, not as generic roleplay
+  memory.
+- Avoid whole-history chats via `NULL`/sentinel videos; use explicit
+  chat thread scoping instead.
+
+See the successor spec and the accompanying change log:
+
+- [`2026-06-21-speaker-dossiers-and-persona-chat-design.md`](2026-06-21-speaker-dossiers-and-persona-chat-design.md)
+- [`2026-06-21-speaker-dossiers-change-log.md`](2026-06-21-speaker-dossiers-change-log.md)
 
 ## Positioning (the claim)
 
