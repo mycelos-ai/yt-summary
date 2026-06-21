@@ -1,6 +1,4 @@
 import asyncio
-
-import aiosqlite
 from pathlib import Path
 
 from app.db import connect, init_schema, _run_migrations
@@ -32,6 +30,7 @@ def test_videos_accepts_text_kind(tmp_path):
         await conn.commit()
         cur = await conn.execute("SELECT kind FROM videos WHERE id='text-1'")
         row = await cur.fetchone()
+        assert row is not None
         assert row[0] == "text"
         await conn.close()
     asyncio.get_event_loop().run_until_complete(go())
@@ -113,6 +112,7 @@ def test_chat_messages_video_id_nullable(tmp_path):
         await conn.commit()
         cur = await conn.execute("SELECT video_id, thread_id FROM chat_messages WHERE thread_id=1")
         row = await cur.fetchone()
+        assert row is not None
         assert row[0] is None and row[1] == 1
         await conn.close()
     asyncio.get_event_loop().run_until_complete(go())

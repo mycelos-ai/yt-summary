@@ -36,7 +36,6 @@ async def _seed(
     *,
     file: str,
     marker: str,
-    table: str,
     insert,
 ) -> None:
     payload = json.loads((_DATA / file).read_text(encoding="utf-8"))
@@ -83,7 +82,6 @@ async def seed_known_shows(db: aiosqlite.Connection) -> None:
         db,
         file="known_shows.json",
         marker="known_shows_seed_version",
-        table="known_shows",
         insert=ins,
     )
 
@@ -122,7 +120,6 @@ async def seed_known_speakers(db: aiosqlite.Connection) -> None:
         db,
         file="known_speakers.json",
         marker="known_speakers_seed_version",
-        table="known_speakers",
         insert=ins,
     )
 
