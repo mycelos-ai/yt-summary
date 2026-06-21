@@ -5,6 +5,8 @@ __pycache__/
 .coverage
 htmlcov/
 data/
+# Static seed data bundled with the app is tracked.
+!app/data/
 *.db
 .venv/
 .env

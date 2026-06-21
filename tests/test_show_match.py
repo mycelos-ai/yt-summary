@@ -48,9 +48,15 @@ def test_parse_guest_before():
 
 def test_identify_matches_channel_and_parses_guest(db):
     async def go():
+        # Upsert so this works both on a fresh DB and after seeding has
+        # already inserted "Lex Fridman Podcast" (seeding happens in init_schema
+        # via seed.seed_known_shows). Use the same partial-index conflict target.
         await db.execute(
             "INSERT INTO known_shows (user_id, name, channel_id, hosts_json, guest_rule, enabled) "
-            "VALUES (NULL, 'Lex Fridman Podcast', 'UCchan', '[\"Lex Fridman\"]', 'before:: ', 1)"
+            "VALUES (NULL, 'Lex Fridman Podcast', 'UCchan', '[\"Lex Fridman\"]', 'before:: ', 1) "
+            "ON CONFLICT(name) WHERE user_id IS NULL DO UPDATE SET "
+            "channel_id=excluded.channel_id, hosts_json=excluded.hosts_json, "
+            "guest_rule=excluded.guest_rule"
         )
         await db.commit()
         v = _video(channel_id="UCchan", title="Elon Musk: Mars | Lex Fridman Podcast #1")

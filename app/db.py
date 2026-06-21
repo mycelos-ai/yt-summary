@@ -321,6 +321,11 @@ CREATE TABLE IF NOT EXISTS known_shows (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_known_shows_channel ON known_shows(channel_id);
+-- Partial unique index on (name) for seeded (user_id IS NULL) rows only.
+-- User-created rows may share a name, so a table-level UNIQUE would be wrong.
+-- Required by seed.py's ON CONFLICT(name) WHERE user_id IS NULL upsert.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_known_shows_seed_name
+    ON known_shows(name) WHERE user_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS known_speakers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1032,3 +1037,7 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
             "INSERT INTO users (id, name) VALUES (1, 'admin')"
         )
     await conn.commit()
+    # Seed known shows + speakers. Version-gated so repeat boots are no-ops.
+    from app.services import seed
+    await seed.seed_known_shows(conn)
+    await seed.seed_known_speakers(conn)

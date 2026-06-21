@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "shows": [
+    {"name": "Lex Fridman Podcast", "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
+     "title_pattern": "Lex Fridman Podcast", "hosts": ["Lex Fridman"], "guest_rule": "before:: "},
+    {"name": "The Diary Of A CEO", "channel_id": null,
+     "title_pattern": "The Diary Of A CEO", "hosts": ["Steven Bartlett"], "guest_rule": "after:with "},
+    {"name": "All-In Podcast", "channel_id": null, "title_pattern": "All-In",
+     "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null}
+  ]
+}

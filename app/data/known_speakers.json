@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "speakers": [
+    {"name": "Lex Fridman", "role": "host, AI researcher", "known_shows": "Lex Fridman Podcast",
+     "avatar_id": "adult-scientist-m", "style_note": "calm, earnest, long-form, asks big questions"},
+    {"name": "Chamath Palihapitiya", "role": "investor, All-In co-host", "known_shows": "All-In",
+     "avatar_id": "adult-techreviewer-m", "style_note": "blunt, contrarian, fast-moving investor tone"}
+  ]
+}
