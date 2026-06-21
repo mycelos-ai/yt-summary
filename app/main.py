@@ -266,6 +266,8 @@ def create_app() -> FastAPI:
     app.include_router(videos_router)
     from app.routes.chat import router as chat_router
     app.include_router(chat_router)
+    from app.routes.speakers import router as speakers_router
+    app.include_router(speakers_router)
     from app.routes.settings import router as settings_router
     app.include_router(settings_router)
     from app.routes.playlists import router as playlists_router

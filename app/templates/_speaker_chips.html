@@ -1,0 +1,36 @@
+{# app/templates/_speaker_chips.html
+   The chip strip at the top of the chat section. One chip per detected
+   speaker; active chips deep-link to the speaker page, inactive chips
+   open the activate panel. `speakers` is a list[Speaker]; `video` is
+   the owning Video. Re-rendered by /detect, /speakers, /unlink. #}
+<div id="speaker-chips" class="speaker-chips">
+  {% if speakers %}
+    <span class="speaker-chips-label">Chat with:</span>
+    {% for sp in speakers %}
+      <span class="speaker-chip {% if sp.is_active %}is-active{% else %}is-inactive{% endif %}"
+            style="--avatar-bg: {{ sp.avatar_id | avatar_bg }};">
+        <a class="speaker-chip-name" href="/speaker/{{ sp.id }}">
+          {% if sp.avatar_photo_path %}
+            <img class="speaker-chip-avatar" src="/speaker/{{ sp.id }}/photo" alt="">
+          {% endif %}
+          {{ sp.name }}
+        </a>
+        {% if not sp.is_active %}
+          <button type="button" class="speaker-chip-activate"
+                  hx-post="/speaker/{{ sp.id }}/activate"
+                  hx-target="closest .speaker-chip" hx-swap="outerHTML"
+                  title="Activate {{ sp.name }}">＋</button>
+        {% endif %}
+        <button type="button" class="speaker-chip-unlink"
+                hx-post="/v/{{ video.id }}/speakers/{{ sp.id }}/unlink"
+                hx-target="#speaker-chips" hx-swap="outerHTML"
+                title="Remove {{ sp.name }} from this item">×</button>
+      </span>
+    {% endfor %}
+  {% endif %}
+  <form class="speaker-chip-add" hx-post="/v/{{ video.id }}/speakers"
+        hx-target="#speaker-chips" hx-swap="outerHTML"
+        hx-on::after-request="this.reset()">
+    <input name="name" placeholder="+ add a speaker" autocomplete="off" required>
+  </form>
+</div>
