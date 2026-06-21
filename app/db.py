@@ -71,15 +71,20 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
 
+-- chat_messages: fresh-install shape has nullable video_id (speaker-scope
+-- threads have no video) and thread_id. Existing databases are upgraded
+-- by the _run_migrations rebuild (gated on "thread_id" absence).
 CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL DEFAULT 1,
-    video_id TEXT NOT NULL REFERENCES videos(id),
+    video_id TEXT REFERENCES videos(id),
     role TEXT NOT NULL CHECK(role IN ('user','assistant')),
     content TEXT NOT NULL,
+    thread_id INTEGER REFERENCES chat_threads(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_chat_video_created ON chat_messages(video_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_thread_created ON chat_messages(thread_id, created_at);
 
 CREATE TABLE IF NOT EXISTS settings (
     user_id INTEGER NOT NULL DEFAULT 1,
@@ -301,6 +306,123 @@ CREATE TABLE IF NOT EXISTS synthesis_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_synthesis_messages_synthesis
     ON synthesis_messages(synthesis_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS known_shows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    name TEXT NOT NULL,
+    channel_id TEXT,
+    title_pattern TEXT,
+    description_pattern TEXT,
+    hosts_json TEXT NOT NULL DEFAULT '[]',
+    guest_rule TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    seed_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_known_shows_channel ON known_shows(channel_id);
+
+CREATE TABLE IF NOT EXISTS known_speakers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    role TEXT,
+    known_shows TEXT,
+    avatar_id TEXT,
+    style_note TEXT,
+    seed_version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS speakers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    known_speaker_id INTEGER REFERENCES known_speakers(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    role TEXT,
+    avatar_id TEXT,
+    avatar_photo_path TEXT,
+    style_note TEXT,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name_key)
+);
+
+CREATE TABLE IF NOT EXISTS source_speakers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    role TEXT,
+    detection_source TEXT NOT NULL CHECK(detection_source IN ('show_rule','manual','llm')),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_id, speaker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_source_speakers_source ON source_speakers(source_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS idx_source_speakers_speaker ON source_speakers(speaker_id);
+
+CREATE TABLE IF NOT EXISTS speaker_source_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    signal TEXT NOT NULL CHECK(signal IN ('email_from','title_match','fulltext','embedding')),
+    score REAL,
+    state TEXT NOT NULL CHECK(state IN ('pending','confirmed','dismissed')) DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(speaker_id, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_speaker_source_candidates_speaker
+    ON speaker_source_candidates(speaker_id, state, score);
+
+CREATE TABLE IF NOT EXISTS speaker_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    source_speaker_id INTEGER REFERENCES source_speakers(id) ON DELETE SET NULL,
+    claim TEXT NOT NULL,
+    topic TEXT,
+    evidence_text TEXT,
+    evidence_start_s INTEGER,
+    evidence_end_s INTEGER,
+    text_start_offset INTEGER,
+    text_end_offset INTEGER,
+    confidence REAL,
+    extraction_method TEXT NOT NULL CHECK(extraction_method IN ('metadata','llm','manual')),
+    attribution_method TEXT CHECK(attribution_method IN
+        ('explicit_name','speaker_marker','metadata_context','llm_inferred','manual')),
+    attribution_confidence REAL,
+    attribution_reason TEXT,
+    review_status TEXT NOT NULL CHECK(review_status IN ('unreviewed','accepted','rejected'))
+        DEFAULT 'unreviewed',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_speaker_claims_speaker ON speaker_claims(speaker_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_speaker_claims_source ON speaker_claims(source_id);
+
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    scope TEXT NOT NULL CHECK(scope IN ('source','source_speaker','speaker')),
+    source_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+    speaker_id INTEGER REFERENCES speakers(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Partial unique indexes for chat_threads: a table-level
+-- UNIQUE(user_id, scope, source_id, speaker_id) would be WRONG because
+-- SQLite treats every NULL as distinct, allowing duplicate 'speaker'-scope
+-- threads (source_id NULL) or 'source'-scope threads (speaker_id NULL).
+-- Per-scope partial indexes exclude the NULL column from the key.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_threads_source
+    ON chat_threads(user_id, source_id) WHERE scope = 'source';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_threads_source_speaker
+    ON chat_threads(user_id, source_id, speaker_id) WHERE scope = 'source_speaker';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_threads_speaker
+    ON chat_threads(user_id, speaker_id) WHERE scope = 'speaker';
+
 """
 
 
@@ -470,6 +592,40 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 "ALTER TABLE chat_messages"
                 " ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))"
             )
+        # Speaker-scope threads (PR 1): add thread_id + make video_id nullable.
+        # SQLite can't drop NOT NULL via ALTER, so we rebuild the table once.
+        # Gated on thread_id absence — that column is added in this rebuild, so
+        # its absence is a reliable "not yet rebuilt" signal.
+        #
+        # NOTE: chat_threads is created by SCHEMA's executescript AFTER
+        # _run_migrations runs. We therefore omit the REFERENCES chat_threads(id)
+        # FK clause in the rebuilt table DDL here — the column type (INTEGER) is
+        # what matters for the upgrade path; fresh installs via SCHEMA get the
+        # full FK. The idx_chat_thread_created index is also created by SCHEMA.
+        # Re-reading chat_cols after the earlier ALTER guards to pick up any
+        # columns just added in this same migration pass.
+        chat_cols = await _table_columns(conn, "chat_messages")
+        if "thread_id" not in chat_cols:
+            await conn.execute("PRAGMA foreign_keys=OFF")
+            await conn.executescript(
+                """
+                CREATE TABLE chat_messages_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    video_id TEXT REFERENCES videos(id),
+                    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+                    content TEXT NOT NULL,
+                    thread_id INTEGER,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                INSERT INTO chat_messages_new (id, user_id, video_id, role, content, created_at)
+                SELECT id, user_id, video_id, role, content, created_at FROM chat_messages;
+                DROP TABLE chat_messages;
+                ALTER TABLE chat_messages_new RENAME TO chat_messages;
+                """
+            )
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await conn.commit()
 
     if await _table_exists(conn, "users"):
         # V5: per-profile cosmetic + behaviour fields.
