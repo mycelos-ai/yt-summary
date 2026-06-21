@@ -174,9 +174,12 @@ CREATE TABLE IF NOT EXISTS speakers (
 
 `name_key` = lower-cased, punctuation/whitespace-collapsed name. The
 `UNIQUE(user_id, name_key)` is the identity anchor: detecting the same
-person twice resolves to the same row. (Aliases like "Chamath" vs
-"Chamath Palihapitiya" are an accepted fuzziness — see Open Risks; the
-manual **merge** action is the escape hatch.)
+person twice resolves to the same row. In v1 this is robust for **hosts**
+(their names come canonical from the registry's `hosts_json`, so there's
+one "Chamath," not several); only **parsed guest** names carry mild
+variance, which barely matters until Phase 2 aggregates a person across
+videos (see Open Risks). Manual **merge** lands in Phase 2 as the
+escape hatch.
 
 An extra nullable column links a profile-local speaker to a shipped
 catalog entry (see "Seed speaker catalog"):
@@ -572,7 +575,13 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
 
 ## Out of scope (v1)
 
-- Real audio **diarization** (pyannote) / per-segment attribution.
+- Real audio **diarization** (pyannote) / per-segment attribution —
+  i.e. analysing the *audio waveform* to work out "who spoke when" and
+  tag each transcript line with a speaker. It's heavy ML and only yields
+  *anonymous* labels (Speaker A/B/C) you'd still have to map to names.
+  The registry approach sidesteps it entirely: we already know the cast
+  from metadata, and the persona reads the whole transcript, so v1 never
+  needs per-line "who said this" attribution.
 - **Voice** for the persona (natural follow-up: pair with the existing
   Piper TTS to *hear* the simulated Chamath — later).
 - Cross-**profile** speaker sharing (speakers stay per-profile, like
@@ -583,10 +592,17 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
 
 ## Open risks / notes
 
-- **Identity resolution is fuzzy.** `name_key` exact-match will both
-  over-merge (two different "John"s) and under-merge ("Chamath" vs
-  "Chamath Palihapitiya"). v1 accepts this and ships a manual **merge**
-  + rename as the correction path; smarter clustering is a later pass.
+- **Identity resolution — much smaller than it first looks, given the
+  scope.** Because v1 is restricted to known shows, **host names come
+  from the registry's canonical `hosts_json`**, so hosts resolve to one
+  consistent row — there's exactly one canonical "Chamath," no
+  over/under-merge for them. The only residual variance is in **parsed
+  guest names** (a description might say "Elon Musk" once, "Elon"
+  elsewhere). And in v1 even that barely matters: with no cross-video
+  aggregation yet, a duplicate is just a second chat thread, not
+  corrupted data. Strict guest canonicalisation + the manual **merge**
+  tool become relevant only in **Phase 2**, when the track record
+  aggregates a person across episodes.
 - **Statement extraction quality** depends on the model; statements are
   paraphrases, clearly framed as "positions taken," never presented as
   verbatim quotes unless the model copied exact transcript text.
