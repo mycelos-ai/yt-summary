@@ -48,7 +48,7 @@ def test_prompt_carries_all_grounding_clauses():
     # never invent
     assert "invent" in p.lower()
     # do NOT self-disclaim as AI in the reply
-    assert "AI" in p
+    assert "break character" in p.lower()
     assert "style_note" not in p           # the label, not the literal placeholder
     assert "blunt, fast-moving investor tone" in p
     # the claims are rendered with their attribution + source
@@ -66,3 +66,10 @@ def test_prompt_seed_block_only_when_seeded():
         seed_ts="12:04", seed_quote="the quote")
     assert "12:04" in p_seed
     assert "the quote" in p_seed
+
+
+def test_hedge_instruction_has_numeric_threshold():
+    from app.services.speaker_chat import build_speaker_system_prompt
+    p = build_speaker_system_prompt(
+        speaker=_speaker(), claims=_CLAIMS, source_context="ctx")
+    assert "0.7" in p

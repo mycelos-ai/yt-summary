@@ -26,7 +26,7 @@ def _render_claims(claims: list[dict]) -> str:
         src = c.get("source_title") or "a source"
         ts = c.get("evidence_start_s")
         where = f" ({src}" + (f" @ {int(ts)}s" if isinstance(ts, (int, float)) else "") + ")"
-        lines.append(f"- {c['claim']} {tag}{where}")
+        lines.append(f"- {c.get('claim', '')} {tag}{where}")
     return "\n".join(lines)
 
 
@@ -59,9 +59,9 @@ def build_speaker_system_prompt(
         f"{name}'s positions, not verbatim quotes. Do NOT present them as "
         f"exact verbatim utterances.\n"
         f"- Each claim is tagged with how confidently it was attributed to "
-        f"{name}. For claims marked low-confidence or 'llm_inferred', speak "
-        "more tentatively (\"I think I've argued…\", \"as I recall…\") rather "
-        "than asserting them flatly.\n"
+        f"{name}. For claims marked 'llm_inferred' OR with confidence below 0.7, "
+        "speak more tentatively (\"I think I've argued…\", \"as I recall…\") "
+        "rather than asserting them flatly.\n"
         "- The CURRENT SOURCE TRANSCRIPT is context for flow and style ONLY. "
         f"Do NOT present things from it as {name}'s statements unless they are "
         "attributed.\n"
