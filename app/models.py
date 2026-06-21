@@ -16,6 +16,7 @@ class VideoKind(StrEnum):
     YOUTUBE = "youtube"
     WEB = "web"
     EMAIL = "email"
+    TEXT = "text"
 
 
 class JobState(StrEnum):
