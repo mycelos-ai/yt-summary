@@ -132,7 +132,7 @@ async def edit_speaker(
     config: Config = Depends(get_config),
     current_user_id: int = Depends(get_current_user_id),
 ):
-    await _owned_speaker(db, speaker_id, current_user_id)
+    speaker = await _owned_speaker(db, speaker_id, current_user_id)
     clean_avatar = avatar_id if avatars.is_valid_id(avatar_id) else None
     await sp_repo.update_fields(
         db, speaker_id,
@@ -157,6 +157,17 @@ async def edit_speaker(
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / f"{speaker_id}{suffix}"
         dest.write_bytes(data)
+        # Clean up old photo if it has a different extension
+        if speaker.avatar_photo_path:
+            old_path = Path(speaker.avatar_photo_path)
+            if old_path != dest and old_path.exists() and old_path.parent == dest.parent:
+                # Ensure the old file belongs to this speaker (stem matches speaker_id)
+                if old_path.stem == str(speaker_id):
+                    try:
+                        old_path.unlink()
+                    except Exception:
+                        # Cleanup failure must not break the upload
+                        pass
         await sp_repo.set_photo_path(db, speaker_id, str(dest))
     return RedirectResponse(f"/speaker/{speaker_id}", status_code=303)
 

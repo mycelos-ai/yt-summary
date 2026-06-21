@@ -265,7 +265,7 @@ async def process_video(
     # highlights_json untouched (NULL). The Digest service filters
     # NULL items out of its pool.
 
-    # Stock thumbnail for email/web items lacking one. Cosmetic — every
+    # Stock thumbnail for email/web/text items lacking one. Cosmetic — every
     # failure is swallowed inside the stock_images helpers, so this can
     # never break the pipeline. Skipped entirely when no Pexels key is
     # configured for the owning profile.

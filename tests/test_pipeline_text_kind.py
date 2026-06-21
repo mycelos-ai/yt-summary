@@ -1,9 +1,4 @@
-import asyncio
-from unittest.mock import patch, AsyncMock
 from app.models import VideoKind
-
-
-def _run(c): return asyncio.get_event_loop().run_until_complete(c)
 
 
 def test_text_kind_is_thumbnail_eligible():

@@ -55,3 +55,9 @@ async def test_append_and_history_by_thread_with_null_video(db: aiosqlite.Connec
     msgs = await chat_repo.history(db, thread_id=1)
     assert [m.role for m in msgs] == ["user", "assistant"]
     assert msgs[0].video_id is None
+
+
+async def test_history_both_none_raises(db: aiosqlite.Connection):
+    import pytest
+    with pytest.raises(ValueError, match="history requires video_id or thread_id"):
+        await chat_repo.history(db)

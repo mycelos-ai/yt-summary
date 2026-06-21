@@ -59,7 +59,7 @@ def test_unlink_removes_chip(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            s = await sp_repo.resolve_speaker(app.state.db, name="Temp Person")
+            s = await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Temp Person")
             return s
         speaker_id = _run(sid())
         resp = client.post(f"/v/vc1/speakers/{speaker_id}/unlink")
@@ -136,7 +136,7 @@ def test_speaker_page_renders_header_and_sources(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Lex Fridman")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Lex Fridman")
         speaker_id = _run(sid())
 
         page = client.get(f"/speaker/{speaker_id}")
@@ -154,7 +154,7 @@ def test_speaker_edit_updates_fields(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Editable Person")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Editable Person")
         speaker_id = _run(sid())
 
         resp = client.post(
@@ -211,7 +211,7 @@ def test_photo_upload_and_serve(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Photo Person")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Photo Person")
         speaker_id = _run(sid())
 
         # Upload a tiny valid PNG (1x1 white pixel)
@@ -241,7 +241,7 @@ def test_non_image_upload_rejected(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Bad Upload Person")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Bad Upload Person")
         speaker_id = _run(sid())
 
         resp = client.post(
@@ -260,7 +260,7 @@ def test_photo_serve_no_photo_is_404(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="No Photo Person")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="No Photo Person")
         speaker_id = _run(sid())
 
         resp = client.get(f"/speaker/{speaker_id}/photo")
@@ -292,7 +292,7 @@ def test_activate_flips_flag(tmp_path, monkeypatch):
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Activatable")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Activatable")
         speaker_id = _run(sid())
 
         resp = client.post(f"/speaker/{speaker_id}/activate")
@@ -351,7 +351,7 @@ def test_activate_from_page_returns_self_reproducing_fragment(tmp_path, monkeypa
 
         async def sid():
             from app.repos import speakers as sp_repo
-            return await sp_repo.resolve_speaker(app.state.db, name="Toggle Tester")
+            return await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Toggle Tester")
         speaker_id = _run(sid())
 
         # First toggle: POST activate with ?caller=page (simulating the speaker page)

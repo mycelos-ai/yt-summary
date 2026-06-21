@@ -24,6 +24,8 @@ async def append(
     user_id: int = 1,
     thread_id: int | None = None,
 ) -> ChatMessage:
+    if thread_id is None and video_id is None:
+        raise ValueError("append requires video_id or thread_id")
     cursor = await db.execute(
         "INSERT INTO chat_messages (user_id, video_id, role, content, thread_id) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -45,6 +47,8 @@ async def history(
     *,
     thread_id: int | None = None,
 ) -> list[ChatMessage]:
+    if thread_id is None and video_id is None:
+        raise ValueError("history requires video_id or thread_id")
     if thread_id is not None:
         cursor = await db.execute(
             "SELECT * FROM chat_messages WHERE thread_id=? ORDER BY created_at ASC, id ASC",
