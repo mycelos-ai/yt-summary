@@ -288,3 +288,19 @@ class Highlight:
     text: str
     rank: int  # 1..5 (1 = most noteworthy)
     reason: str
+
+
+@dataclass
+class Speaker:
+    id: int
+    user_id: int
+    known_speaker_id: int | None
+    name: str
+    name_key: str
+    role: str | None
+    avatar_id: str | None
+    avatar_photo_path: str | None
+    style_note: str | None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
