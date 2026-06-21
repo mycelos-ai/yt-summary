@@ -332,3 +332,42 @@ def test_deactivate_foreign_is_404(tmp_path, monkeypatch):
         speaker_id = _run(make_foreign())
         resp = client.post(f"/speaker/{speaker_id}/deactivate")
         assert resp.status_code == 404
+
+
+def test_activate_from_page_returns_self_reproducing_fragment(tmp_path, monkeypatch):
+    """Regression test: fragment must carry ?caller=page so second toggle works.
+
+    Bug: first toggle from speaker page worked, but the returned fragment's button
+    was missing ?caller=page, so the second toggle fell through to chip-panel logic
+    and returned a <span class="speaker-chip">, breaking the UI.
+
+    Fix: _speaker_actions.html buttons carry ?caller=page so the fragment reproduces
+    its own caller context on every swap.
+    """
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+        client.post("/v/vc1/speakers", data={"name": "Toggle Tester"})
+
+        async def sid():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(app.state.db, name="Toggle Tester")
+        speaker_id = _run(sid())
+
+        # First toggle: POST activate with ?caller=page (simulating the speaker page)
+        resp1 = client.post(f"/speaker/{speaker_id}/activate?caller=page")
+        assert resp1.status_code == 200
+        # Must return _speaker_actions.html fragment (page-style), not chip span
+        assert "speaker-actions" in resp1.text or "Deactivate" in resp1.text
+        assert "speaker-chip" not in resp1.text
+        # Crucially, the returned fragment must ALSO carry ?caller=page
+        assert "?caller=page" in resp1.text
+
+        # Second toggle: POST deactivate with ?caller=page (from swapped fragment)
+        resp2 = client.post(f"/speaker/{speaker_id}/deactivate?caller=page")
+        assert resp2.status_code == 200
+        # Must still return page-actions fragment, not chip span
+        assert "speaker-actions" in resp2.text or "Activate" in resp2.text
+        assert "speaker-chip" not in resp2.text
+        # Fragment must again carry ?caller=page (loop is stable)
+        assert "?caller=page" in resp2.text
