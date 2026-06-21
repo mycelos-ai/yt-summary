@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from app.services import show_match
 from app.models import Video, VideoKind
 
@@ -7,7 +8,32 @@ def _run(c): return asyncio.get_event_loop().run_until_complete(c)
 
 
 def _video(**kw):
-    base = dict(id="v1", user_id=1, kind=VideoKind.YOUTUBE, url="", title="", description="")
+    ts = datetime(2026, 6, 10, 12, 0, 0, tzinfo=UTC)
+    base = dict(
+        id="v1",
+        url="",
+        title="",
+        description="",
+        thumbnail_path=None,
+        duration_seconds=None,
+        transcript=None,
+        transcript_source=None,
+        summary=None,
+        summary_model=None,
+        created_at=ts,
+        updated_at=ts,
+        kind=VideoKind.YOUTUBE,
+        user_id=1,
+        transcript_segments=None,
+        youtube_id=None,
+        source_language=None,
+        summary_language=None,
+        transcript_language=None,
+        highlights_json=None,
+        archived_at=None,
+        image_query=None,
+        related_links_json=None,
+    )
     base.update(kw)
     return Video(**base)
 

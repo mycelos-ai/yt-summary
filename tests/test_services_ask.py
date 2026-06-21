@@ -38,6 +38,16 @@ def test_build_prompt_packs_summaries_and_demands_citations():
         transcript_source=None, summary="Eval needs golden sets.",
         summary_model="m", created_at=ts, updated_at=ts,
         kind=VideoKind.YOUTUBE,
+        user_id=1,
+        transcript_segments=None,
+        youtube_id=None,
+        source_language=None,
+        summary_language=None,
+        transcript_language=None,
+        highlights_json=None,
+        archived_at=None,
+        image_query=None,
+        related_links_json=None,
     )
     system, user = ask_svc.build_prompt("How to eval agents?", [v])
     # System prompt forces grounding + citation behaviour.

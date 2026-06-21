@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -35,25 +35,23 @@ class Video:
     url: str
     title: str
     description: str
-    thumbnail_path: str | None = None
-    duration_seconds: int | None = None
-    transcript: str | None = None
-    transcript_source: TranscriptSource | None = None
-    summary: str | None = None
-    summary_model: str | None = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    kind: VideoKind = VideoKind.YOUTUBE
+    thumbnail_path: str | None
+    duration_seconds: int | None
+    transcript: str | None
+    transcript_source: TranscriptSource | None
+    summary: str | None
+    summary_model: str | None
+    created_at: datetime
+    updated_at: datetime
+    kind: VideoKind
+    user_id: int
     # JSON-serialised list of {"start": float, "text": str} segments.
     # YouTube videos transcribed via Whisper or VTT have segments;
     # web articles + older Whisper rows have None.
-    transcript_segments: str | None = None
-    # Owning profile (multi-profile feature). All existing rows on
-    # pre-V5 installs default to user_id=1 via the schema migration.
-    user_id: int = 1
+    transcript_segments: str | None
     # Bare 11-char YouTube id (separate from `id` so we can dedupe
     # transcripts across profiles). NULL for web articles.
-    youtube_id: str | None = None
+    youtube_id: str | None
     # Language metadata stamped during processing (V6 migration).
     # `source_language` is what the video is in (best signal across
     # Whisper / VTT / LLM-detect fallback). `transcript_language`
@@ -62,20 +60,20 @@ class Video:
     # diverge them. `summary_language` is what the summary itself
     # was generated in (driven by the `summary_language` setting,
     # which can be "auto" or an explicit two-letter code).
-    source_language: str | None = None
-    summary_language: str | None = None
-    transcript_language: str | None = None
+    source_language: str | None
+    summary_language: str | None
+    transcript_language: str | None
     # JSON-encoded list of {text, rank, reason}. NULL = not yet extracted
     # (pre-feature backlog). "[]" = LLM said "nothing noteworthy".
-    highlights_json: str | None = None
+    highlights_json: str | None
     # Soft-delete timestamp (ISO string). None = active; set = archived.
-    archived_at: str | None = None
+    archived_at: str | None
     # LLM-suggested stock-photo search query (Pexels). None = not set.
-    image_query: str | None = None
+    image_query: str | None
     # JSON-encoded list of {video_id, title, reason} curated related
     # summaries. NULL = not yet computed (UI falls back to live-KNN).
     # "[]" = computed, nothing relevant found.
-    related_links_json: str | None = None
+    related_links_json: str | None
     # Bare YouTube channel id (e.g. "UCxxxxxx"). NULL for non-YouTube
     # videos and for rows ingested before the V9 migration.
     channel_id: str | None = None

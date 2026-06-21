@@ -26,8 +26,16 @@ def _video(**kw) -> Video:
         created_at=ts,
         updated_at=ts,
         kind=VideoKind.YOUTUBE,
+        user_id=1,
+        transcript_segments=None,
         youtube_id="abc12345678",
         source_language="en",
+        summary_language=None,
+        transcript_language=None,
+        highlights_json=None,
+        archived_at=None,
+        image_query=None,
+        related_links_json=None,
     )
     for k, val in kw.items():
         setattr(v, k, val)

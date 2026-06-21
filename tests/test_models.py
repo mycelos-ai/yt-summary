@@ -16,6 +16,7 @@ from app.models import (
 
 
 def test_video_dataclass():
+    from app.models import VideoKind
     v = Video(
         id="abc123",
         url="https://youtu.be/abc123",
@@ -29,6 +30,17 @@ def test_video_dataclass():
         summary_model=None,
         created_at=datetime(2026, 5, 5),
         updated_at=datetime(2026, 5, 5),
+        kind=VideoKind.YOUTUBE,
+        user_id=1,
+        transcript_segments=None,
+        youtube_id=None,
+        source_language=None,
+        summary_language=None,
+        transcript_language=None,
+        highlights_json=None,
+        archived_at=None,
+        image_query=None,
+        related_links_json=None,
     )
     assert v.id == "abc123"
     assert v.summary is None

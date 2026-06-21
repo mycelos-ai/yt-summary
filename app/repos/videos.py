@@ -51,6 +51,14 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         related_links_json = row["related_links_json"]
     except (IndexError, KeyError):
         related_links_json = None
+    try:
+        highlights_json = row["highlights_json"]
+    except (IndexError, KeyError):
+        highlights_json = None
+    try:
+        channel_id = row["channel_id"]
+    except (IndexError, KeyError):
+        channel_id = None
     return Video(
         id=row["id"],
         url=row["url"],
@@ -65,15 +73,17 @@ def _row_to_video(row: aiosqlite.Row) -> Video:
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         kind=VideoKind(kind_raw) if kind_raw else VideoKind.YOUTUBE,
-        transcript_segments=segments_raw,
         user_id=user_id,
+        transcript_segments=segments_raw,
         youtube_id=youtube_id,
         source_language=source_language,
         summary_language=summary_language,
         transcript_language=transcript_language,
+        highlights_json=highlights_json,
         archived_at=archived_at,
         image_query=image_query,
         related_links_json=related_links_json,
+        channel_id=channel_id,
     )
 
 
