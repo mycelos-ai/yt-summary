@@ -1,0 +1,21 @@
+{# app/templates/_speaker_chip_panel.html
+   Returned by activate/deactivate. Re-renders a single chip in place
+   (hx-swap="outerHTML" from the chip's activate button) so the chip
+   reflects the flipped is_active state. When called from the speaker
+   page's actions block, the same speaker is shown with the opposite
+   toggle. #}
+<span class="speaker-chip {% if speaker.is_active %}is-active{% else %}is-inactive{% endif %}"
+      style="--avatar-bg: {{ speaker.avatar_id | avatar_bg }};">
+  <a class="speaker-chip-name" href="/speaker/{{ speaker.id }}">{{ speaker.name }}</a>
+  {% if speaker.is_active %}
+    <button type="button" class="speaker-chip-deactivate"
+            hx-post="/speaker/{{ speaker.id }}/deactivate"
+            hx-target="closest .speaker-chip" hx-swap="outerHTML"
+            title="Deactivate {{ speaker.name }}">✓</button>
+  {% else %}
+    <button type="button" class="speaker-chip-activate"
+            hx-post="/speaker/{{ speaker.id }}/activate"
+            hx-target="closest .speaker-chip" hx-swap="outerHTML"
+            title="Activate {{ speaker.name }}">＋</button>
+  {% endif %}
+</span>

@@ -171,3 +171,54 @@ async def speaker_photo(
     if not speaker.avatar_photo_path or not Path(speaker.avatar_photo_path).exists():
         raise HTTPException(404)
     return FileResponse(speaker.avatar_photo_path)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Activate / deactivate (flip is_active flag)
+# ---------------------------------------------------------------------------
+
+def _chip_panel(request: Request, speaker) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "_speaker_chip_panel.html", {"speaker": speaker}
+    )
+
+
+def _actions_panel(request: Request, speaker) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "_speaker_actions.html", {"speaker": speaker}
+    )
+
+
+@router.post("/speaker/{speaker_id}/activate", response_class=HTMLResponse)
+async def activate_speaker(
+    request: Request,
+    speaker_id: int,
+    caller: str = "",
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    await _owned_speaker(db, speaker_id, current_user_id)
+    # PR 2 only flips the flag. Enqueuing the library-wide backfill job
+    # is a PR-4 follow-up (services/speaker_backfill.py) — intentionally
+    # NOT done here, so activation stays cheap and claim-free in PR 2.
+    await sp_repo.set_active(db, speaker_id, True)
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if caller == "page":
+        return _actions_panel(request, speaker)
+    return _chip_panel(request, speaker)
+
+
+@router.post("/speaker/{speaker_id}/deactivate", response_class=HTMLResponse)
+async def deactivate_speaker(
+    request: Request,
+    speaker_id: int,
+    caller: str = "",
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    await _owned_speaker(db, speaker_id, current_user_id)
+    await sp_repo.set_active(db, speaker_id, False)
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if caller == "page":
+        return _actions_panel(request, speaker)
+    return _chip_panel(request, speaker)

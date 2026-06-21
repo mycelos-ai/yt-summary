@@ -278,3 +278,57 @@ def test_photo_serve_foreign_is_404(tmp_path, monkeypatch):
         speaker_id = _run(make_foreign())
         resp = client.get(f"/speaker/{speaker_id}/photo")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 7 tests: activate/deactivate (flip is_active flag)
+# ---------------------------------------------------------------------------
+
+def test_activate_flips_flag(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_video(app.state.db))
+        client.post("/v/vc1/speakers", data={"name": "Activatable"})
+
+        async def sid():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(app.state.db, name="Activatable")
+        speaker_id = _run(sid())
+
+        resp = client.post(f"/speaker/{speaker_id}/activate")
+        assert resp.status_code == 200
+
+        async def check(expected):
+            from app.repos import speakers as sp_repo
+            sp = await sp_repo.get_speaker(app.state.db, speaker_id)
+            assert sp.is_active is expected
+        _run(check(True))
+
+        client.post(f"/speaker/{speaker_id}/deactivate")
+        _run(check(False))
+
+
+def test_activate_foreign_is_404(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        async def make_foreign():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(
+                app.state.db, user_id=999, name="Foreign Activatable"
+            )
+        speaker_id = _run(make_foreign())
+        resp = client.post(f"/speaker/{speaker_id}/activate")
+        assert resp.status_code == 404
+
+
+def test_deactivate_foreign_is_404(tmp_path, monkeypatch):
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        async def make_foreign():
+            from app.repos import speakers as sp_repo
+            return await sp_repo.resolve_speaker(
+                app.state.db, user_id=999, name="Foreign Deactivatable"
+            )
+        speaker_id = _run(make_foreign())
+        resp = client.post(f"/speaker/{speaker_id}/deactivate")
+        assert resp.status_code == 404

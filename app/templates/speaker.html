@@ -27,10 +27,10 @@
 
     <div class="speaker-actions">
       {% if speaker.is_active %}
-        <button hx-post="/speaker/{{ speaker.id }}/deactivate"
+        <button hx-post="/speaker/{{ speaker.id }}/deactivate?caller=page"
                 hx-target="closest .speaker-actions" hx-swap="innerHTML">Deactivate</button>
       {% else %}
-        <button hx-post="/speaker/{{ speaker.id }}/activate"
+        <button hx-post="/speaker/{{ speaker.id }}/activate?caller=page"
                 hx-target="closest .speaker-actions" hx-swap="innerHTML">Activate</button>
       {% endif %}
     </div>
