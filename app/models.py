@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -35,14 +35,14 @@ class Video:
     url: str
     title: str
     description: str
-    thumbnail_path: str | None
-    duration_seconds: int | None
-    transcript: str | None
-    transcript_source: TranscriptSource | None
-    summary: str | None
-    summary_model: str | None
-    created_at: datetime
-    updated_at: datetime
+    thumbnail_path: str | None = None
+    duration_seconds: int | None = None
+    transcript: str | None = None
+    transcript_source: TranscriptSource | None = None
+    summary: str | None = None
+    summary_model: str | None = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
     kind: VideoKind = VideoKind.YOUTUBE
     # JSON-serialised list of {"start": float, "text": str} segments.
     # YouTube videos transcribed via Whisper or VTT have segments;
@@ -76,6 +76,9 @@ class Video:
     # summaries. NULL = not yet computed (UI falls back to live-KNN).
     # "[]" = computed, nothing relevant found.
     related_links_json: str | None = None
+    # Bare YouTube channel id (e.g. "UCxxxxxx"). NULL for non-YouTube
+    # videos and for rows ingested before the V9 migration.
+    channel_id: str | None = None
 
 
 @dataclass
@@ -304,3 +307,23 @@ class Speaker:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass
+class KnownShow:
+    id: int
+    user_id: int | None
+    name: str
+    channel_id: str | None
+    title_pattern: str | None
+    description_pattern: str | None
+    hosts_json: str
+    guest_rule: str | None
+    enabled: bool
+
+
+@dataclass
+class DetectedSpeaker:
+    name: str
+    role: str | None
+    is_host: bool
