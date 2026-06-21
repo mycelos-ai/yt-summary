@@ -1,0 +1,275 @@
+"""Attributed claim extraction + persona-prompt retrieval.
+
+ONE entry point (extract_claims_for_source) serves both extraction
+triggers (the pipeline piggyback now; the standalone backfill job in
+PR 4). The LLM is given the expected speakers BY NAME and must attribute
+each claim to exactly one of them with evidence + a timestamp/offset +
+how confidently it tied the claim to that speaker. Statements it can't
+confidently attribute become NO claim — attribution beats style
+(spec rule #3). Best-effort: returns [] on garbage and NEVER raises, so
+the pipeline piggyback can call it without a guard of its own.
+
+Context-window-aware grounding (Finding 5):
+- If the transcript fits in ≤60% of the model's context window → extract
+  from the full transcript (precise evidence_start_s).
+- If it does NOT fit → fall back to the already-computed summary (+ highlights
+  if present). NEVER blind-truncate the transcript.
+- No map-reduce/chunking in v1.5.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+import litellm
+
+from app.repos import speaker_claims as claims_repo
+from app.repos import speakers as speakers_repo
+from app.services import model_info
+from app.services.highlight_parser import _extract_json_blob
+
+log = logging.getLogger(__name__)
+
+# Attribution methods the persona prompt understands. An LLM value
+# outside this set is coerced to None (the prompt then hedges).
+_ATTR_METHODS = {
+    "explicit_name", "speaker_marker", "metadata_context", "llm_inferred", "manual",
+}
+
+# Fraction of the context window to budget for the grounding text.
+# Leaves ~40% for the prompt scaffold + expected JSON output.
+_TRANSCRIPT_WINDOW_FRACTION = 0.60
+
+
+def _system_prompt(speaker_names: list[str]) -> str:
+    names = ", ".join(speaker_names)
+    return (
+        "You extract ATTRIBUTED claims from a transcript or article for a "
+        "track-record dossier. The following named people are expected to "
+        f"appear in this source: {names}.\n\n"
+        "For each substantive position, prediction, or factual assertion, "
+        "attribute it to EXACTLY ONE of those named people and record the "
+        "evidence. A claim you cannot confidently tie to one of those named "
+        "people MUST be dropped — never guess, never attribute to someone not "
+        "in the list. Attribution beats coverage: fewer, well-attributed "
+        "claims are better than many shaky ones.\n\n"
+        "Return ONE JSON object, no prose, with this exact shape:\n"
+        "{\n"
+        '  "claims": [\n'
+        "    {\n"
+        '      "speaker": "<one of the expected names, verbatim>",\n'
+        '      "claim": "<the position in their words, paraphrased, <40 words>",\n'
+        '      "topic": "<short topical tag for grouping, e.g. \\"markets\\">",\n'
+        '      "evidence_text": "<the supporting excerpt>",\n'
+        '      "evidence_start_s": <integer seconds into the video, or null>,\n'
+        '      "text_start_offset": <integer char offset for article/text, or null>,\n'
+        '      "confidence": <0..1 paraphrase fidelity>,\n'
+        '      "attribution_method": "<explicit_name|speaker_marker|metadata_context|llm_inferred>",\n'
+        '      "attribution_confidence": <0..1 confidence the claim is THIS speaker\'s>,\n'
+        '      "attribution_reason": "<short why, e.g. \\"named in prior sentence\\">"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        'If nothing is confidently attributable, return {"claims": []}.'
+    )
+
+
+def _user_message(source, *, use_summary: bool) -> str:
+    """Build the user-turn grounding message.
+
+    When use_summary=True the source body is the pre-computed summary
+    (+ highlights if present) rather than the raw transcript. This is
+    the context-window fallback for long sources.
+    """
+    if use_summary:
+        body = source.summary or ""
+        if source.highlights_json:
+            try:
+                highlights = json.loads(source.highlights_json)
+                if isinstance(highlights, list) and highlights:
+                    bullet_lines = "\n".join(
+                        f"- {h.get('text', '')}" if isinstance(h, dict) else f"- {h}"
+                        for h in highlights[:20]
+                    )
+                    body = body + "\n\nKEY HIGHLIGHTS:\n" + bullet_lines
+            except (json.JSONDecodeError, TypeError):
+                pass
+        grounding_label = "SUMMARY"
+    else:
+        body = source.transcript or ""
+        grounding_label = "TRANSCRIPT"
+
+    return f"SOURCE TITLE: {source.title}\n\n{grounding_label}:\n{body}"
+
+
+def _coerce_int(v: Any) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v)
+    return None
+
+
+def _coerce_float(v: Any) -> float | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    return None
+
+
+async def extract_claims_for_source(
+    db,
+    source,
+    speaker_ids: list[int],
+    *,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+) -> list[dict]:
+    """Extract + persist attributed claims for `source`.
+
+    Returns the list of accepted claim dicts (also persisted). Returns []
+    on garbage response / no model / any error. Never raises.
+
+    Long-source handling: resolves the model's context window via
+    model_info.get_context_window, estimates transcript token cost
+    (chars/4 heuristic), and uses the summary as grounding text when
+    the transcript would exceed 60% of the window. Never truncates.
+    """
+    if not speaker_ids or not model:
+        return []
+
+    # Resolve expected speakers by id → Speaker object.
+    speakers = []
+    for sid in speaker_ids:
+        sp = await speakers_repo.get_speaker(db, sid)
+        if sp is not None:
+            speakers.append(sp)
+    if not speakers:
+        return []
+
+    by_name: dict[str, Any] = {sp.name.strip().lower(): sp for sp in speakers}
+    names = [sp.name for sp in speakers]
+
+    # --- Context-window-aware grounding (Finding 5) ---
+    # Default: use full transcript for precise evidence_start_s.
+    # Fallback: use summary when transcript is too long.
+    use_summary = False
+    transcript = source.transcript or ""
+    if transcript:
+        try:
+            context_window = await model_info.get_context_window(model, base_url)
+            budget = int(context_window * _TRANSCRIPT_WINDOW_FRACTION)
+            # chars/4 heuristic matches what summarizer.py uses via _safe_token_count
+            transcript_tokens = len(transcript) // 4
+            if transcript_tokens > budget:
+                use_summary = True
+                log.debug(
+                    "claim extraction for %s: transcript ~%d tokens exceeds budget %d "
+                    "(window=%d), falling back to summary",
+                    getattr(source, "id", None), transcript_tokens, budget, context_window,
+                )
+        except Exception as e:  # noqa: BLE001
+            log.debug("get_context_window failed, using transcript: %s", e)
+            # On window-resolution failure, default to transcript (safest: no info lost)
+
+    user_msg = _user_message(source, use_summary=use_summary)
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _system_prompt(names)},
+            {"role": "user", "content": user_msg},
+        ],
+        "api_key": api_key,
+    }
+    if base_url:
+        kwargs["api_base"] = base_url
+
+    try:
+        response = await litellm.acompletion(**kwargs)
+        raw = response.choices[0].message.content or ""
+    except Exception as e:  # noqa: BLE001 — extraction is best-effort
+        log.warning(
+            "claim extraction LLM call failed for %s: %s: %s",
+            getattr(source, "id", None), type(e).__name__, e,
+        )
+        return []
+
+    blob = _extract_json_blob(raw)
+    if blob is None:
+        return []
+    try:
+        payload = json.loads(blob)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("claims")
+    if not isinstance(items, list):
+        return []
+
+    accepted: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("speaker")
+        claim = item.get("claim")
+        # Drop unattributable: null speaker, non-string speaker, empty claim,
+        # or speaker not in the expected list.
+        if not isinstance(name, str) or not isinstance(claim, str) or not claim.strip():
+            continue
+        sp = by_name.get(name.strip().lower())
+        if sp is None:
+            continue  # not one of the expected speakers → drop (spec rule #3)
+        method = item.get("attribution_method")
+        if method not in _ATTR_METHODS:
+            method = None
+        accepted.append({
+            "speaker_id": sp.id,
+            "claim": claim.strip(),
+            "topic": item.get("topic") if isinstance(item.get("topic"), str) else None,
+            "evidence_text": (
+                item.get("evidence_text")
+                if isinstance(item.get("evidence_text"), str) else None
+            ),
+            "evidence_start_s": _coerce_int(item.get("evidence_start_s")),
+            "evidence_end_s": _coerce_int(item.get("evidence_end_s")),
+            "text_start_offset": _coerce_int(item.get("text_start_offset")),
+            "text_end_offset": _coerce_int(item.get("text_end_offset")),
+            "confidence": _coerce_float(item.get("confidence")),
+            "attribution_method": method,
+            "attribution_confidence": _coerce_float(item.get("attribution_confidence")),
+            "attribution_reason": (
+                item.get("attribution_reason")
+                if isinstance(item.get("attribution_reason"), str) else None
+            ),
+        })
+
+    # Replace-on-reprocess: clear THIS source's rows for these speakers,
+    # then insert fresh. Prevents duplicates on re-extraction.
+    await claims_repo.replace_for_source_speakers(db, source.id, speaker_ids)
+    for c in accepted:
+        await claims_repo.insert_claim(
+            db,
+            user_id=source.user_id,
+            source_id=source.id,
+            speaker_id=c["speaker_id"],
+            claim=c["claim"],
+            topic=c["topic"],
+            evidence_text=c["evidence_text"],
+            evidence_start_s=c["evidence_start_s"],
+            evidence_end_s=c["evidence_end_s"],
+            text_start_offset=c["text_start_offset"],
+            text_end_offset=c["text_end_offset"],
+            confidence=c["confidence"],
+            extraction_method="llm",
+            attribution_method=c["attribution_method"],
+            attribution_confidence=c["attribution_confidence"],
+            attribution_reason=c["attribution_reason"],
+        )
+    return accepted
