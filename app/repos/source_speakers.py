@@ -52,3 +52,17 @@ async def unlink(db: aiosqlite.Connection, source_id: str, speaker_id: int) -> N
         (source_id, speaker_id),
     )
     await db.commit()
+
+
+async def list_sources_for_speaker(db: aiosqlite.Connection, speaker_id: int):
+    """Confirmed library items (video rows) where the speaker appears.
+    Returns raw rows ordered newest-first; the template reads row['id'],
+    row['title'], row['kind'] directly."""
+    cur = await db.execute(
+        "SELECT v.* FROM videos v "
+        "JOIN source_speakers ss ON ss.source_id = v.id "
+        "WHERE ss.speaker_id=? AND v.archived_at IS NULL "
+        "ORDER BY v.created_at DESC, v.id",
+        (speaker_id,),
+    )
+    return await cur.fetchall()

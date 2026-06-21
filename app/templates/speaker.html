@@ -1,0 +1,91 @@
+{# app/templates/speaker.html — PR 2: header + confirmed sources only.
+   Claims (dossier) and candidate "possible sources" are PR 3/4 — the
+   extension points are marked below but intentionally NOT built. #}
+{% extends "base.html" %}
+{% block title %}{{ speaker.name }} — yt-summary{% endblock %}
+{% block content %}
+<article class="speaker-page">
+  <header class="speaker-header" style="--avatar-bg: {{ speaker.avatar_id | avatar_bg }};">
+    {% if speaker.avatar_photo_path %}
+      <img class="speaker-photo" src="/speaker/{{ speaker.id }}/photo" alt="{{ speaker.name }}">
+    {% elif speaker.avatar_id %}
+      <span class="profile-avatar profile-avatar--image profile-avatar--large"
+            style="--avatar-bg: {{ speaker.avatar_id | avatar_bg }};">
+        <img src="/static/avatars/{{ speaker.avatar_id }}.png" alt="" loading="lazy">
+      </span>
+    {% else %}
+      <span class="profile-avatar profile-avatar--emoji profile-avatar--large">
+        <span class="profile-avatar-emoji">🎙️</span>
+      </span>
+    {% endif %}
+
+    <div class="speaker-id">
+      <h1>{{ speaker.name }}</h1>
+      {% if speaker.role %}<p class="speaker-role">{{ speaker.role }}</p>{% endif %}
+      {% if speaker.style_note %}<p class="speaker-style muted">{{ speaker.style_note }}</p>{% endif %}
+    </div>
+
+    <div class="speaker-actions">
+      {% if speaker.is_active %}
+        <button hx-post="/speaker/{{ speaker.id }}/deactivate"
+                hx-target="closest .speaker-actions" hx-swap="innerHTML">Deactivate</button>
+      {% else %}
+        <button hx-post="/speaker/{{ speaker.id }}/activate"
+                hx-target="closest .speaker-actions" hx-swap="innerHTML">Activate</button>
+      {% endif %}
+    </div>
+  </header>
+
+  <details class="speaker-edit-panel">
+    <summary>Edit</summary>
+    <form class="speaker-edit" method="post" action="/speaker/{{ speaker.id }}/edit"
+          enctype="multipart/form-data">
+      <label>
+        Name
+        <input name="name" value="{{ speaker.name }}" required>
+      </label>
+      <label>
+        Role
+        <input name="role" value="{{ speaker.role or '' }}" placeholder="e.g. host, guest">
+      </label>
+      <label>
+        Speaking style note
+        <input name="style_note" value="{{ speaker.style_note or '' }}" placeholder="e.g. calm, analytical">
+      </label>
+      <label>
+        Avatar
+        <select name="avatar_id">
+          <option value="">— none —</option>
+          {% for av in avatars %}
+            <option value="{{ av.id }}" {% if av.id == speaker.avatar_id %}selected{% endif %}>{{ av.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Photo
+        <input type="file" name="photo" accept="image/*">
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  </details>
+
+  <section class="speaker-sources">
+    <h2>Appears in</h2>
+    {% if sources %}
+      <ul class="source-list">
+        {% for s in sources %}
+          <li>
+            <a href="/v/{{ s['id'] }}">{{ s['title'] }}</a>
+            <span class="src-kind muted">{{ s['kind'] }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No confirmed sources yet.</p>
+    {% endif %}
+  </section>
+
+  {# EXTENSION POINT (PR 3): claims/dossier grouped by topic go here. #}
+  {# EXTENSION POINT (PR 4): "Possible sources" (candidates) + whole-dossier chat go here. #}
+</article>
+{% endblock %}

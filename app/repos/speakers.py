@@ -71,3 +71,28 @@ async def set_active(db: aiosqlite.Connection, speaker_id: int, active: bool) ->
         (1 if active else 0, speaker_id),
     )
     await db.commit()
+
+
+async def update_fields(
+    db: aiosqlite.Connection, speaker_id: int, *,
+    name: str, role: str | None, avatar_id: str | None, style_note: str | None,
+) -> None:
+    """Edit the user-facing identity fields. name_key is re-derived from
+    name so a rename stays the identity anchor."""
+    await db.execute(
+        "UPDATE speakers SET name=?, name_key=?, role=?, avatar_id=?, "
+        "style_note=?, updated_at=datetime('now') WHERE id=?",
+        (name, normalize_name_key(name), role, avatar_id, style_note, speaker_id),
+    )
+    await db.commit()
+
+
+async def set_photo_path(
+    db: aiosqlite.Connection, speaker_id: int, path: str | None,
+) -> None:
+    await db.execute(
+        "UPDATE speakers SET avatar_photo_path=?, updated_at=datetime('now') "
+        "WHERE id=?",
+        (path, speaker_id),
+    )
+    await db.commit()
