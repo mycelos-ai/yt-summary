@@ -1,7 +1,7 @@
 {# Add overlay: a + Add button opening a modal with an auto-expanding field
    that accepts a URL / playlist / website / curl command. Posts to the
    existing POST /videos handler (single input for now). #}
-<div class="add-wrap" data-add-overlay x-data="{ open: false }">
+<div class="add-wrap" data-add-overlay x-data="{ open: false, tab: 'url' }" x-init="$watch('open', v => v || (tab='url'))">
   <button type="button" class="btn btn-accent add-trigger"
           x-on:click="open = true; $nextTick(() => $refs.addinput.focus())">+ Add</button>
   <div class="add-overlay" x-show="open" x-cloak
@@ -14,14 +14,27 @@
         <button type="button" class="add-overlay-close"
                 x-on:click="open = false" aria-label="Close">×</button>
       </div>
-      <form method="post" action="/videos" class="add-overlay-form">
-        <textarea name="url" rows="2" required x-ref="addinput"
+      <div class="add-tabs">
+        <button type="button" :class="tab==='url' && 'is-on'" x-on:click="tab='url'">Link / cURL</button>
+        <button type="button" :class="tab==='text' && 'is-on'" x-on:click="tab='text'">Paste text</button>
+      </div>
+
+      <form method="post" action="/videos" class="add-overlay-form" x-show="tab==='url'">
+        <textarea name="url" rows="2" x-ref="addinput"
                   placeholder="Paste a YouTube link, a playlist URL, a website, or a curl command"
                   x-on:input="$el.style.height='auto'; $el.style.height=$el.scrollHeight+'px'"></textarea>
         <p class="add-overlay-hint">
           One item at a time — a single URL or a "Copy as cURL" command for paywalled articles.
         </p>
         <button type="submit" class="btn btn-accent">Summarize</button>
+      </form>
+
+      <form method="post" action="/videos" class="add-overlay-form" x-show="tab==='text'" x-cloak>
+        <input name="title" placeholder="Title (optional)" autocomplete="off">
+        <textarea name="pasted_text" rows="6" required
+                  placeholder="Paste an interview transcript or any text to summarize…"></textarea>
+        <p class="add-overlay-hint">No URL needed — the text is summarized as-is and added to your library.</p>
+        <button type="submit" class="btn btn-accent">Summarize text</button>
       </form>
     </div>
   </div>

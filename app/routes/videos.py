@@ -57,11 +57,33 @@ def _import_error_response(
 @router.post("/videos")
 async def submit_video(
     request: Request,
-    url: str = Form(...),
+    url: str = Form(""),
+    pasted_text: str = Form(""),
+    title: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user_id: int = Depends(get_current_user_id),
 ):
+    # Pasted-text branch: no URL, body already in hand → kind='text'.
+    if pasted_text.strip() and not url.strip():
+        item_id = await _import_text(
+            pasted_text, title, db, config, current_user_id
+        )
+        if request.headers.get("HX-Request"):
+            video = await videos_repo.get(db, item_id)
+            return templates.TemplateResponse(
+                request, "video_card.html", {"video": video}
+            )
+        return RedirectResponse(f"/v/{item_id}", status_code=303)
+
+    if not url.strip() and not pasted_text.strip():
+        return _import_error_response(
+            request,
+            submitted_url="",
+            error_title="Nothing to add",
+            error_message="Paste a URL, a curl command, or some text.",
+        )
+
     submitted = url
     cookies: dict[str, str] = {}
     headers: dict[str, str] = {}
@@ -232,6 +254,52 @@ async def _import_youtube(
     )
     if meta.tags:
         await tags_repo.set_tags_for_video(db, item_id, list(meta.tags))
+    await jobs_repo.enqueue(db, item_id)
+    return item_id
+
+
+async def _import_text(
+    raw_text: str,
+    title: str,
+    db: aiosqlite.Connection,
+    config: Config,
+    user_id: int,
+) -> str:
+    """Create a kind='text' library item from pasted text.
+
+    Mechanically '_import_web without the fetch': the body is already
+    in hand, so we store it as the transcript directly and enqueue the
+    normal pipeline (summary + embedding + Pexels thumbnail). This is
+    the 'transcribed interview that exists nowhere as a URL' path.
+
+    The id is a content-hash so re-pasting the same text upserts the
+    same row rather than duplicating (idempotent like web imports whose
+    id comes from the canonical URL)."""
+    import hashlib
+    from app.models import TranscriptSource
+
+    digest = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()[:16]
+    base_id = f"text-{digest}"
+    item_id = _composite_id(user_id, base_id)
+    clean_title = title.strip() or "Pasted text"
+
+    await videos_repo.upsert_metadata(
+        db,
+        video_id=item_id,
+        url="",
+        title=clean_title,
+        description="",
+        thumbnail_path=None,
+        duration_seconds=None,
+        kind=VideoKind.TEXT,
+        user_id=user_id,
+    )
+    # Store the body as the transcript so the pipeline summarizes it
+    # with no fetch (same column the WEB path uses; pipeline skips
+    # re-fetch when transcript is already present).
+    await videos_repo.set_transcript(
+        db, item_id, raw_text, TranscriptSource.WEB,
+    )
     await jobs_repo.enqueue(db, item_id)
     return item_id
 
