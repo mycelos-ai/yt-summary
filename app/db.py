@@ -582,6 +582,15 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                 """
             )
             await conn.execute("PRAGMA foreign_keys=ON")
+            # The INSERT/SELECT above renumbered rowids (gaps from deleted rows
+            # are closed), but videos_fts (external-content FTS5 keyed by
+            # rowid) still maps the OLD rowids.  Rebuild it from the renamed
+            # content table so they realign, else search returns wrong rows or
+            # raises "missing row N from content table".
+            if await _table_exists(conn, "videos_fts"):
+                await conn.execute(
+                    "INSERT INTO videos_fts(videos_fts) VALUES('rebuild')"
+                )
             await conn.commit()
 
     if await _table_exists(conn, "chat_messages"):
