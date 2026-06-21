@@ -349,6 +349,14 @@ async def process_video(
             model_row=model_row,
         )
 
+    # Best-effort speaker detection (PR 2). Deterministic metadata match
+    # only — no claims (the claim-extraction piggyback is PR 3). Mirrors
+    # _store_related_links: gated, and never fails the job.
+    if refreshed is not None:
+        await set_step("identifying speakers")
+        from app.services import speaker_pipeline
+        await speaker_pipeline.detect_and_link(db, refreshed)
+
 
 def _segments_for_summarizer(video) -> list[dict] | None:
     """Decode the JSON-stored transcript_segments into a list of
