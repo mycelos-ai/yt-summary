@@ -246,6 +246,27 @@ ALTER TABLE chat_messages ADD COLUMN speaker_id INTEGER REFERENCES speakers(id);
 `repos/chat.{history,append}` gain an optional `speaker_id` param;
 existing default-NULL call sites are untouched.
 
+### Conversation model — one thread per (video × speaker)
+
+The `speaker_id` column gives the threading model **for free**, and the
+decided behaviour is:
+
+- Each video has **one "chat with the video" thread** (`speaker_id IS
+  NULL`, unchanged) **plus one separate thread per speaker** you've
+  talked to (`speaker_id = N`). Chatting with Chamath and then with
+  David Sacks gives **two distinct threads**, not one interleaved log.
+- Switching chips just swaps which thread the panel shows; coming back to
+  a speaker shows that speaker's history intact.
+- **Jump-ins do NOT start a new thread.** Clicking a pill / "discuss this
+  moment" appends a message (carrying the `(re: 12:04 — '…')` context)
+  into that speaker's existing thread for this video. This keeps the
+  conversation continuous instead of fragmenting per timestamp.
+- Rationale: it matches the chip mental model (one chip = one
+  conversation), keeps each persona's context clean, and is exactly what
+  the data model already expresses. A single mixed "talk to the whole
+  panel" thread (multiple hosts replying in one log) is a deliberate
+  **future** idea, not v1 (see Out of scope / future).
+
 ## Statement retrieval for the persona (the "intelligence")
 
 The dossier can grow large, so the persona chat is handed only a
@@ -434,7 +455,12 @@ GROUNDING RULES:
   tells the viewer this is a simulation.
 
 {persona_note_block}
-{seed_block}              # only on a jump-in: "[12:04] '…the quote…'"
+{seed_block}              # only on a jump-in: the moment + a window of
+                         # transcript BEFORE and AFTER it, e.g. "The
+                         # viewer paused at [12:04]; here's what was being
+                         # discussed around then: …±N blocks…", so the
+                         # persona can reference what they were actually
+                         # saying at that point.
 
 TRACK RECORD (earlier statements by {name} in the user's library, each
 with its source):
@@ -454,18 +480,28 @@ THIS EPISODE TRANSCRIPT:
 user_message, seed_ts, seed_quote, model, api_key, base_url)` → async
 token iterator, identical mechanics to `stream_reply`.
 
+**v1 grounding (no extraction needed):** the **whole episode transcript**
+goes in, and the prompt instructs the model to answer as that speaker,
+**focusing on what {name} actually says** in it. We do *not* pre-extract
+"who said what" for v1 — feeding the full transcript and naming the
+focus speaker is enough for a per-episode conversation. `track_record`
+is empty in v1 (it's the Phase 2 dossier slice).
+
 ## Routes
 
 ### Speaker chat — `routes/speaker_chat.py`
 
 `POST /v/{video_id}/speaker/{speaker_id}/chat` — the persona turn.
 Ownership-checks video + speaker (foreign profile / not an appearance of
-this video → 404), resolves the model, loads speaker-scoped history,
-selects the track-record slice (retrieval above), appends the user
-message (with the optional `(re: …)` seed prefix), streams via
-`stream_speaker_reply`, persists the assistant turn with `speaker_id`,
-returns the same `_msg_html` user+assistant fragment. Optional
-`seed_ts`/`seed_quote` form fields drive the jump-in seed block.
+this video → 404), resolves the model, loads speaker-scoped history
+(this `(video_id, speaker_id)` thread), selects the track-record slice
+(Phase 2), appends the user message (with the optional `(re: …)` seed
+prefix), streams via `stream_speaker_reply`, persists the assistant turn
+with `speaker_id`, returns the same `_msg_html` user+assistant fragment.
+Optional `seed_ts` form field drives the jump-in: the route expands it to
+a **window of surrounding transcript** (a few `transcript_segments`
+blocks before/after `seed_ts`) for the seed block, so the persona has the
+moment's context, not just one line.
 
 ### Speaker management — `routes/speakers.py`
 
@@ -522,7 +558,8 @@ All HTMX fragment swaps, consistent with the app.
   list beside the speaker chat, populated from the dossier slice, each
   line linking back to its source video + timestamp.
 - **Transcript jump-in**: a small `💬 Discuss` per `transcript-block`,
-  seeding `seed_ts`/`seed_quote`.
+  seeding `seed_ts` (the route expands it to a before/after window).
+  Appends into the selected speaker's existing thread — not a new one.
 - **"Discuss this moment"**: a button by the player; extend the existing
   player IIFE to expose `getCurrentTime()` + a nearest-block lookup over
   the rendered `[data-yt-timestamp]` blocks, opening the speaker chat
@@ -535,14 +572,23 @@ All HTMX fragment swaps, consistent with the app.
 
 ## Pipeline integration (`pipeline.py`)
 
-After summarization, a best-effort `set_step("identifying speakers")`,
-gated like the other enrichment steps (YouTube-kind, transcript present,
-LLM configured): call `detect_and_extract`, `resolve_speaker` each,
-upsert `video_speakers`, replace this video's `speaker_statements` for
-each speaker, (recommended) embed new statements. Failure leaves the
-video speaker-less and never fails the job (same posture as
+**v1 (cheap, no LLM):** a best-effort `set_step("identifying speakers")`
+that runs `show_match.identify_from_metadata` (channel/title/description
+→ host(s) + parsed guest(s)), `resolve_speaker`s them, and upserts
+`video_speakers`. Pure metadata work — no extra LLM call. Failure leaves
+the video speaker-less and never fails the job (same posture as
 `_store_related_links`). Older videos get speakers via the detect
-endpoint.
+endpoint / manual add.
+
+**Phase 2 (statements):** additionally extract per-speaker statements and
+replace this video's `speaker_statements` rows (+ optionally embed them).
+**Cost note (decided direction):** prefer **folding this into the
+existing summarization LLM pass** — we already run one LLM call over the
+transcript for the summary + highlights, so extend that call's JSON
+envelope to also emit `{speaker → statements}` rather than spending a
+*separate* `detect_and_extract` call. A standalone `detect_and_extract`
+stays as the fallback for talk videos outside the registry (where the
+metadata path found no one) and for on-demand re-detect.
 
 ## Testing strategy
 
@@ -586,6 +632,9 @@ TestClient; in-memory SQLite + sqlite-vec; no browser.
   Piper TTS to *hear* the simulated Chamath — later).
 - Cross-**profile** speaker sharing (speakers stay per-profile, like
   videos).
+- A single **"talk to the whole panel" group thread** where multiple
+  hosts reply in one interleaved log (v1 keeps one thread per speaker).
+  Noted as a deliberate future idea.
 - Automatic alias clustering beyond exact `name_key` (manual **merge**
   covers the rest in v1).
 - Speaker detection for web articles / newsletters (YouTube-kind only).
