@@ -345,3 +345,114 @@ def test_per_episode_persona_does_not_leak_into_video_chat(tmp_path, monkeypatch
                 f"persona thread lost messages: {[m.role for m in thread_hist]}"
             )
         asyncio.get_event_loop().run_until_complete(check())
+
+
+# ---------------------------------------------------------------------------
+# Finding #5: editing a claim must re-embed the new text
+# ---------------------------------------------------------------------------
+
+def test_edit_claim_reembeds(tmp_path, monkeypatch):
+    """POST .../claims/{id}/edit with a changed claim text must call
+    _embed_claim_best_effort so the vector stays in sync."""
+    app = _client(tmp_path, monkeypatch)
+    calls: list[tuple] = []
+
+    async def recording_embed(db_, claim_id, claim_text):
+        calls.append((claim_id, claim_text))
+
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="original claim text", topic="t")
+            return speaker_id, cid
+        speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
+
+        with patch("app.routes.speakers._embed_claim_best_effort",
+                   side_effect=recording_embed):
+            resp = client.post(
+                f"/speaker/{speaker_id}/claims/{cid}/edit",
+                data={"claim": "completely new claim text", "topic": "macro"})
+
+    assert resp.status_code == 200
+    # The embed helper must have been called with the new text
+    assert len(calls) == 1, f"expected 1 embed call, got {calls}"
+    assert calls[0][0] == cid
+    assert calls[0][1] == "completely new claim text"
+
+
+# ---------------------------------------------------------------------------
+# Finding #6: un-rejecting a claim must re-embed it
+# ---------------------------------------------------------------------------
+
+def test_reaccept_reembeds(tmp_path, monkeypatch):
+    """Restoring a rejected claim (status -> accepted) must re-embed it so
+    the vector that was deleted on rejection is recreated."""
+    app = _client(tmp_path, monkeypatch)
+    calls: list[tuple] = []
+
+    async def recording_embed(db_, claim_id, claim_text):
+        calls.append((claim_id, claim_text))
+
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="claim to reject then restore", topic="t")
+            # First: reject (this deletes the vector in the real code)
+            await repo.set_review_status(app.state.db, cid, "rejected")
+            await app.state.db.commit()
+            return speaker_id, cid
+        speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
+
+        with patch("app.routes.speakers._embed_claim_best_effort",
+                   side_effect=recording_embed):
+            resp = client.post(
+                f"/speaker/{speaker_id}/claims/{cid}/review",
+                data={"status": "accepted"})
+
+    assert resp.status_code == 200
+    # Re-accept must trigger a re-embed
+    assert len(calls) == 1, f"expected 1 embed call on re-accept, got {calls}"
+    assert calls[0][0] == cid
+
+
+# ---------------------------------------------------------------------------
+# Finding #7: empty stream must not persist "[error: None]" to history
+# ---------------------------------------------------------------------------
+
+def test_empty_stream_does_not_persist_error_none(tmp_path, monkeypatch):
+    """When the model stream yields zero tokens with no exception, the persisted
+    assistant message must NOT be '[error: None]'."""
+    app = _client(tmp_path, monkeypatch)
+
+    async def empty_stream(**kw):
+        return
+        yield  # make it an async generator
+
+    with TestClient(app) as client:
+        speaker_id = asyncio.get_event_loop().run_until_complete(_setup(app))
+        with patch("app.routes.speakers.stream_speaker_reply", side_effect=empty_stream):
+            resp = client.post(
+                f"/v/vs1/speaker/{speaker_id}/chat",
+                data={"content": "hi"})
+        assert resp.status_code == 200
+
+        async def check():
+            from app.repos import chat as chat_repo
+            from app.repos import chat_threads as threads_repo
+            tid = await threads_repo.get_or_create(
+                app.state.db, scope="source_speaker",
+                source_id="vs1", speaker_id=speaker_id)
+            msgs = await chat_repo.history(app.state.db, "vs1", thread_id=tid)
+            assistant_msgs = [m for m in msgs if m.role == "assistant"]
+            assert assistant_msgs, "no assistant message persisted"
+            for m in assistant_msgs:
+                assert m.content != "[error: None]", (
+                    f"persisted '[error: None]' in history: {m.content!r}"
+                )
+        asyncio.get_event_loop().run_until_complete(check())

@@ -68,3 +68,46 @@ def test_track_record_peek_renders_claim_links(app_client):
     assert "What" in html and "said before" in html      # peek heading
     assert "Markets are cyclical" in html                 # claim line
     assert "742" in html or "12:22" in html               # timestamp deep-link
+
+
+# ---------------------------------------------------------------------------
+# Finding #4: track-record peek must exclude rejected claims
+# ---------------------------------------------------------------------------
+
+def test_peek_excludes_rejected_claims(app_client):
+    """GET /v/{id} track-record peek must not show REJECTED claims."""
+    db = app_client.app.state.db
+
+    async def setup():
+        from app.repos import speaker_claims as claims_repo
+        from app.repos import speakers as speakers_repo
+
+        sid = await speakers_repo.resolve_speaker(db, name="Peek Speaker")
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, transcript) "
+            "VALUES ('vpk',1,'youtube','http://y/vpk','Peek Pod', 't')"
+        )
+        await db.execute(
+            "INSERT INTO source_speakers (source_id, speaker_id, detection_source) "
+            "VALUES ('vpk',?, 'manual')", (sid,)
+        )
+        cid_accepted = await claims_repo.insert_claim(
+            db, speaker_id=sid, source_id="vpk",
+            claim="accepted claim text", topic="markets",
+        )
+        cid_rejected = await claims_repo.insert_claim(
+            db, speaker_id=sid, source_id="vpk",
+            claim="rejected claim text", topic="markets",
+        )
+        await claims_repo.set_review_status(db, cid_accepted, "accepted")
+        await claims_repo.set_review_status(db, cid_rejected, "rejected")
+        await db.commit()
+        return sid
+
+    asyncio.get_event_loop().run_until_complete(setup())
+
+    resp = app_client.get("/v/vpk")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "accepted claim text" in html
+    assert "rejected claim text" not in html

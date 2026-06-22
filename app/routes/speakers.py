@@ -22,7 +22,11 @@ from app.services import avatars, speaker_pipeline
 from app.services import speakers as speakers_svc
 from app.services.markdown import render_markdown
 from app.services.speaker_chat import stream_speaker_reply
-from app.services.speaker_claims import extract_claims_for_source, retrieve_for_prompt
+from app.services.speaker_claims import (
+    _embed_claim_best_effort,
+    extract_claims_for_source,
+    retrieve_for_prompt,
+)
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -316,8 +320,14 @@ async def _run_persona_turn(
     except Exception as e:  # noqa: BLE001 — surface as an error bubble
         error = f"{type(e).__name__}: {e}"
     answer = "".join(collected)
+    if answer:
+        persisted_content = answer
+    elif error is not None:
+        persisted_content = f"[error: {error}]"
+    else:
+        persisted_content = "(empty response from model)"
     await chat_repo.append(
-        db, None, "assistant", answer if answer else f"[error: {error}]",
+        db, None, "assistant", persisted_content,
         user_id=speaker.user_id, thread_id=thread_id)
     parts = [_speaker_msg_html("user", content)]
     if answer:
@@ -445,6 +455,13 @@ async def post_claim_review(
         from app.repos import speaker_claim_embeddings as cve
         with contextlib.suppress(Exception):
             await cve.delete_claim_embedding(db, claim_id)
+    else:
+        # Finding #6: re-embed when un-rejecting (accepted/unreviewed) so a
+        # previously-rejected claim gets its vector back. Best-effort — must
+        # not break the review if embedding fails.
+        claim_row = await claims_repo.get(db, claim_id)
+        if claim_row is not None:
+            await _embed_claim_best_effort(db, claim_id, claim_row.claim)
     return HTMLResponse(await _claims_fragment(db, request, speaker))
 
 
@@ -463,13 +480,19 @@ async def post_claim_edit(
     # Finding 6: also verify the claim belongs to this speaker (cross-speaker check).
     await _owned_claim(db, speaker_id, claim_id)
     fields: dict = {}
+    new_claim_text: str | None = None
     if claim.strip():
         fields["claim"] = claim.strip()
+        new_claim_text = claim.strip()
     if topic.strip():
         fields["topic"] = topic.strip()
     if evidence_text.strip():
         fields["evidence_text"] = evidence_text.strip()
     await claims_repo.edit_claim(db, claim_id, **fields)
+    # Finding #5: re-embed when the claim text changed so the vector stays
+    # in sync. Best-effort — _embed_claim_best_effort never raises.
+    if new_claim_text is not None:
+        await _embed_claim_best_effort(db, claim_id, new_claim_text)
     return HTMLResponse(await _claims_fragment(db, request, speaker))
 
 

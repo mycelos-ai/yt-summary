@@ -629,7 +629,10 @@ async def video_detail(
     if speakers:
         persona_name = speakers[0].name
         from app.repos import speaker_claims as claims_repo
-        track_record = await claims_repo.list_for_speaker(db, speakers[0].id)
+        track_record = [
+            c for c in await claims_repo.list_for_speaker(db, speakers[0].id)
+            if c.review_status != "rejected"
+        ]
     return templates.TemplateResponse(
         request,
         "video_detail.html",
