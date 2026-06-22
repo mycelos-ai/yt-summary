@@ -38,10 +38,30 @@ async def resolve_speaker(
     row = await cur.fetchone()
     if row is not None:
         return row["id"]
-    cur = await db.execute(
-        "INSERT INTO speakers (user_id, name, name_key, role) VALUES (?,?,?,?)",
-        (user_id, name, key, role),
+
+    # Look up the known_speakers catalog by name_key to inherit curated identity.
+    ks_cur = await db.execute(
+        "SELECT id, role, avatar_id, style_note FROM known_speakers WHERE name_key=?",
+        (key,),
     )
+    ks = await ks_cur.fetchone()
+
+    if ks is not None:
+        # Caller-provided role wins; fall back to the seeded role when caller
+        # passed no role (None means "I don't know", not "override to null").
+        effective_role = role if role is not None else ks["role"]
+        cur = await db.execute(
+            "INSERT INTO speakers "
+            "(user_id, name, name_key, role, known_speaker_id, avatar_id, style_note) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (user_id, name, key, effective_role, ks["id"], ks["avatar_id"], ks["style_note"]),
+        )
+    else:
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key, role) VALUES (?,?,?,?)",
+            (user_id, name, key, role),
+        )
+
     await db.commit()
     assert cur.lastrowid is not None
     return cur.lastrowid
