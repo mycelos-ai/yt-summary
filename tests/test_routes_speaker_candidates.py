@@ -81,3 +81,55 @@ def test_candidates_foreign_profile_404(app_client):
     sid = asyncio.get_event_loop().run_until_complete(setup())
 
     assert app_client.get(f"/speaker/{sid}/candidates").status_code == 404
+
+
+def test_confirm_rejects_candidate_belonging_to_other_speaker(app_client):
+    """Cross-speaker guard: a candidate owned by speaker A cannot be confirmed
+    under speaker B's URL, even if both speakers belong to the same user."""
+    db = app_client.app.state.db
+    from app.repos import speakers as speakers_repo
+    from app.repos import speaker_source_candidates as cand
+
+    async def setup():
+        sid_a = await speakers_repo.resolve_speaker(db, name="Alice A")
+        sid_b = await speakers_repo.resolve_speaker(db, name="Bob B")
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) VALUES ('wA',1,'web','u','t')"
+        )
+        cid = await cand.upsert_pending(db, speaker_id=sid_a, source_id="wA",
+                                        signal="title_match", score=0.5)
+        await db.commit()
+        return sid_b, cid  # cid belongs to A, posted under B
+
+    sid_b, cid = asyncio.get_event_loop().run_until_complete(setup())
+    assert app_client.post(f"/speaker/{sid_b}/candidates/{cid}/confirm").status_code == 404
+
+    async def check_no_link():
+        cur = await db.execute(
+            "SELECT 1 FROM source_speakers WHERE speaker_id=?", (sid_b,)
+        )
+        row = await cur.fetchone()
+        assert row is None, "confirm must not have written a source_speakers link for speaker B"
+    asyncio.get_event_loop().run_until_complete(check_no_link())
+
+
+def test_dismiss_rejects_candidate_belonging_to_other_speaker(app_client):
+    """Cross-speaker guard: a candidate owned by speaker A cannot be dismissed
+    under speaker B's URL, even if both speakers belong to the same user."""
+    db = app_client.app.state.db
+    from app.repos import speakers as speakers_repo
+    from app.repos import speaker_source_candidates as cand
+
+    async def setup():
+        sid_a = await speakers_repo.resolve_speaker(db, name="Carol C")
+        sid_b = await speakers_repo.resolve_speaker(db, name="Dave D")
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) VALUES ('wC',1,'web','u','t')"
+        )
+        cid = await cand.upsert_pending(db, speaker_id=sid_a, source_id="wC",
+                                        signal="fulltext", score=0.4)
+        await db.commit()
+        return sid_b, cid  # cid belongs to A, posted under B
+
+    sid_b, cid = asyncio.get_event_loop().run_until_complete(setup())
+    assert app_client.post(f"/speaker/{sid_b}/candidates/{cid}/dismiss").status_code == 404
