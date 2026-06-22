@@ -12,15 +12,15 @@ from app.repos import embeddings as embeddings_repo
 from app.repos import llm_models as llm_models_repo
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import source_speakers as source_speakers_repo
 from app.repos import tags as tags_repo
 from app.repos import users as users_repo
-from app.repos import source_speakers as source_speakers_repo
 from app.repos import videos as videos_repo
 from app.services import related_links
-from app.services.speaker_claims import extract_claims_for_source
 from app.services.embeddings import embed_text
 from app.services.language_detect import detect_language
 from app.services.reader import fetch_article
+from app.services.speaker_claims import extract_claims_for_source
 from app.services.summarizer import (
     _completion,
     _verify_summary_timestamps,

@@ -12,13 +12,13 @@ from app.repos import chat as chat_repo
 from app.repos import chat_threads as threads_repo
 from app.repos import llm_models as llm_models_repo
 from app.repos import source_speakers as ss_repo
+from app.repos import speaker_claims as claims_repo
 from app.repos import speakers as sp_repo
 from app.repos import videos as videos_repo
 from app.services import avatars, speaker_pipeline
 from app.services.markdown import render_markdown
 from app.services.speaker_chat import stream_speaker_reply
 from app.services.speaker_claims import extract_claims_for_source, retrieve_for_prompt
-from app.repos import speaker_claims as claims_repo
 from app.template_filters import register_filters
 
 router = APIRouter()

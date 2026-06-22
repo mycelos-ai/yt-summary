@@ -28,7 +28,8 @@ async def _setup(app, *, active=True):
     await videos_repo.set_transcript(
         app.state.db, "vs1", "transcript body", TranscriptSource.AUTO_SUBS)
     cur = await app.state.db.execute(
-        "INSERT INTO speakers (user_id, name, name_key, is_active) VALUES (1,'Chamath','chamath',?)",
+        "INSERT INTO speakers (user_id, name, name_key, is_active) "
+        "VALUES (1,'Chamath','chamath',?)",
         (1 if active else 0,))
     speaker_id = cur.lastrowid
     await app.state.db.execute(
@@ -53,8 +54,8 @@ def test_per_episode_persona_turn_streams_and_persists(tmp_path, monkeypatch):
         assert "As I argued" in resp.text
 
         async def check():
-            from app.repos import chat_threads as threads_repo
             from app.repos import chat as chat_repo
+            from app.repos import chat_threads as threads_repo
             tid = await threads_repo.get_or_create(
                 app.state.db, scope="source_speaker", source_id="vs1",
                 speaker_id=speaker_id)
@@ -75,8 +76,8 @@ def test_whole_dossier_turn_uses_speaker_scope(tmp_path, monkeypatch):
         assert "As I argued" in resp.text
 
         async def check():
-            from app.repos import chat_threads as threads_repo
             from app.repos import chat as chat_repo
+            from app.repos import chat_threads as threads_repo
             tid = await threads_repo.get_or_create(
                 app.state.db, scope="speaker", speaker_id=speaker_id)
             msgs = await chat_repo.history(app.state.db, thread_id=tid)
@@ -208,11 +209,11 @@ def test_claim_edit_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
     app = _client(tmp_path, monkeypatch)
     with TestClient(app) as client:
         async def setup():
-            from app.repos import speakers as sp_repo_local
-            from app.repos import speaker_claims as repo
-            from app.models import VideoKind, TranscriptSource
-            from app.repos import videos as videos_repo
+            from app.models import VideoKind
             from app.repos import llm_models as llm_models_repo
+            from app.repos import speaker_claims as repo
+            from app.repos import speakers as sp_repo_local
+            from app.repos import videos as videos_repo
             # Insert a video so source_id='v1' is valid
             await videos_repo.upsert_metadata(
                 app.state.db, video_id="v1", url="u", title="t",
@@ -242,11 +243,11 @@ def test_claim_review_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
     app = _client(tmp_path, monkeypatch)
     with TestClient(app) as client:
         async def setup():
-            from app.repos import speakers as sp_repo_local
-            from app.repos import speaker_claims as repo
-            from app.models import VideoKind, TranscriptSource
-            from app.repos import videos as videos_repo
+            from app.models import VideoKind
             from app.repos import llm_models as llm_models_repo
+            from app.repos import speaker_claims as repo
+            from app.repos import speakers as sp_repo_local
+            from app.repos import videos as videos_repo
             # Insert a video so source_id='v1' is valid
             await videos_repo.upsert_metadata(
                 app.state.db, video_id="v1", url="u", title="t",
