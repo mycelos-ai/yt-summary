@@ -321,8 +321,7 @@ async def _embed_claim_best_effort(db, claim_id: int, claim_text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Retrieval — PR 3: recency + topic-text overlap
-# PR 4 will add an embedding-ranked branch behind this same signature.
+# Retrieval — PR 4: embedding-ranked KNN with recency/topic fallback
 # ---------------------------------------------------------------------------
 
 _WORD = re.compile(r"\w+", re.UNICODE)
@@ -332,18 +331,21 @@ def _tokens(text: str) -> set[str]:
     return {w.lower() for w in _WORD.findall(text or "")}
 
 
-async def retrieve_for_prompt(
-    db, speaker_id: int, *, query: str, limit: int = 12,
-) -> list[dict]:
-    """Cross-source claim slice for the persona prompt.
+async def _embed_query(text: str) -> list[float]:
+    """Embed a retrieval query using the SAME local embedder as T3 claim extraction.
 
-    PR 3 ranking: claims whose topic/claim text overlaps the viewer's
-    query first, then most-recent. Capped at `limit`. Each row carries
-    the source title + timestamp for in-reply citation.
+    Must be a module-level function so the fallback test can monkeypatch it
+    via ``speaker_claims._embed_query``.
+    """
+    from app.services.embeddings_local import embed_text
+    return await embed_text(text)
 
-    PR 4 will add an embedding-ranked branch behind this signature; the
-    recency/topic path stays as the fallback when no embedding exists or
-    the embedding backend is off.
+
+async def _retrieve_recency(db, speaker_id: int, *, query: str, limit: int):
+    """PR 3 recency + topic-text overlap path, returning raw aiosqlite Row objects.
+
+    Returns rows with ``source_title`` JOIN alias + all speaker_claims columns +
+    ``id``. Rows are subscriptable (``r["id"]``, ``r["claim"]``, etc.).
     """
     cur = await db.execute(
         "SELECT c.*, v.title AS source_title "
@@ -363,7 +365,70 @@ async def retrieve_for_prompt(
 
     # Stable sort: overlap score desc, then the recency order from SQL.
     ranked = sorted(enumerate(rows), key=lambda iz: (-score(iz[1]), iz[0]))
-    return [_claim_to_prompt_dict(r) for _i, r in ranked[:limit]]
+    return [r for _i, r in ranked[:limit]]
+
+
+async def _load_claims_by_id(db, claim_ids: list[int]) -> dict:
+    """Load speaker_claims rows (with source_title JOIN) for the given ids.
+
+    Returns ``{row["id"]: row}`` preserving the same column shape as
+    ``_retrieve_recency`` so ``_claim_to_prompt_dict`` works on both.
+    """
+    if not claim_ids:
+        return {}
+    marks = ",".join("?" for _ in claim_ids)
+    cur = await db.execute(
+        f"SELECT c.*, v.title AS source_title "
+        f"FROM speaker_claims c JOIN videos v ON v.id = c.source_id "
+        f"WHERE c.id IN ({marks})",
+        claim_ids,
+    )
+    rows = await cur.fetchall()
+    return {r["id"]: r for r in rows}
+
+
+async def retrieve_for_prompt(
+    db, speaker_id: int, *, query: str, limit: int = 12,
+) -> list[dict]:
+    """Cross-source claim slice for the persona prompt.
+
+    PR 4 ranking: claims are KNN-ranked by embedding similarity to ``query``
+    (using the same 384-d local embedder as T3 claim extraction). Falls back
+    to the PR 3 recency/topic path when the embedder is unavailable or no
+    claim vectors exist yet. Partial KNN hits are topped up from recency
+    (de-duped by id) when fewer than ``limit`` vectors were found.
+
+    PUBLIC SIGNATURE AND RETURN CONTRACT UNCHANGED:
+    Returns list[dict] with exactly the 9 keys from ``_claim_to_prompt_dict``.
+    No SpeakerClaim / aiosqlite.Row objects leak to callers.
+    """
+    from app.repos import speaker_claim_embeddings as cve
+    try:
+        qvec = await _embed_query(query)
+        hits = await cve.search_claim_vectors(db, speaker_id, qvec, limit=limit)
+    except Exception as e:  # noqa: BLE001 — degrade to recency, never raise
+        log.warning(
+            "claim KNN unavailable (%s: %s); using recency fallback",
+            type(e).__name__, e,
+        )
+        hits = []
+    if not hits:
+        recency_rows = await _retrieve_recency(db, speaker_id, query=query, limit=limit)
+        return [_claim_to_prompt_dict(r) for r in recency_rows]
+    claim_ids = [cid for cid, _ in hits]
+    by_id = await _load_claims_by_id(db, claim_ids)
+    # Preserve KNN order by iterating claim_ids (closest-first from search_claim_vectors).
+    ranked = [by_id[cid] for cid in claim_ids if cid in by_id]
+    if len(ranked) < limit:
+        # Top up from recency for claims that have no vector yet, de-duped by id.
+        seen = {r["id"] for r in ranked}
+        for r in await _retrieve_recency(db, speaker_id, query=query, limit=limit):
+            if r["id"] not in seen:
+                ranked.append(r)
+                if len(ranked) >= limit:
+                    break
+    # Public contract is list[dict] — map every row, never leak Row objects.
+    return [_claim_to_prompt_dict(r) for r in ranked[:limit]]
 
 
 def _claim_to_prompt_dict(r) -> dict:

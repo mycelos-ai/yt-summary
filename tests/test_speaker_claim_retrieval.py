@@ -1,16 +1,21 @@
-"""Task 3: claims extracted by extract_claims_for_source get embedded best-effort.
+"""Task 3 + Task 4: claim embedding and embedding-ranked retrieval tests.
 
 Tests:
 1. test_extracted_claims_get_embedded  — after extraction, search_claim_vectors
    returns a hit for a semantically-near query.
 2. test_reprocess_drops_old_claim_vectors  — a second extraction with a different
    claim replaces the old claim's vector so only the new claim is findable.
+3. test_retrieval_prefers_semantic_over_recency  — embedding-ranked retrieve_for_prompt
+   returns the semantically-closest claim first, even if it was inserted earlier.
+4. test_retrieval_falls_back_to_recency_without_embeddings  — when _embed_query raises,
+   retrieve_for_prompt falls back to recency and still returns all claims.
 """
 import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.repos import speaker_claim_embeddings as cve
 
 
 def _run(coro):
@@ -159,5 +164,99 @@ def test_reprocess_drops_old_claim_vectors(db):
         q_renewable = await embed_text("renewable energy solar wind independence")
         hits_after = await cve.search_claim_vectors(db, sid, q_renewable, limit=5)
         assert hits_after, "new claim should be embedded and findable after reprocess"
+
+    _run(go())
+
+
+# ---------------------------------------------------------------------------
+# Task 4 helpers — direct claim + video insertion (bypass LLM extraction)
+# ---------------------------------------------------------------------------
+
+
+async def _video(db, vid: str) -> None:
+    """Insert a minimal video row (idempotent — ignore if already present)."""
+    await db.execute(
+        "INSERT OR IGNORE INTO videos (id, user_id, kind, url, title, transcript) "
+        "VALUES (?,1,'youtube','u',?,?)",
+        (vid, f"Test Video {vid}", "some transcript"),
+    )
+    await db.commit()
+
+
+async def _claim(db, sid: int, vid: str, text: str, topic=None) -> int:
+    """Insert a speaker_claim row directly and return its id."""
+    cur = await db.execute(
+        "INSERT INTO speaker_claims (user_id, speaker_id, source_id, claim, topic, "
+        "extraction_method) VALUES (1,?,?,?,?,'llm')",
+        (sid, vid, text, topic),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def _embed(text: str) -> list[float]:
+    """Embed text using the same local embedder as T3 claim extraction."""
+    from app.services.embeddings_local import embed_text
+    return await embed_text(text)
+
+
+# ---------------------------------------------------------------------------
+# Task 4 tests
+# ---------------------------------------------------------------------------
+
+
+def test_retrieval_prefers_semantic_over_recency(db):
+    """Embedding-ranked retrieve_for_prompt must return the semantically-closest
+    claim first, even when it was inserted BEFORE a more recent but off-topic one."""
+    async def go():
+        from app.repos import speakers as speakers_repo
+        from app.services import speaker_claims
+
+        sid = await speakers_repo.resolve_speaker(db, name="Fred F")
+        await _video(db, "vF")
+        # Insert an OLD on-topic claim, then a NEWER off-topic claim.
+        on_topic = await _claim(db, sid, "vF", "Bitcoin is a hedge against inflation")
+        off_topic = await _claim(db, sid, "vF", "I prefer hiking on weekends")
+        await cve.upsert_claim_embedding(
+            db, on_topic, await _embed("Bitcoin is a hedge against inflation")
+        )
+        await cve.upsert_claim_embedding(
+            db, off_topic, await _embed("I prefer hiking on weekends")
+        )
+        out = await speaker_claims.retrieve_for_prompt(
+            db, sid, query="is crypto a good inflation hedge", limit=2
+        )
+        assert out, "expected retrieved claims"
+        # retrieve_for_prompt returns list[dict] (9-key contract), not SpeakerClaim.
+        assert out[0]["claim"].startswith("Bitcoin"), (
+            "semantically-closest claim must outrank the more recent off-topic one"
+        )
+
+    _run(go())
+
+
+def test_retrieval_falls_back_to_recency_without_embeddings(db, monkeypatch):
+    """When _embed_query raises (embedder offline), retrieve_for_prompt must fall
+    back to the recency path and still return all claims as list[dict]."""
+    async def go():
+        from app.repos import speakers as speakers_repo
+        from app.services import speaker_claims
+
+        sid = await speakers_repo.resolve_speaker(db, name="Gina G")
+        await _video(db, "vG")
+        # No embeddings inserted at all.
+        await _claim(db, sid, "vG", "older position")
+        await _claim(db, sid, "vG", "newer position")
+        # Force the embedder to be 'unavailable' so the fallback path runs.
+        async def _boom(_text):
+            raise RuntimeError("embedder offline")
+        monkeypatch.setattr(speaker_claims, "_embed_query", _boom, raising=False)
+        out = await speaker_claims.retrieve_for_prompt(
+            db, sid, query="anything", limit=5
+        )
+        texts = {c["claim"] for c in out}   # list[dict] contract (9 keys)
+        assert {"older position", "newer position"} <= texts, (
+            "fallback must still return claims when embeddings are absent"
+        )
 
     _run(go())
