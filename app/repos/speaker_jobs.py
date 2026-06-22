@@ -16,6 +16,21 @@ def _row(r: aiosqlite.Row) -> SpeakerJob:
 
 
 async def enqueue(db: aiosqlite.Connection, speaker_id: int) -> int:
+    """Insert a new pending job unless one is already pending or running.
+
+    Returns the job id (existing or newly created). Done/failed jobs do NOT
+    block a fresh enqueue so a new activate after completion works correctly.
+    """
+    # Return the id of the existing unfinished job without inserting a duplicate.
+    cur = await db.execute(
+        "SELECT id FROM speaker_jobs WHERE speaker_id=? AND state IN ('pending','running') "
+        "ORDER BY id ASC LIMIT 1",
+        (speaker_id,),
+    )
+    existing = await cur.fetchone()
+    if existing is not None:
+        return existing["id"]
+
     cur = await db.execute(
         "INSERT INTO speaker_jobs (speaker_id, state) VALUES (?, 'pending')",
         (speaker_id,),

@@ -104,6 +104,46 @@ def test_activate_enqueues_backfill(db):
     _run(go())
 
 
+def test_backfill_skips_archived_youtube_for_linking(db, monkeypatch):
+    """_confirmed_source_ids step-1 show-match must skip archived youtube videos."""
+    async def go():
+        from app.models import DetectedSpeaker
+        from app.repos import source_speakers as ss_repo
+
+        sid = await speakers_repo.resolve_speaker(db, name="Ray R")
+        # Insert an ARCHIVED youtube video whose title would match the speaker.
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, transcript, archived_at) "
+            "VALUES (?,1,'youtube',?,?,?, datetime('now'))",
+            ("archived_v", "https://example.com/archived_v", "archived_v", "transcript"),
+        )
+        await db.commit()
+
+        # Monkeypatch show_match so the archived video *would* match the speaker.
+        async def fake_identify(db_, video):
+            if video.id == "archived_v":
+                return [DetectedSpeaker(name="Ray R", role="host", is_host=True)]
+            return []
+
+        monkeypatch.setattr(
+            "app.services.speaker_backfill.show_match.identify_from_metadata",
+            fake_identify,
+        )
+
+        # Run the step that should skip archived videos.
+        await speaker_backfill._confirmed_source_ids(db, sid)
+
+        # Assert no source_speakers link was written for the archived video.
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM source_speakers WHERE source_id='archived_v' AND speaker_id=?",
+            (sid,),
+        )
+        row = await cur.fetchone()
+        assert row[0] == 0, "archived video must not be linked via show-match"
+
+    _run(go())
+
+
 def test_run_pending_backfills_drains_queue(db, monkeypatch):
     async def go():
         from app.repos import speaker_jobs as sj

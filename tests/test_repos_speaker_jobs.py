@@ -46,3 +46,33 @@ def test_reset_orphaned_running(db):
         await sj.reset_orphaned_running(db)
         assert (await sj.get(db, jid)).state == SpeakerJobState.PENDING
     _run(go())
+
+
+def test_enqueue_dedups_pending(db):
+    """Re-enqueueing while a job is pending/running must NOT create a second row."""
+    async def go():
+        sid = await speakers_repo.resolve_speaker(db, name="Kate K")
+        jid1 = await sj.enqueue(db, sid)
+        jid2 = await sj.enqueue(db, sid)   # duplicate while pending
+        assert jid2 == jid1, "second enqueue must return the existing job id"
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM speaker_jobs WHERE speaker_id=? AND state IN ('pending','running')",
+            (sid,),
+        )
+        row = await cur.fetchone()
+        assert row[0] == 1, "only one pending/running job must exist"
+    _run(go())
+
+
+def test_enqueue_after_completion_allowed(db):
+    """After a job completes, a new enqueue for the same speaker IS allowed."""
+    async def go():
+        sid = await speakers_repo.resolve_speaker(db, name="Leo L")
+        jid1 = await sj.enqueue(db, sid)
+        job = await sj.claim_next(db)   # -> running
+        await sj.complete(db, job.id)   # -> done
+        jid2 = await sj.enqueue(db, sid)
+        assert jid2 != jid1, "a new job must be created after completion"
+        new_job = await sj.get(db, jid2)
+        assert new_job.state == SpeakerJobState.PENDING
+    _run(go())

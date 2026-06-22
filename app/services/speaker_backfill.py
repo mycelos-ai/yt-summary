@@ -37,8 +37,9 @@ async def _confirmed_source_ids(db: aiosqlite.Connection, speaker_id: int) -> li
     if speaker is None:
         return []
     # 1) Show-match over existing YouTube videos -> CONFIRM as source_speakers.
+    #    Archived videos are excluded so we never write dead-weight links.
     cur = await db.execute(
-        "SELECT id FROM videos WHERE user_id=? AND kind='youtube'",
+        "SELECT id FROM videos WHERE user_id=? AND kind='youtube' AND archived_at IS NULL",
         (speaker.user_id,),
     )
     yt_rows = await cur.fetchall()
