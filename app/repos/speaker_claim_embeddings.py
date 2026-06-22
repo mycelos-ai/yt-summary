@@ -74,11 +74,15 @@ async def search_claim_vectors(
     predicates in some sqlite-vec versions.
     """
     blob = _pack_vector(vector)
-    # Step 1: pure vec0 KNN (no extra predicate) — over-fetch
+    # Step 1: pure vec0 KNN (no extra predicate) — over-fetch.
+    # Use 20x (min 50) so a single speaker's nearest claims survive the GLOBAL KNN
+    # cut even when many other speakers' claims are semantically close to the query.
+    # "Claims per speaker in a shared corpus" is a much softer bound than the 5x
+    # ratio used in related.py (videos per user), so we need a larger window here.
     cur = await db.execute(
         "SELECT claim_id, distance FROM speaker_claim_embeddings "
         "WHERE claim_vec MATCH ? AND k = ? ORDER BY distance",
-        (blob, max(limit * 5, 25)),
+        (blob, max(limit * 20, 50)),
     )
     candidates = [(r[0], r[1]) for r in await cur.fetchall()]
     if not candidates:

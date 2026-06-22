@@ -116,3 +116,70 @@ def test_delete_for_source_drops_only_that_source(db):
         ids = {cid for cid, _ in hits}
         assert c1 not in ids and c2 in ids
     _run(go())
+
+
+def test_search_recall_cliff_owned_claim_survives_30_nearer_foreign_claims(db):
+    """Regression: owned claim must not be silently dropped when 30 foreign claims
+    are globally closer to the query than the owned claim.
+
+    Setup: the QUERIED speaker has exactly 1 claim — a loosely related statement
+    about a different topic. A SECOND speaker has 30 claims that are near-duplicates
+    of the query text and therefore globally outrank the owned claim in vec0 KNN.
+    With the old over-fetch (max(limit*5, 25) = 25) those 30 foreign claims fill
+    the entire candidate window, leaving zero owned claims. With the new over-fetch
+    (max(limit*20, 50) = 50) the candidate window is wide enough to include the
+    owned claim at global rank ~31.
+
+    We use distinct-enough text to drive real embedding distances:
+    - query / foreign claims: all variants of "neural networks and deep learning"
+    - owned claim:            "trade tariffs affect import prices"
+    The 30 near-duplicates should reliably dominate the global top-25 KNN while
+    the owned claim lands in the 26-50 range.
+    """
+    async def go():
+        queried = await speakers_repo.resolve_speaker(db, name="Recall Speaker")
+        foreign = await speakers_repo.resolve_speaker(db, name="Foreign Speaker")
+        await _seed_video(db, "vR")
+
+        # Owned claim: semantically distant from the query
+        owned_id = await _seed_claim(
+            db, queried, "vR", "trade tariffs affect import prices"
+        )
+        owned_vec = await embed_text("trade tariffs affect import prices")
+        await cve.upsert_claim_embedding(db, owned_id, owned_vec)
+
+        # 30 foreign claims: near-duplicates of the query
+        foreign_texts = [
+            f"neural networks and deep learning architecture {i}"
+            for i in range(30)
+        ]
+        for i, txt in enumerate(foreign_texts):
+            cid = await _seed_claim(db, foreign, "vR", txt)
+            vec = await embed_text(txt)
+            await cve.upsert_claim_embedding(db, cid, vec)
+
+        query_vec = await embed_text("neural networks and deep learning")
+
+        # Verify that the foreign claims really do outrank the owned claim globally
+        # (i.e. the recall cliff is real at the old 5x=25 window)
+        import struct
+        blob = struct.pack(f"{len(query_vec)}f", *query_vec)
+        cur = await db.execute(
+            "SELECT claim_id, distance FROM speaker_claim_embeddings "
+            "WHERE claim_vec MATCH ? AND k = ? ORDER BY distance",
+            (blob, 25),
+        )
+        top25_ids = [r[0] for r in await cur.fetchall()]
+        assert owned_id not in top25_ids, (
+            "Owned claim is in the global top-25 — the cliff scenario isn't triggered. "
+            "Adjust text so foreign claims dominate more strongly."
+        )
+
+        # Now call search_claim_vectors and assert the owned claim is returned
+        hits = await cve.search_claim_vectors(db, queried, query_vec, limit=5)
+        ids = {cid for cid, _ in hits}
+        assert owned_id in ids, (
+            "search_claim_vectors returned empty/wrong results — "
+            "the owned claim was dropped because the over-fetch window was too small."
+        )
+    _run(go())
