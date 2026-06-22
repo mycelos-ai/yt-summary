@@ -16,6 +16,7 @@ from app.repos import speaker_claims as claims_repo
 from app.repos import speakers as sp_repo
 from app.repos import videos as videos_repo
 from app.services import avatars, speaker_pipeline
+from app.services import speakers as speakers_svc
 from app.services.markdown import render_markdown
 from app.services.speaker_chat import stream_speaker_reply
 from app.services.speaker_claims import extract_claims_for_source, retrieve_for_prompt
@@ -220,10 +221,7 @@ async def activate_speaker(
     current_user_id: int = Depends(get_current_user_id),
 ):
     await _owned_speaker(db, speaker_id, current_user_id)
-    # PR 2 only flips the flag. Enqueuing the library-wide backfill job
-    # is a PR-4 follow-up (services/speaker_backfill.py) — intentionally
-    # NOT done here, so activation stays cheap and claim-free in PR 2.
-    await sp_repo.set_active(db, speaker_id, True)
+    await speakers_svc.activate(db, speaker_id)
     speaker = await sp_repo.get_speaker(db, speaker_id)
     if caller == "page":
         return _actions_panel(request, speaker)
