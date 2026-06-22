@@ -2744,3 +2744,86 @@ mark.highlight-not_interesting {
   line-height: 1.4;
 }
 .persona-disclaimer[hidden] { display: none; }
+
+/* Track-record peek — collapsible claim list beside persona chat */
+.track-record-peek {
+  margin-bottom: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--surface-soft);
+}
+.track-record-peek summary {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--slate);
+  cursor: pointer;
+  user-select: none;
+}
+.track-record-peek ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.track-record-peek li a {
+  font-size: 13px;
+  color: var(--steel);
+  text-decoration: none;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.track-record-peek li a:hover { color: var(--ink); text-decoration: underline; }
+.peek-ts {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Speaker candidates — "Possible sources" block, distinct from confirmed */
+.speaker-candidates-wrap {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--hairline);
+}
+.speaker-candidates-wrap .candidates-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--stone);
+  margin-bottom: 4px;
+}
+.speaker-candidates-wrap .candidates-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.speaker-candidates-wrap .candidates-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.speaker-candidates-wrap .candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--slate);
+}
+.speaker-candidates-wrap .candidate-signal {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-xs);
+  padding: 1px 6px;
+}
+.speaker-candidates-wrap .candidates-empty {
+  font-size: 13px;
+  color: var(--muted);
+}

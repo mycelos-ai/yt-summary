@@ -104,6 +104,10 @@
     </form>
   </section>
 
-  {# EXTENSION POINT (PR 4): "Possible sources" (candidates) go here. #}
+  <section class="speaker-section speaker-candidates-wrap" aria-label="Possible sources">
+    {% with speaker_id = speaker.id %}
+      {% include "_speaker_candidates.html" %}
+    {% endwith %}
+  </section>
 </article>
 {% endblock %}

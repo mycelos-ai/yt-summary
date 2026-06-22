@@ -176,6 +176,24 @@
     ⚠️ Simulated — AI impression based on your sources, not their real words.
   </div>
 
+  {% if track_record %}
+  <details class="track-record-peek" open>
+    <summary>What {{ persona_name | e }} has said before</summary>
+    <ul>
+      {% for c in track_record %}
+      <li>
+        <a href="/v/{{ c.source_id }}{% if c.evidence_start_s is not none %}#t={{ c.evidence_start_s }}{% endif %}">
+          {{ c.claim | e }}
+          {% if c.evidence_start_s is not none %}
+            <span class="peek-ts">[{{ (c.evidence_start_s // 60) }}:{{ '%02d' % (c.evidence_start_s % 60) }}]</span>
+          {% endif %}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+
   {% if video.summary %}
     <section class="chat">
       <h2>Chat</h2>

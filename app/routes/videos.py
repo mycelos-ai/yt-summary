@@ -622,6 +622,14 @@ async def video_detail(
         except (ValueError, TypeError):
             related_links = []
     speakers = await source_speakers_repo.list_for_source(db, video.id)
+    # Track-record peek: claims for the episode's persona speaker (first
+    # linked speaker). No chat query at page load → recency order.
+    track_record = []
+    persona_name = ""
+    if speakers:
+        persona_name = speakers[0].name
+        from app.repos import speaker_claims as claims_repo
+        track_record = await claims_repo.list_for_speaker(db, speakers[0].id)
     return templates.TemplateResponse(
         request,
         "video_detail.html",
@@ -639,6 +647,8 @@ async def video_detail(
             "feedbacks_data": feedbacks_data,
             "related_links": related_links,
             "speakers": speakers,
+            "track_record": track_record,
+            "persona_name": persona_name,
         },
     )
 
