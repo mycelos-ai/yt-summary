@@ -177,6 +177,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
     summary_vec FLOAT[384]
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS speaker_claim_embeddings USING vec0(
+    claim_id INTEGER PRIMARY KEY,
+    claim_vec FLOAT[384]
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
     id UNINDEXED,
     title,
@@ -978,6 +983,15 @@ async def _migrate_v7_embedding_dim(conn: aiosqlite.Connection) -> None:
         CREATE VIRTUAL TABLE IF NOT EXISTS video_embeddings USING vec0(
             video_id TEXT PRIMARY KEY,
             summary_vec FLOAT[384]
+        )
+        """
+    )
+    await conn.execute("DROP TABLE IF EXISTS speaker_claim_embeddings")
+    await conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS speaker_claim_embeddings USING vec0(
+            claim_id INTEGER PRIMARY KEY,
+            claim_vec FLOAT[384]
         )
         """
     )
