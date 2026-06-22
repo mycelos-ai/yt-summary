@@ -26,6 +26,13 @@ class JobState(StrEnum):
     FAILED = "failed"
 
 
+class SpeakerJobState(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
 ChatRole = Literal["user", "assistant"]
 
 
@@ -90,6 +97,17 @@ class Job:
     updated_at: datetime
     llm_model_id: int | None = None
     additional_prompt: str | None = None
+
+
+@dataclass
+class SpeakerJob:
+    id: int
+    speaker_id: int
+    state: SpeakerJobState
+    step: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass

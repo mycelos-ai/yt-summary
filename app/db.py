@@ -433,6 +433,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_threads_source_speaker
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_threads_speaker
     ON chat_threads(user_id, speaker_id) WHERE scope = 'speaker';
 
+CREATE TABLE IF NOT EXISTS speaker_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK(state IN ('pending','running','done','failed')),
+    step TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_speaker_jobs_state ON speaker_jobs(state, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_speaker_jobs_speaker ON speaker_jobs(speaker_id, id);
+
 """
 
 
