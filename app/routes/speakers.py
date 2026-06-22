@@ -1,3 +1,4 @@
+import contextlib
 from pathlib import Path
 
 import aiosqlite
@@ -440,6 +441,10 @@ async def post_claim_review(
     if status not in ("unreviewed", "accepted", "rejected"):
         raise HTTPException(400, "bad status")
     await claims_repo.set_review_status(db, claim_id, status)
+    if status == "rejected":
+        from app.repos import speaker_claim_embeddings as cve
+        with contextlib.suppress(Exception):
+            await cve.delete_claim_embedding(db, claim_id)
     return HTMLResponse(await _claims_fragment(db, request, speaker))
 
 

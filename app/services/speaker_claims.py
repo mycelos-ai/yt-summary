@@ -380,7 +380,7 @@ async def _load_claims_by_id(db, claim_ids: list[int]) -> dict:
     cur = await db.execute(
         f"SELECT c.*, v.title AS source_title "
         f"FROM speaker_claims c JOIN videos v ON v.id = c.source_id "
-        f"WHERE c.id IN ({marks})",
+        f"WHERE c.id IN ({marks}) AND c.review_status != 'rejected'",
         claim_ids,
     )
     rows = await cur.fetchall()

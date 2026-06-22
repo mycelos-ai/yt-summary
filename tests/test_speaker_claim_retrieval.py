@@ -260,3 +260,49 @@ def test_retrieval_falls_back_to_recency_without_embeddings(db, monkeypatch):
         )
 
     _run(go())
+
+
+def test_rejected_claim_excluded_from_retrieval(db):
+    """Rejected claims must NOT appear in retrieve_for_prompt, even via the KNN path.
+
+    Regression for the PR-4 bug: _load_claims_by_id (KNN path) previously
+    had no review_status filter, so a rejected claim whose vector was still
+    in speaker_claim_embeddings would be re-injected via KNN.
+    """
+    async def go():
+        from app.repos import speakers as speakers_repo
+        from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
+
+        sid = await speakers_repo.resolve_speaker(db, name="Hannah H")
+        await _video(db, "vH")
+
+        # Insert the claim and embed it (vector must exist to trigger the KNN path).
+        claim_id = await _claim(
+            db, sid, "vH", "Bitcoin is a hedge against inflation", topic="crypto"
+        )
+        await cve.upsert_claim_embedding(
+            db, claim_id, await _embed("Bitcoin is a hedge against inflation")
+        )
+
+        # Sanity: the claim is returned before rejection (vector hit via KNN).
+        out_before = await speaker_claims.retrieve_for_prompt(
+            db, sid, query="crypto inflation hedge", limit=5
+        )
+        assert any(c["claim"].startswith("Bitcoin") for c in out_before), (
+            "sanity: Bitcoin claim should be present before rejection"
+        )
+
+        # Reject the claim via the repo.
+        await repo.set_review_status(db, claim_id, "rejected")
+
+        # After rejection the claim must NOT appear — the vector still exists in the
+        # embeddings table, so only a proper filter in _load_claims_by_id can block it.
+        out_after = await speaker_claims.retrieve_for_prompt(
+            db, sid, query="crypto inflation hedge", limit=5
+        )
+        assert not any(c["claim"].startswith("Bitcoin") for c in out_after), (
+            "rejected claim must not appear via KNN path after set_review_status('rejected')"
+        )
+
+    _run(go())
