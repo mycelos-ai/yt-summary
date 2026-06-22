@@ -366,3 +366,15 @@ class SpeakerClaim:
     attribution_reason: str | None
     review_status: str
     created_at: datetime
+
+
+@dataclass
+class SpeakerSourceCandidate:
+    id: int
+    user_id: int
+    speaker_id: int
+    source_id: str
+    signal: str
+    score: float | None
+    state: str
+    created_at: datetime
