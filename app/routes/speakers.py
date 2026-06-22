@@ -11,8 +11,8 @@ from app.main import get_config, get_current_user_id, get_db
 from app.repos import chat as chat_repo
 from app.repos import chat_threads as threads_repo
 from app.repos import llm_models as llm_models_repo
-from app.repos import source_speakers as ss_repo
 from app.repos import source_speakers as source_speakers_repo
+from app.repos import source_speakers as ss_repo
 from app.repos import speaker_claims as claims_repo
 from app.repos import speaker_source_candidates as candidates_repo
 from app.repos import speakers as sp_repo
