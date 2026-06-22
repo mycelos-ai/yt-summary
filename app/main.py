@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.services.translation import translate
     from app.services.tts_render import render_chunks_to_mp3
     from app.services.tts_voices import download_voice
+    from app.speaker_backfill_worker import SpeakerBackfillWorker
     from app.tts_worker import TtsWorker
     from app.worker import Worker
 
@@ -69,12 +70,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # startup crash would leak the handler into the process logger
     # and (in tests) into the next `create_app()` call.
     db = None
-    scheduler_task = worker_task = tts_worker_task = None
-    scheduler = worker = tts_worker = None
+    scheduler_task = worker_task = tts_worker_task = backfill_worker_task = None
+    scheduler = worker = tts_worker = backfill_worker = None
     try:
         db = await connect(config)
         await init_schema(db)
         await jobs_repo.reset_orphaned_running(db)
+        from app.repos import speaker_jobs as speaker_jobs_repo
+        await speaker_jobs_repo.reset_orphaned_running(db)
         n_reset = await tts_jobs_repo.reset_orphaned_active(db)
         if n_reset:
             logging.getLogger("yt_summary.boot").warning(
@@ -117,6 +120,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         tts_worker_task = asyncio.create_task(tts_worker.run())
 
+        backfill_worker = SpeakerBackfillWorker(db=db, config=config)
+        backfill_worker_task = asyncio.create_task(backfill_worker.run())
+        app.state.backfill_worker = backfill_worker
+
         scheduler = PlaylistScheduler(
             db=db, config=config, sync_fn=sync_playlist,
             mail_sync_fn=sync_mailbox, heartbeat=heartbeats,
@@ -143,6 +150,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             worker.stop()
         if tts_worker is not None:
             tts_worker.stop()
+        if backfill_worker is not None:
+            backfill_worker.stop()
         digest_scheduler = getattr(app.state, "digest_scheduler", None)
         digest_scheduler_task = getattr(
             app.state, "digest_scheduler_task", None,
@@ -158,6 +167,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await worker_task
         if tts_worker_task is not None:
             await tts_worker_task
+        if backfill_worker_task is not None:
+            await backfill_worker_task
         if db is not None:
             await db.close()
         root_logger.removeHandler(log_buffer)

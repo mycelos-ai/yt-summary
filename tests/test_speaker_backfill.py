@@ -102,3 +102,24 @@ def test_activate_enqueues_backfill(db):
         assert sp.is_active is True
 
     _run(go())
+
+
+def test_run_pending_backfills_drains_queue(db, monkeypatch):
+    async def go():
+        from app.repos import speaker_jobs as sj
+        sid = await speakers_repo.resolve_speaker(db, name="Quinn Q")
+        await _video(db, "qv"); await _link(db, sid, "qv")
+        await sj.enqueue(db, sid)
+
+        async def fake_extract(db_, source, speaker_ids, **kw):
+            return []
+        monkeypatch.setattr(
+            "app.services.speaker_backfill.extract_claims_for_source", fake_extract
+        )
+        n = await speaker_backfill.run_pending_backfills(
+            db, model="m", api_key="", base_url=None, limit=5
+        )
+        assert n == 1
+        job = await sj.latest_for_speaker(db, sid)
+        assert job.state.value == "done"
+    _run(go())
