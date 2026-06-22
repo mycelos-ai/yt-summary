@@ -121,9 +121,11 @@ async def speaker_page(
 ):
     speaker = await _owned_speaker(db, speaker_id, current_user_id)
     sources = await ss_repo.list_sources_for_speaker(db, speaker_id)
+    grouped = await claims_repo.list_for_speaker(db, speaker_id, grouped_by_topic=True)
     return templates.TemplateResponse(
         request, "speaker.html",
-        {"speaker": speaker, "sources": sources, "avatars": avatars.AVATARS},
+        {"speaker": speaker, "sources": sources, "avatars": avatars.AVATARS,
+         "grouped": grouped},
     )
 
 

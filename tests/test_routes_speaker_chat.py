@@ -269,3 +269,45 @@ def test_claim_review_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
             f"/speaker/{b_id}/claims/{claim_id}/review",
             data={"status": "accepted"})
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 9: dossier UI + persona disclaimer banner
+# ---------------------------------------------------------------------------
+
+def test_speaker_page_renders_dossier_with_review_state(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid1 = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="reviewed claim", topic="markets",
+                evidence_text="ev", evidence_start_s=42)
+            await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="raw claim", topic="ai")
+            await repo.set_review_status(app.state.db, cid1, "accepted")
+            return speaker_id
+        speaker_id = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get(f"/speaker/{speaker_id}")
+        assert resp.status_code == 200
+        body = resp.text
+        # claims grouped by topic, with evidence + the unreviewed marker
+        assert "reviewed claim" in body
+        assert "raw claim" in body
+        assert "markets" in body and "ai" in body
+        assert "unreviewed" in body          # the marker class/label for the raw claim
+        # whole-dossier chat composer points at the speaker route
+        assert f"/speaker/{speaker_id}/chat" in body
+
+
+def test_video_detail_has_persona_disclaimer_banner(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        asyncio.get_event_loop().run_until_complete(_setup(app))
+        resp = client.get("/v/vs1")
+        assert resp.status_code == 200
+        # the simulated-persona banner copy is present (hidden until persona mode)
+        assert "Simulated" in resp.text or "AI impression" in resp.text

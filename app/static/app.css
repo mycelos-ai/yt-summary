@@ -2588,3 +2588,159 @@ mark.highlight-not_interesting {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Speaker dossier (claim track record) ───────────────────── */
+
+.speaker-section {
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid var(--hairline);
+}
+.speaker-section h2 {
+  font-size: 22px;
+  margin-bottom: 16px;
+}
+
+.speaker-dossier {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.dossier-empty {
+  color: var(--steel);
+  font-size: 14px;
+}
+
+.dossier-topic {
+  display: block;
+}
+.dossier-topic-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--slate);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
+}
+
+.dossier-claims {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dossier-claim {
+  padding: 12px 14px;
+  background: var(--surface-soft);
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--rounded-md);
+  font-size: 14px;
+  line-height: 1.5;
+  transition: opacity 150ms ease;
+}
+.dossier-claim--unreviewed { opacity: .6; }
+.dossier-claim--rejected   { text-decoration: line-through; opacity: .4; }
+
+.dossier-claim-text {
+  margin: 0 0 6px;
+  color: var(--charcoal);
+  font-weight: 500;
+}
+
+.dossier-evidence {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--hairline);
+  background: var(--surface);
+  border-radius: 0 var(--rounded-xs) var(--rounded-xs) 0;
+  font-size: 13px;
+  color: var(--slate);
+  font-style: italic;
+}
+
+.dossier-meta {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--steel);
+}
+
+.dossier-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--rounded-full);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.dossier-badge--unreviewed {
+  background: var(--surface);
+  color: var(--stone);
+  border: 1px solid var(--hairline);
+}
+.dossier-badge--accepted {
+  background: rgba(0, 212, 164, 0.10);
+  color: var(--brand-green-deep);
+  border: 1px solid rgba(0, 212, 164, 0.25);
+}
+.dossier-badge--rejected {
+  background: rgba(212, 86, 86, 0.08);
+  color: var(--brand-error);
+  border: 1px solid rgba(212, 86, 86, 0.22);
+}
+
+.dossier-confidence {
+  color: var(--muted);
+}
+.dossier-source {
+  color: var(--steel);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.dossier-source:hover { color: var(--ink); }
+
+.dossier-claim-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dossier-claim-actions button {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-full);
+  background: var(--canvas);
+  color: var(--steel);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.dossier-claim-actions button:hover {
+  background: var(--surface);
+  border-color: var(--stone);
+  color: var(--ink);
+}
+
+/* Persona disclaimer banner — visible always on speaker page,
+   hidden until persona mode on the video detail page. */
+.persona-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(212, 86, 86, 0.06);
+  border: 1px solid rgba(212, 86, 86, 0.20);
+  border-radius: var(--rounded-md);
+  font-size: 13px;
+  color: var(--slate);
+  line-height: 1.4;
+}
+.persona-disclaimer[hidden] { display: none; }

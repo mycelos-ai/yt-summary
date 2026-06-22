@@ -85,7 +85,25 @@
     {% endif %}
   </section>
 
-  {# EXTENSION POINT (PR 3): claims/dossier grouped by topic go here. #}
-  {# EXTENSION POINT (PR 4): "Possible sources" (candidates) + whole-dossier chat go here. #}
+  <section class="speaker-section speaker-track-record">
+    <h2>Track record</h2>
+    {% include "_speaker_claims.html" %}
+  </section>
+
+  <section class="speaker-section speaker-chat">
+    <div class="persona-disclaimer">
+      ⚠️ Simulated — AI impression of {{ speaker.name | e }} based on your
+      sources, not their real words.
+    </div>
+    <div id="chat-history" class="chat-thread"></div>
+    <form class="chat-composer"
+          hx-post="/speaker/{{ speaker.id }}/chat"
+          hx-target="#chat-history" hx-swap="beforeend">
+      <input type="text" name="content" placeholder="Chat with {{ speaker.name | e }}…" required>
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  {# EXTENSION POINT (PR 4): "Possible sources" (candidates) go here. #}
 </article>
 {% endblock %}
