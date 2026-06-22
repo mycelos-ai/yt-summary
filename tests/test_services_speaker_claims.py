@@ -316,3 +316,65 @@ def test_garbage_does_not_wipe_existing_claims(db):
         assert len(persisted) == 1
         assert persisted[0].claim == first_claim
     _run(go())
+
+
+def test_replace_for_source_speakers_commit_false_is_atomic(db):
+    """Finding 2: replace_for_source_speakers(commit=False) + rollback must
+    leave the old claim intact — proves the delete is not auto-committed and
+    the whole replace+reinsert can be one atomic unit."""
+    async def go():
+        from app.repos import speaker_claims as repo
+
+        cur = await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'S','s')")
+        sid = cur.lastrowid
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('v1', 1, 'youtube', 'u', 'Ep')")
+        await db.commit()
+
+        # Seed an existing claim (committed)
+        await repo.insert_claim(db, speaker_id=sid, source_id="v1", claim="old")
+
+        # Delete with commit=False → should NOT auto-commit
+        await repo.replace_for_source_speakers(db, "v1", [sid], commit=False)
+
+        # Simulate crash / task cancellation with rollback
+        await db.rollback()
+
+        # Old claim must survive the rolled-back delete
+        remaining = await repo.list_for_speaker(db, sid)
+        assert len(remaining) == 1, (
+            f"old claim was lost after rolled-back delete; remaining={remaining}"
+        )
+        assert remaining[0].claim == "old"
+    _run(go())
+
+
+def test_extract_is_atomic_replace(db):
+    """Finding 2 end-to-end: extract_claims_for_source performs the whole
+    delete + re-insert as one atomic unit (single commit after the loop).
+    Old claim gone, new one present — proves the single-commit batch works."""
+    async def go():
+        from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
+        ids, source = await _seed(db)
+
+        # Seed an old claim for Chamath (ids[0])
+        await repo.insert_claim(db, speaker_id=ids[0], source_id="vid-1",
+                                claim="old stale claim", topic="old")
+
+        # Run extraction with a valid LLM response (new claim for Chamath)
+        with patch("app.services.speaker_claims.litellm.acompletion", _completion(_CLEAN)):
+            out = await speaker_claims.extract_claims_for_source(
+                db, source, ids, model="m", api_key="k", base_url=None,
+            )
+
+        assert len(out) == 2
+        persisted = await repo.list_for_speaker(db, ids[0])
+        claims_text = [c.claim for c in persisted]
+        assert "old stale claim" not in claims_text, (
+            "old claim was not replaced — atomicity broken"
+        )
+        assert "SPACs are mispriced" in claims_text
+    _run(go())

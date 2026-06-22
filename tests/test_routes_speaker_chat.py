@@ -312,3 +312,36 @@ def test_video_detail_has_persona_disclaimer_banner(tmp_path, monkeypatch):
         assert resp.status_code == 200
         # the simulated-persona banner copy is present (hidden until persona mode)
         assert "Simulated" in resp.text or "AI impression" in resp.text
+
+
+def test_per_episode_persona_does_not_leak_into_video_chat(tmp_path, monkeypatch):
+    """Finding 1: persona rows written by the per-episode persona route must NOT
+    appear in the video's regular chat history (no thread_id filter in the
+    normal video-chat read path)."""
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        speaker_id = asyncio.get_event_loop().run_until_complete(_setup(app))
+        with patch("app.routes.speakers.stream_speaker_reply", side_effect=_fake_stream):
+            resp = client.post(
+                f"/v/vs1/speaker/{speaker_id}/chat",
+                data={"content": "hi"})
+        assert resp.status_code == 200
+
+        async def check():
+            from app.repos import chat as chat_repo
+            from app.repos import chat_threads as threads_repo
+            # Video-chat read path: no thread_id — exact path used by
+            # app/routes/videos.py and app/routes/chat.py
+            vid_hist = await chat_repo.history(app.state.db, "vs1")
+            assert vid_hist == [], (
+                f"persona rows leaked into video chat: {[m.content for m in vid_hist]}"
+            )
+            # Also verify the persona thread itself still has the 2 rows
+            tid = await threads_repo.get_or_create(
+                app.state.db, scope="source_speaker",
+                source_id="vs1", speaker_id=speaker_id)
+            thread_hist = await chat_repo.history(app.state.db, thread_id=tid)
+            assert [m.role for m in thread_hist] == ["user", "assistant"], (
+                f"persona thread lost messages: {[m.role for m in thread_hist]}"
+            )
+        asyncio.get_event_loop().run_until_complete(check())

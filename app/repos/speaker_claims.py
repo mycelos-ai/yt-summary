@@ -34,6 +34,7 @@ async def insert_claim(
     confidence: float | None = None, extraction_method: str = "llm",
     attribution_method: str | None = None, attribution_confidence: float | None = None,
     attribution_reason: str | None = None,
+    commit: bool = True,
 ) -> int:
     cur = await db.execute(
         "INSERT INTO speaker_claims ("
@@ -47,8 +48,9 @@ async def insert_claim(
          text_end_offset, confidence, extraction_method, attribution_method,
          attribution_confidence, attribution_reason),
     )
-    await db.commit()
     assert cur.lastrowid is not None
+    if commit:
+        await db.commit()
     return cur.lastrowid
 
 
@@ -112,10 +114,15 @@ async def edit_claim(db: aiosqlite.Connection, claim_id: int, **fields) -> None:
 
 async def replace_for_source_speakers(
     db: aiosqlite.Connection, source_id: str, speaker_ids: list[int],
+    commit: bool = True,
 ) -> None:
     """Delete THIS source's claims for the given speakers (forward-only
     re-derivation: the extractor re-inserts immediately after). No-op on
-    an empty speaker list."""
+    an empty speaker list.
+
+    When commit=False the DELETE is executed but NOT committed, allowing the
+    caller to batch the delete + re-inserts into a single atomic transaction.
+    """
     if not speaker_ids:
         return
     marks = ",".join("?" for _ in speaker_ids)
@@ -123,4 +130,5 @@ async def replace_for_source_speakers(
         f"DELETE FROM speaker_claims WHERE source_id=? AND speaker_id IN ({marks})",
         (source_id, *speaker_ids),
     )
-    await db.commit()
+    if commit:
+        await db.commit()

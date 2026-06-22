@@ -259,9 +259,11 @@ async def extract_claims_for_source(
         })
 
     # Replace-on-reprocess: clear THIS source's rows for these speakers,
-
     # then insert fresh. Prevents duplicates on re-extraction.
-    await claims_repo.replace_for_source_speakers(db, source.id, speaker_ids)
+    # commit=False on both delete and every insert; single commit after the
+    # loop makes the whole replace+reinsert atomic — a crash before the commit
+    # rolls back the DELETE too, leaving prior claims intact.
+    await claims_repo.replace_for_source_speakers(db, source.id, speaker_ids, commit=False)
     for c in accepted:
         await claims_repo.insert_claim(
             db,
@@ -280,7 +282,9 @@ async def extract_claims_for_source(
             attribution_method=c["attribution_method"],
             attribution_confidence=c["attribution_confidence"],
             attribution_reason=c["attribution_reason"],
+            commit=False,
         )
+    await db.commit()
     return accepted
 
 

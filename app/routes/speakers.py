@@ -300,7 +300,7 @@ async def _run_persona_turn(
     # thread_id is set, history() selects by thread_id and ignores video_id.
     claims = await retrieve_for_prompt(db, speaker.id, query=content, limit=12)
     history = await chat_repo.history(db, video_id, thread_id=thread_id)
-    await chat_repo.append(db, video_id, "user", content,
+    await chat_repo.append(db, None, "user", content,
                            user_id=speaker.user_id, thread_id=thread_id)
     collected: list[str] = []
     error: str | None = None
@@ -315,7 +315,7 @@ async def _run_persona_turn(
         error = f"{type(e).__name__}: {e}"
     answer = "".join(collected)
     await chat_repo.append(
-        db, video_id, "assistant", answer if answer else f"[error: {error}]",
+        db, None, "assistant", answer if answer else f"[error: {error}]",
         user_id=speaker.user_id, thread_id=thread_id)
     parts = [_speaker_msg_html("user", content)]
     if answer:
