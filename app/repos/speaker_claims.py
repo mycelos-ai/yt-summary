@@ -52,6 +52,12 @@ async def insert_claim(
     return cur.lastrowid
 
 
+async def get(db: aiosqlite.Connection, claim_id: int) -> "SpeakerClaim | None":
+    cur = await db.execute("SELECT * FROM speaker_claims WHERE id=?", (claim_id,))
+    row = await cur.fetchone()
+    return _row(row) if row is not None else None
+
+
 async def list_for_speaker(
     db: aiosqlite.Connection, speaker_id: int, *, grouped_by_topic: bool = False,
 ):

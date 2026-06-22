@@ -17,7 +17,8 @@ from app.repos import videos as videos_repo
 from app.services import avatars, speaker_pipeline
 from app.services.markdown import render_markdown
 from app.services.speaker_chat import stream_speaker_reply
-from app.services.speaker_claims import retrieve_for_prompt
+from app.services.speaker_claims import extract_claims_for_source, retrieve_for_prompt
+from app.repos import speaker_claims as claims_repo
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -253,7 +254,7 @@ async def deactivate_speaker(
 
 
 # ---------------------------------------------------------------------------
-# Task 8 (PR 3): Persona chat routes
+# Task 7 (PR 3): Persona chat routes
 # ---------------------------------------------------------------------------
 
 def _speaker_msg_html(role: str, content: str, *, avatar_id: str | None = None,
@@ -369,3 +370,96 @@ async def post_dossier_chat(
         thread_id=thread_id, video_id=None, model=model, api_key=api_key,
         base_url=base_url, seed_ts=None, seed_quote=None)
     return HTMLResponse(html)
+
+
+# ---------------------------------------------------------------------------
+# Task 8 (PR 3): On-demand extract + claim edit/review routes
+# ---------------------------------------------------------------------------
+
+async def _claims_fragment(db, request: Request, speaker) -> str:
+    """Render the topic-grouped dossier partial for HTMX swap responses."""
+    grouped = await claims_repo.list_for_speaker(db, speaker.id, grouped_by_topic=True)
+    return templates.get_template("_speaker_claims.html").render(
+        request=request, speaker=speaker, grouped=grouped)
+
+
+async def _owned_claim(
+    db: aiosqlite.Connection,
+    speaker_id: int,
+    claim_id: int,
+):
+    """Load a claim and verify it belongs to speaker_id — else 404.
+
+    Complements the profile-ownership gate (speaker.user_id check) already
+    done before calling this helper. Finding 6: within one profile a
+    hand-crafted URL /speaker/{B}/claims/{A}/... could otherwise mutate
+    speaker A's claim under speaker B's page.
+    """
+    claim_row = await claims_repo.get(db, claim_id)
+    if claim_row is None or claim_row.speaker_id != speaker_id:
+        raise HTTPException(404, "Not found")
+    return claim_row
+
+
+@router.post("/speaker/{speaker_id}/sources/{source_id}/extract",
+             response_class=HTMLResponse)
+async def post_extract_source(
+    speaker_id: int, source_id: str, request: Request,
+    llm_model_id: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    source = await videos_repo.get(db, source_id)
+    if speaker is None or source is None:
+        raise HTTPException(404, "Not found")
+    if speaker.user_id != current_user_id or source.user_id != current_user_id:
+        raise HTTPException(404, "Not found")
+    model, api_key, base_url = await _resolve_model(db, llm_model_id)
+    await extract_claims_for_source(
+        db, source, [speaker_id], model=model, api_key=api_key, base_url=base_url)
+    return HTMLResponse(await _claims_fragment(db, request, speaker))
+
+
+@router.post("/speaker/{speaker_id}/claims/{claim_id}/review",
+             response_class=HTMLResponse)
+async def post_claim_review(
+    speaker_id: int, claim_id: int, request: Request,
+    status: str = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if speaker is None or speaker.user_id != current_user_id:
+        raise HTTPException(404, "Not found")
+    # Finding 6: also verify the claim belongs to this speaker (cross-speaker check).
+    await _owned_claim(db, speaker_id, claim_id)
+    if status not in ("unreviewed", "accepted", "rejected"):
+        raise HTTPException(400, "bad status")
+    await claims_repo.set_review_status(db, claim_id, status)
+    return HTMLResponse(await _claims_fragment(db, request, speaker))
+
+
+@router.post("/speaker/{speaker_id}/claims/{claim_id}/edit",
+             response_class=HTMLResponse)
+async def post_claim_edit(
+    speaker_id: int, claim_id: int, request: Request,
+    claim: str = Form(""), topic: str = Form(""),
+    evidence_text: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if speaker is None or speaker.user_id != current_user_id:
+        raise HTTPException(404, "Not found")
+    # Finding 6: also verify the claim belongs to this speaker (cross-speaker check).
+    await _owned_claim(db, speaker_id, claim_id)
+    fields: dict = {}
+    if claim.strip():
+        fields["claim"] = claim.strip()
+    if topic.strip():
+        fields["topic"] = topic.strip()
+    if evidence_text.strip():
+        fields["evidence_text"] = evidence_text.strip()
+    await claims_repo.edit_claim(db, claim_id, **fields)
+    return HTMLResponse(await _claims_fragment(db, request, speaker))

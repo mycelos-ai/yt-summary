@@ -120,3 +120,118 @@ def test_seed_ts_threaded_into_reply(tmp_path, monkeypatch):
                       "seed_quote": "the quote"})
         assert captured["seed_ts"] == "12:04"
         assert captured["seed_quote"] == "the quote"
+
+
+# ---------------------------------------------------------------------------
+# Task 8: on-demand extract + claim edit/review routes
+# ---------------------------------------------------------------------------
+
+def test_on_demand_extract_one_source(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+
+    async def fake_extract(db_, source, speaker_ids, *, model, api_key, base_url):
+        from app.repos import speaker_claims as repo
+        await repo.insert_claim(db_, speaker_id=speaker_ids[0],
+                                source_id=source.id, claim="extracted!", topic="t")
+        return [{"claim": "extracted!"}]
+
+    with TestClient(app) as client:
+        speaker_id = asyncio.get_event_loop().run_until_complete(_setup(app))
+        with patch("app.routes.speakers.extract_claims_for_source", side_effect=fake_extract):
+            resp = client.post(f"/speaker/{speaker_id}/sources/vs1/extract")
+        assert resp.status_code == 200
+        assert "extracted!" in resp.text
+
+
+def test_claim_review_sets_status(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="c", topic="t")
+            return speaker_id, cid
+        speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            f"/speaker/{speaker_id}/claims/{cid}/review",
+            data={"status": "accepted"})
+        assert resp.status_code == 200
+
+        async def check():
+            from app.repos import speaker_claims as repo
+            c = (await repo.list_for_speaker(app.state.db, speaker_id))[0]
+            assert c.review_status == "accepted"
+        asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_claim_edit_updates_text(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1",
+                claim="old", topic="t")
+            return speaker_id, cid
+        speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            f"/speaker/{speaker_id}/claims/{cid}/edit",
+            data={"claim": "new text", "topic": "macro"})
+        assert resp.status_code == 200
+        assert "new text" in resp.text
+
+
+def test_review_foreign_profile_404(tmp_path, monkeypatch):
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            speaker_id = await _setup(app)
+            from app.repos import speaker_claims as repo
+            cid = await repo.insert_claim(
+                app.state.db, speaker_id=speaker_id, source_id="vs1", claim="c")
+            await app.state.db.execute(
+                "UPDATE speakers SET user_id=999 WHERE id=?", (speaker_id,))
+            await app.state.db.commit()
+            return speaker_id, cid
+        speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.post(
+            f"/speaker/{speaker_id}/claims/{cid}/review",
+            data={"status": "accepted"})
+        assert resp.status_code == 404
+
+
+def test_claim_edit_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
+    """Finding 6: editing speaker A's claim via speaker B's URL must 404."""
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import speakers as sp_repo_local
+            from app.repos import speaker_claims as repo
+            from app.models import VideoKind, TranscriptSource
+            from app.repos import videos as videos_repo
+            from app.repos import llm_models as llm_models_repo
+            # Insert a video so source_id='v1' is valid
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.YOUTUBE, user_id=1)
+            await llm_models_repo.insert(
+                app.state.db, label="Test", provider_id="openai",
+                model="openai/gpt-4o", api_key="k", base_url="", make_default=True)
+            await app.state.db.commit()
+            # Two speakers in the same profile; a claim on speaker A
+            a_id = await sp_repo_local.resolve_speaker(app.state.db, name="Speaker A")
+            b_id = await sp_repo_local.resolve_speaker(app.state.db, name="Speaker B")
+            claim_id = await repo.insert_claim(
+                app.state.db, speaker_id=a_id, source_id="v1",
+                claim="A said this")
+            return b_id, claim_id
+        b_id, claim_id = asyncio.get_event_loop().run_until_complete(setup())
+        # Editing speaker A's claim via speaker B's URL must 404 (not silently edit)
+        resp = client.post(
+            f"/speaker/{b_id}/claims/{claim_id}/edit",
+            data={"claim": "hijacked"})
+        assert resp.status_code == 404

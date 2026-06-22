@@ -1,0 +1,49 @@
+{# app/templates/_speaker_claims.html — topic-grouped dossier fragment.
+   Reused by the speaker page and the extract/edit/review HTMX responses.
+   `unreviewed` rows are dimmed + marked; `rejected` rows are struck. #}
+<div id="speaker-claims" class="speaker-dossier">
+  {% if not grouped %}
+    <p class="dossier-empty">No claims yet. Activate this speaker or
+      extract from a source to build the track record.</p>
+  {% else %}
+    {% for topic, claims in grouped.items() %}
+      <section class="dossier-topic">
+        <h3 class="dossier-topic-title">{{ topic | e }}</h3>
+        <ul class="dossier-claims">
+          {% for c in claims %}
+            <li class="dossier-claim dossier-claim--{{ c.review_status }}"
+                data-claim-id="{{ c.id }}">
+              <p class="dossier-claim-text">{{ c.claim | e }}</p>
+              {% if c.evidence_text %}
+                <blockquote class="dossier-evidence">{{ c.evidence_text | e }}</blockquote>
+              {% endif %}
+              <p class="dossier-meta">
+                {% if c.review_status == 'unreviewed' %}
+                  <span class="dossier-badge dossier-badge--unreviewed">unreviewed</span>
+                {% elif c.review_status == 'accepted' %}
+                  <span class="dossier-badge dossier-badge--accepted">reviewed</span>
+                {% elif c.review_status == 'rejected' %}
+                  <span class="dossier-badge dossier-badge--rejected">rejected</span>
+                {% endif %}
+                {% if c.confidence is not none %}
+                  <span class="dossier-confidence">confidence {{ '%.0f' % (c.confidence * 100) }}%</span>
+                {% endif %}
+                <a class="dossier-source"
+                   href="/v/{{ c.source_id }}{% if c.evidence_start_s is not none %}#t={{ c.evidence_start_s }}{% endif %}">
+                  source{% if c.evidence_start_s is not none %} @ {{ c.evidence_start_s }}s{% endif %}</a>
+              </p>
+              <div class="dossier-claim-actions">
+                <button hx-post="/speaker/{{ speaker.id }}/claims/{{ c.id }}/review"
+                        hx-vals='{"status": "accepted"}'
+                        hx-target="#speaker-claims" hx-swap="outerHTML">Accept</button>
+                <button hx-post="/speaker/{{ speaker.id }}/claims/{{ c.id }}/review"
+                        hx-vals='{"status": "rejected"}'
+                        hx-target="#speaker-claims" hx-swap="outerHTML">Reject</button>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  {% endif %}
+</div>
