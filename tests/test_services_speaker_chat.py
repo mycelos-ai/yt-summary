@@ -109,6 +109,82 @@ async def test_stream_speaker_reply_yields_tokens():
         assert "".join(out) == "As I argued"
 
 
+# ---------------------------------------------------------------------------
+# Code-review findings: evidence_text in render + unattributed-claim hedge
+# ---------------------------------------------------------------------------
+
+def test_render_claims_includes_evidence_text():
+    from app.services.speaker_chat import build_speaker_system_prompt
+
+    claim_with_evidence = {
+        "claim": "markets will correct",
+        "topic": "macro",
+        "source_title": "All-In Ep 5",
+        "evidence_start_s": 120,
+        "attribution_method": "explicit_name",
+        "attribution_confidence": 0.9,
+        "review_status": "accepted",
+        "evidence_text": "we expect cuts by Q3",
+    }
+    claim_no_evidence = {
+        "claim": "rates are sticky",
+        "topic": "macro",
+        "source_title": "All-In Ep 6",
+        "evidence_start_s": 300,
+        "attribution_method": "explicit_name",
+        "attribution_confidence": 0.85,
+        "review_status": "accepted",
+        "evidence_text": None,
+    }
+    p = build_speaker_system_prompt(
+        speaker=_speaker(),
+        claims=[claim_with_evidence, claim_no_evidence],
+        source_context="ctx",
+    )
+    # evidence text must appear in the prompt so the model can actually cite it
+    assert "we expect cuts by Q3" in p
+    # a claim with no evidence_text must NOT leave an empty evidence clause or
+    # imply evidence is present (no trailing empty quotes / no bare "evidence:")
+    no_ev_section = p[p.index("rates are sticky"):]
+    assert '""' not in no_ev_section.split("\n")[0]
+    assert "evidence: " not in no_ev_section.split("\n")[0].lower() or "we expect" not in no_ev_section.split("\n")[0]
+
+
+def test_unattributed_claim_is_hedged():
+    from app.services.speaker_chat import build_speaker_system_prompt
+
+    unattributed = {
+        "claim": "deficits will balloon",
+        "topic": "fiscal",
+        "source_title": "Pod X",
+        "evidence_start_s": None,
+        "attribution_method": None,
+        "attribution_confidence": None,
+        "review_status": "unreviewed",
+        "evidence_text": None,
+    }
+    p = build_speaker_system_prompt(
+        speaker=_speaker(), claims=[unattributed], source_context="ctx")
+
+    # The rendered claim line must carry a marker that the prompt's hedge rule names,
+    # so the model knows to speak tentatively about it.
+    # We check that the rendered claim line contains "unattributed" or "llm_inferred"
+    # (whichever marker the hedge sentence references).
+    claim_line = next(
+        line for line in p.splitlines() if "deficits will balloon" in line
+    )
+    hedge_markers = ("unattributed", "llm_inferred")
+    assert any(m in claim_line for m in hedge_markers), (
+        f"claim line must contain a hedge marker {hedge_markers!r}, got: {claim_line!r}"
+    )
+    # The prompt's hedge instruction must also name that same marker so the rule
+    # is reachable for unattributed claims.
+    marker_used = next(m for m in hedge_markers if m in claim_line)
+    assert marker_used in p, (
+        f"prompt hedge sentence must reference the marker '{marker_used}'"
+    )
+
+
 async def test_stream_speaker_reply_passes_system_prompt_and_history():
     from app.services.speaker_chat import build_speaker_system_prompt, stream_speaker_reply
     from app.models import ChatMessage

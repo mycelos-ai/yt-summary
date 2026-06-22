@@ -20,13 +20,19 @@ from app.models import ChatMessage
 from app.services.chat_core import build_messages
 
 
+_EVIDENCE_TRUNCATE = 200  # chars; keeps rendered lines readable
+
+
 def _render_claims(claims: list[dict]) -> str:
     if not claims:
         return "(no attributed claims retrieved for this question yet)"
     lines: list[str] = []
     for c in claims:
         conf = c.get("attribution_confidence")
-        method = c.get("attribution_method") or "unspecified"
+        method = c.get("attribution_method")
+        # None/unspecified attribution → emit "unattributed" so the hedge rule fires
+        if not method:
+            method = "unattributed"
         tag = f"[attribution: {method}"
         if isinstance(conf, (int, float)):
             tag += f", confidence {conf:.2f}"
@@ -34,7 +40,14 @@ def _render_claims(claims: list[dict]) -> str:
         src = c.get("source_title") or "a source"
         ts = c.get("evidence_start_s")
         where = f" ({src}" + (f" @ {int(ts)}s" if isinstance(ts, (int, float)) else "") + ")"
-        lines.append(f"- {c.get('claim', '')} {tag}{where}")
+        # Include evidence excerpt when available so the model can cite it
+        ev = (c.get("evidence_text") or "").strip()
+        if ev:
+            snippet = ev[:_EVIDENCE_TRUNCATE] + ("…" if len(ev) > _EVIDENCE_TRUNCATE else "")
+            evidence_clause = f' [evidence: "{snippet}"]'
+        else:
+            evidence_clause = ""
+        lines.append(f"- {c.get('claim', '')} {tag}{where}{evidence_clause}")
     return "\n".join(lines)
 
 
@@ -63,13 +76,14 @@ def build_speaker_system_prompt(
         "GROUNDING:\n"
         "- Anchor everything assertible in the ATTRIBUTED CLAIMS and the "
         "attributed excerpts below. These are attributed claims extracted "
-        f"from the viewer's sources, each with evidence — paraphrases of "
-        f"{name}'s positions, not verbatim quotes. Do NOT present them as "
-        f"exact verbatim utterances.\n"
+        f"from the viewer's sources — paraphrases of {name}'s positions, "
+        "not verbatim quotes. Where available, each claim includes an "
+        "evidence excerpt you may cite. Do NOT present claims or excerpts "
+        "as exact verbatim utterances.\n"
         f"- Each claim is tagged with how confidently it was attributed to "
-        f"{name}. For claims marked 'llm_inferred' OR with confidence below 0.7, "
-        "speak more tentatively (\"I think I've argued…\", \"as I recall…\") "
-        "rather than asserting them flatly.\n"
+        f"{name}. For claims marked 'llm_inferred' OR 'unattributed' OR with "
+        "confidence below 0.7, speak more tentatively (\"I think I've argued…\", "
+        "\"as I recall…\") rather than asserting them flatly.\n"
         "- The CURRENT SOURCE TRANSCRIPT is context for flow and style ONLY. "
         f"Do NOT present things from it as {name}'s statements unless they are "
         "attributed.\n"
