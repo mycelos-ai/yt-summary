@@ -12,7 +12,9 @@ from app.repos import chat as chat_repo
 from app.repos import chat_threads as threads_repo
 from app.repos import llm_models as llm_models_repo
 from app.repos import source_speakers as ss_repo
+from app.repos import source_speakers as source_speakers_repo
 from app.repos import speaker_claims as claims_repo
+from app.repos import speaker_source_candidates as candidates_repo
 from app.repos import speakers as sp_repo
 from app.repos import videos as videos_repo
 from app.services import avatars, speaker_pipeline
@@ -463,3 +465,56 @@ async def post_claim_edit(
         fields["evidence_text"] = evidence_text.strip()
     await claims_repo.edit_claim(db, claim_id, **fields)
     return HTMLResponse(await _claims_fragment(db, request, speaker))
+
+
+# ---------------------------------------------------------------------------
+# Task 10 (PR 4): Candidate confirm / dismiss / list routes
+# ---------------------------------------------------------------------------
+
+def _candidates_fragment(speaker_id: int, candidates) -> str:
+    """Render the pending-candidates partial for HTMX swap responses."""
+    return templates.get_template("_speaker_candidates.html").render(
+        speaker_id=speaker_id, candidates=candidates)
+
+
+@router.get("/speaker/{speaker_id}/candidates", response_class=HTMLResponse)
+async def get_candidates(
+    speaker_id: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    await _owned_speaker(db, speaker_id, current_user_id)
+    cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
+    return HTMLResponse(_candidates_fragment(speaker_id, cands))
+
+
+@router.post("/speaker/{speaker_id}/candidates/{cid}/confirm", response_class=HTMLResponse)
+async def confirm_candidate(
+    speaker_id: int, cid: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    await _owned_speaker(db, speaker_id, current_user_id)
+    cand = await candidates_repo.get(db, cid)
+    if cand is None or cand.speaker_id != speaker_id:
+        raise HTTPException(404, "Candidate not found")
+    await source_speakers_repo.link_speaker(
+        db, cand.source_id, speaker_id, detection_source="manual")
+    await candidates_repo.set_state(db, cid, "confirmed")
+    cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
+    return HTMLResponse(_candidates_fragment(speaker_id, cands))
+
+
+@router.post("/speaker/{speaker_id}/candidates/{cid}/dismiss", response_class=HTMLResponse)
+async def dismiss_candidate(
+    speaker_id: int, cid: int,
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    await _owned_speaker(db, speaker_id, current_user_id)
+    cand = await candidates_repo.get(db, cid)
+    if cand is None or cand.speaker_id != speaker_id:
+        raise HTTPException(404, "Candidate not found")
+    await candidates_repo.set_state(db, cid, "dismissed")
+    cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
+    return HTMLResponse(_candidates_fragment(speaker_id, cands))

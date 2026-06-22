@@ -1,0 +1,23 @@
+{# app/templates/_speaker_candidates.html — pending discovery candidates fragment.
+   Rendered by the candidate list/confirm/dismiss routes. speaker_id + candidates
+   are passed from the route helper. #}
+<div id="speaker-candidates" class="speaker-candidates">
+  {% if not candidates %}
+    <p class="candidates-empty">No possible sources right now.</p>
+  {% else %}
+    <h3 class="candidates-title">Possible sources</h3>
+    <p class="candidates-hint">Suggested by discovery — confirm to add to the dossier.</p>
+    <ul class="candidates-list">
+      {% for c in candidates %}
+        <li class="candidate" data-cid="{{ c.id }}">
+          <span class="candidate-signal">{{ c.signal | e }}</span>
+          <span class="candidate-source">{{ c.source_id | e }}</span>
+          <button hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/confirm"
+                  hx-target="#speaker-candidates" hx-swap="outerHTML">Confirm</button>
+          <button hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/dismiss"
+                  hx-target="#speaker-candidates" hx-swap="outerHTML">Dismiss</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
