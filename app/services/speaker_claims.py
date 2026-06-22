@@ -263,9 +263,18 @@ async def extract_claims_for_source(
     # commit=False on both delete and every insert; single commit after the
     # loop makes the whole replace+reinsert atomic — a crash before the commit
     # rolls back the DELETE too, leaving prior claims intact.
+    from app.repos import speaker_claim_embeddings as _cve
+
+    # Drop old claim vectors for this (speaker, source) pair before re-deriving.
+    # Must happen before replace_for_source_speakers so the sub-SELECT inside
+    # delete_for_source can still find the claim rows (they are deleted next).
+    for sid in speaker_ids:
+        await _cve.delete_for_source(db, sid, source.id)
+
     await claims_repo.replace_for_source_speakers(db, source.id, speaker_ids, commit=False)
+    inserted: list[tuple[int, str]] = []   # (claim_id, claim_text)
     for c in accepted:
-        await claims_repo.insert_claim(
+        claim_id = await claims_repo.insert_claim(
             db,
             user_id=source.user_id,
             source_id=source.id,
@@ -284,8 +293,31 @@ async def extract_claims_for_source(
             attribution_reason=c["attribution_reason"],
             commit=False,
         )
-    await db.commit()
+        inserted.append((claim_id, c["claim"]))
+    await db.commit()   # claims durably committed first — atomicity preserved
+
+    # Best-effort embeddings AFTER the atomic commit.
+    # A failure here degrades semantic ranking only; the recency/topic
+    # fallback in retrieve_for_prompt still works.
+    for claim_id, claim_text in inserted:
+        await _embed_claim_best_effort(db, claim_id, claim_text)
+
     return accepted
+
+
+async def _embed_claim_best_effort(db, claim_id: int, claim_text: str) -> None:
+    """Embed one claim into speaker_claim_embeddings. Never raises — a failure
+    only degrades retrieval ranking (the recency/topic fallback still works).
+    Same posture as pipeline._try_embed_summary."""
+    from app.repos import speaker_claim_embeddings as cve
+    from app.services.embeddings_local import embed_text
+    try:
+        vector = await embed_text(claim_text)
+        await cve.upsert_claim_embedding(db, claim_id, vector)
+    except Exception as e:  # noqa: BLE001 — best-effort, must not break extraction
+        log.warning(
+            "claim embedding failed for claim %s: %s: %s", claim_id, type(e).__name__, e,
+        )
 
 
 # ---------------------------------------------------------------------------
