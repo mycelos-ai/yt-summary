@@ -664,6 +664,66 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
             await conn.execute("PRAGMA foreign_keys=ON")
             await conn.commit()
 
+    # chat_threads shape CHECK (PR 3 / P1 fix): the CREATE TABLE in SCHEMA has
+    # a composite shape CHECK enforcing that source_id / speaker_id nullability
+    # is consistent with scope. Fresh installs already have this CHECK. Existing
+    # installations created before this migration was added have a chat_threads
+    # table with only the scope CHECK (no shape CHECK), so raw SQL / test helpers
+    # / import paths could insert invalid orphan rows.
+    #
+    # We gate on the absence of the shape CHECK signature from sqlite_master.sql
+    # (not a missing column — the CHECK adds no column). Running this on a
+    # fresh-install DB is a no-op because the signature IS present.
+    #
+    # Invalid rows (orphan threads that violate the shape) are quarantined during
+    # the copy: only rows satisfying the shape are carried to the new table. Those
+    # rows were bugs and had no usable message history; chat_messages.thread_id
+    # dangling references are benign (history() queries by thread_id, and an
+    # orphan thread had no valid messages). Acceptable data loss.
+    #
+    # The three partial unique indexes (uq_chat_threads_source,
+    # uq_chat_threads_source_speaker, uq_chat_threads_speaker) are created by
+    # SCHEMA's executescript AFTER _run_migrations returns, via
+    # CREATE UNIQUE INDEX IF NOT EXISTS — so we do NOT recreate them here.
+    if await _table_exists(conn, "chat_threads"):
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='chat_threads'"
+        )
+        row = await cur.fetchone()
+        ddl = (row[0] if row else "") or ""
+        # Stable substring that appears ONLY in the new shape CHECK, not the
+        # old scope-only CHECK. The signature covers the 'speaker' branch of
+        # the shape CHECK: "speaker_id IS NOT NULL AND source_id IS NULL".
+        needs_rebuild = "speaker_id IS NOT NULL AND source_id IS NULL" not in ddl
+        if needs_rebuild:
+            await conn.execute("PRAGMA foreign_keys=OFF")
+            await conn.executescript(
+                """
+                CREATE TABLE chat_threads_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    scope TEXT NOT NULL CHECK(scope IN ('source','source_speaker','speaker')),
+                    source_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
+                    speaker_id INTEGER REFERENCES speakers(id) ON DELETE CASCADE,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    CHECK(
+                        (scope='source'         AND source_id IS NOT NULL AND speaker_id IS NULL) OR
+                        (scope='speaker'        AND speaker_id IS NOT NULL AND source_id IS NULL) OR
+                        (scope='source_speaker' AND source_id IS NOT NULL AND speaker_id IS NOT NULL)
+                    )
+                );
+                INSERT INTO chat_threads_new (id, user_id, scope, source_id, speaker_id, created_at)
+                SELECT id, user_id, scope, source_id, speaker_id, created_at FROM chat_threads
+                WHERE (scope='source'         AND source_id IS NOT NULL AND speaker_id IS NULL)
+                   OR (scope='speaker'        AND speaker_id IS NOT NULL AND source_id IS NULL)
+                   OR (scope='source_speaker' AND source_id IS NOT NULL AND speaker_id IS NOT NULL);
+                DROP TABLE chat_threads;
+                ALTER TABLE chat_threads_new RENAME TO chat_threads;
+                """
+            )
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await conn.commit()
+
     if await _table_exists(conn, "users"):
         # V5: per-profile cosmetic + behaviour fields.
         user_cols = await _table_columns(conn, "users")
