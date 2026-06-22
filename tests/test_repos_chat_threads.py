@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from app.repos import chat_threads as ct_repo
 
 
@@ -118,4 +120,71 @@ def test_source_thread_null_speaker_matches_on_second_call(db):
         assert row is not None
         assert row["cnt"] == 1, \
             f"Expected 1 source thread, found {row['cnt']} — duplicate created"
+    _run(go())
+
+
+# ── Shape-validation guard tests ──────────────────────────────────────────────
+
+def test_get_or_create_rejects_speaker_scope_without_speaker_id(db):
+    """scope='speaker' with speaker_id=None must raise ValueError and insert no row."""
+    async def go():
+        with pytest.raises(ValueError, match="speaker"):
+            await ct_repo.get_or_create(db, scope="speaker", speaker_id=None)
+        cur = await db.execute("SELECT COUNT(*) AS cnt FROM chat_threads")
+        row = await cur.fetchone()
+        assert row["cnt"] == 0, "orphan row must not be created"
+    _run(go())
+
+
+def test_get_or_create_rejects_source_scope_without_source_id(db):
+    """scope='source' with source_id=None must raise ValueError and insert no row."""
+    async def go():
+        with pytest.raises(ValueError, match="source"):
+            await ct_repo.get_or_create(db, scope="source", source_id=None)
+        cur = await db.execute("SELECT COUNT(*) AS cnt FROM chat_threads")
+        row = await cur.fetchone()
+        assert row["cnt"] == 0, "orphan row must not be created"
+    _run(go())
+
+
+def test_get_or_create_rejects_source_speaker_missing_id(db):
+    """scope='source_speaker' with either id None must raise ValueError."""
+    async def go():
+        # missing speaker_id
+        with pytest.raises(ValueError, match="source_speaker"):
+            await ct_repo.get_or_create(db, scope="source_speaker", source_id="v1", speaker_id=None)
+        # missing source_id
+        with pytest.raises(ValueError, match="source_speaker"):
+            await ct_repo.get_or_create(db, scope="source_speaker", source_id=None, speaker_id=1)
+        cur = await db.execute("SELECT COUNT(*) AS cnt FROM chat_threads")
+        row = await cur.fetchone()
+        assert row["cnt"] == 0, "orphan row must not be created"
+    _run(go())
+
+
+def test_get_or_create_valid_shapes_still_work(db):
+    """All three valid shapes create exactly one row and are idempotent."""
+    async def go():
+        await _seed(db)
+        # scope='source'
+        a1 = await ct_repo.get_or_create(db, scope="source", source_id="v1")
+        a2 = await ct_repo.get_or_create(db, scope="source", source_id="v1")
+        assert a1 == a2
+
+        # scope='speaker'
+        b1 = await ct_repo.get_or_create(db, scope="speaker", speaker_id=1)
+        b2 = await ct_repo.get_or_create(db, scope="speaker", speaker_id=1)
+        assert b1 == b2
+
+        # scope='source_speaker'
+        c1 = await ct_repo.get_or_create(db, scope="source_speaker", source_id="v1", speaker_id=1)
+        c2 = await ct_repo.get_or_create(db, scope="source_speaker", source_id="v1", speaker_id=1)
+        assert c1 == c2
+
+        # three distinct threads
+        assert len({a1, b1, c1}) == 3
+
+        cur = await db.execute("SELECT COUNT(*) AS cnt FROM chat_threads")
+        row = await cur.fetchone()
+        assert row["cnt"] == 3
     _run(go())

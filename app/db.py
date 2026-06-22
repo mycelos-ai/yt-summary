@@ -418,7 +418,12 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     scope TEXT NOT NULL CHECK(scope IN ('source','source_speaker','speaker')),
     source_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
     speaker_id INTEGER REFERENCES speakers(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(
+        (scope='source'         AND source_id IS NOT NULL AND speaker_id IS NULL) OR
+        (scope='speaker'        AND speaker_id IS NOT NULL AND source_id IS NULL) OR
+        (scope='source_speaker' AND source_id IS NOT NULL AND speaker_id IS NOT NULL)
+    )
 );
 
 -- Partial unique indexes for chat_threads: a table-level

@@ -33,6 +33,12 @@ async def get_or_create(
 ) -> int:
     if scope not in _LOOKUP:
         raise ValueError(f"unknown thread scope: {scope!r}")
+    if scope == "source" and (source_id is None or speaker_id is not None):
+        raise ValueError("scope='source' requires source_id and no speaker_id")
+    if scope == "speaker" and (speaker_id is None or source_id is not None):
+        raise ValueError("scope='speaker' requires speaker_id and no source_id")
+    if scope == "source_speaker" and (source_id is None or speaker_id is None):
+        raise ValueError("scope='source_speaker' requires both source_id and speaker_id")
     sql, args_fn = _LOOKUP[scope]
     cur = await db.execute(sql, args_fn(user_id, source_id, speaker_id))
     row = await cur.fetchone()
