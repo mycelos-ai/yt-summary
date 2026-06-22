@@ -14,8 +14,10 @@ from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import users as users_repo
+from app.repos import source_speakers as source_speakers_repo
 from app.repos import videos as videos_repo
 from app.services import related_links
+from app.services.speaker_claims import extract_claims_for_source
 from app.services.embeddings import embed_text
 from app.services.language_detect import detect_language
 from app.services.reader import fetch_article
@@ -367,6 +369,33 @@ async def process_video(
         await set_step("identifying speakers")
         from app.services import speaker_pipeline
         await speaker_pipeline.detect_and_link(db, refreshed)
+        await _extract_active_speaker_claims(
+            db, refreshed, model=model, api_key=api_key, base_url=base_url,
+        )
+
+
+async def _extract_active_speaker_claims(
+    db, video, *, model: str | None, api_key: str, base_url: str | None,
+) -> None:
+    """Pipeline piggyback: after speakers are linked, extract claims for
+    the episode's ACTIVE speakers in ONE LLM call. No active speakers ->
+    no call. Best-effort: never fails the job (claim extraction is
+    enrichment, like related links)."""
+    if not model:
+        return
+    try:
+        linked = await source_speakers_repo.list_for_source(db, video.id)
+        active_ids = [s.id for s in linked if getattr(s, "is_active", False)]
+        if not active_ids:
+            return
+        await extract_claims_for_source(
+            db, video, active_ids, model=model, api_key=api_key, base_url=base_url,
+        )
+    except Exception as e:  # noqa: BLE001 — enrichment must not break the pipeline
+        log.warning(
+            "speaker claim piggyback failed for %s: %s: %s",
+            getattr(video, "id", None), type(e).__name__, e,
+        )
 
 
 def _segments_for_summarizer(video) -> list[dict] | None:
