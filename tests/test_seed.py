@@ -43,6 +43,49 @@ def test_seed_speakers_idempotent(db):
     _run(go())
 
 
+def test_reseed_updates_description_pattern(db):
+    """Reseed must overwrite (or clear) description_pattern — the seed loader is
+    the source of truth for that column, so a stale value must not survive a
+    version bump."""
+    async def go():
+        # Seed once so the known_shows rows exist.
+        await seed.seed_known_shows(db)
+
+        # Manually corrupt the description_pattern on one seeded row.
+        await db.execute(
+            "UPDATE known_shows SET description_pattern='STALE' "
+            "WHERE name='Lex Fridman Podcast' AND user_id IS NULL"
+        )
+        await db.commit()
+
+        # Confirm the stale value is actually there.
+        cur = await db.execute(
+            "SELECT description_pattern FROM known_shows "
+            "WHERE name='Lex Fridman Podcast' AND user_id IS NULL"
+        )
+        assert (await cur.fetchone())[0] == "STALE"
+
+        # Force reseed by deleting the version marker.
+        await db.execute(
+            "DELETE FROM settings WHERE key='known_shows_seed_version'"
+        )
+        await db.commit()
+
+        # Re-run the seed loader.
+        await seed.seed_known_shows(db)
+
+        # The seed entry for Lex Fridman Podcast has no description_pattern,
+        # so the upsert must have written NULL — 'STALE' must be gone.
+        cur = await db.execute(
+            "SELECT description_pattern FROM known_shows "
+            "WHERE name='Lex Fridman Podcast' AND user_id IS NULL"
+        )
+        assert (await cur.fetchone())[0] is None, (
+            "Reseed did not overwrite stale description_pattern"
+        )
+    _run(go())
+
+
 def test_reseed_does_not_break_with_linked_speaker(db):
     """After seeding, insert a profile speakers row with known_speaker_id pointing
     at a seeded known_speaker, then re-seed — must NOT raise FOREIGN KEY constraint

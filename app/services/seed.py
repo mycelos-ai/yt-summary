@@ -60,11 +60,12 @@ async def seed_known_shows(db: aiosqlite.Connection) -> None:
     async def ins(db: aiosqlite.Connection, s: dict, version: str) -> None:
         await db.execute(
             "INSERT INTO known_shows "
-            "(user_id, name, channel_id, title_pattern, hosts_json, guest_rule, seed_version) "
-            "VALUES (NULL, ?, ?, ?, ?, ?, ?) "
+            "(user_id, name, channel_id, title_pattern, description_pattern, hosts_json, guest_rule, seed_version) "
+            "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) WHERE user_id IS NULL DO UPDATE SET "
             "channel_id=excluded.channel_id, "
             "title_pattern=excluded.title_pattern, "
+            "description_pattern=excluded.description_pattern, "
             "hosts_json=excluded.hosts_json, "
             "guest_rule=excluded.guest_rule, "
             "seed_version=excluded.seed_version",
@@ -72,6 +73,7 @@ async def seed_known_shows(db: aiosqlite.Connection) -> None:
                 s["name"],
                 s.get("channel_id"),
                 s.get("title_pattern"),
+                s.get("description_pattern"),
                 json.dumps(s.get("hosts", [])),
                 s.get("guest_rule"),
                 int(version),
