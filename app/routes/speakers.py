@@ -4,13 +4,20 @@ import aiosqlite
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
 from app.config import Config
 from app.main import get_config, get_current_user_id, get_db
+from app.repos import chat as chat_repo
+from app.repos import chat_threads as threads_repo
+from app.repos import llm_models as llm_models_repo
 from app.repos import source_speakers as ss_repo
 from app.repos import speakers as sp_repo
 from app.repos import videos as videos_repo
 from app.services import avatars, speaker_pipeline
+from app.services.markdown import render_markdown
+from app.services.speaker_chat import stream_speaker_reply
+from app.services.speaker_claims import retrieve_for_prompt
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -243,3 +250,122 @@ async def deactivate_speaker(
         speakers = await ss_repo.list_for_source(db, video_id)
         return _chips_response(request, video, speakers)
     return _chip_panel(request, speaker)
+
+
+# ---------------------------------------------------------------------------
+# Task 8 (PR 3): Persona chat routes
+# ---------------------------------------------------------------------------
+
+def _speaker_msg_html(role: str, content: str, *, avatar_id: str | None = None,
+                      is_error: bool = False) -> str:
+    """Persona chat bubble. User text escaped; assistant rendered as
+    markdown. Assistant bubbles tinted with the speaker's avatar colour
+    via an inline --avatar-bg var (see services/avatars.bg_color_for)."""
+    if role == "user":
+        return f'<div class="chat-bubble-user">{escape(content)}</div>'
+    if is_error:
+        return (f'<div class="chat-answer chat-msg-error">'
+                f'<div class="chat-answer-content">{escape(content)}</div></div>')
+    bg = avatars.bg_color_for(avatar_id or "")
+    body = render_markdown(content)
+    return (f'<div class="chat-answer chat-answer-speaker" '
+            f'style="--avatar-bg: {bg}">'
+            f'<div class="chat-answer-content">{body}</div></div>')
+
+
+async def _resolve_model(db, llm_model_id: str):
+    chosen_id: int | None = None
+    if llm_model_id.strip():
+        try:
+            chosen_id = int(llm_model_id)
+        except ValueError as e:
+            raise HTTPException(400, f"invalid llm_model_id: {e}") from None
+    row = (await llm_models_repo.get(db, chosen_id) if chosen_id is not None
+           else await llm_models_repo.get_default(db))
+    if row is None:
+        raise HTTPException(400, "LLM not configured")
+    return row.model, (row.api_key or ""), (row.base_url or None)
+
+
+async def _run_persona_turn(
+    db, *, speaker, source_context: str, content: str, thread_id: int,
+    video_id: str | None, model: str, api_key: str, base_url: str | None,
+    seed_ts: str | None, seed_quote: str | None,
+) -> str:
+    # video_id is the episode id for per-episode turns, None for whole-dossier
+    # (scope='speaker') turns. PR 1 made chat_messages.video_id nullable; when
+    # thread_id is set, history() selects by thread_id and ignores video_id.
+    claims = await retrieve_for_prompt(db, speaker.id, query=content, limit=12)
+    history = await chat_repo.history(db, video_id, thread_id=thread_id)
+    await chat_repo.append(db, video_id, "user", content,
+                           user_id=speaker.user_id, thread_id=thread_id)
+    collected: list[str] = []
+    error: str | None = None
+    try:
+        async for tok in stream_speaker_reply(
+            speaker=speaker, source_context=source_context, claims=claims,
+            history=history, user_message=content, seed_ts=seed_ts,
+            seed_quote=seed_quote, model=model, api_key=api_key, base_url=base_url,
+        ):
+            collected.append(tok)
+    except Exception as e:  # noqa: BLE001 — surface as an error bubble
+        error = f"{type(e).__name__}: {e}"
+    answer = "".join(collected)
+    await chat_repo.append(
+        db, video_id, "assistant", answer if answer else f"[error: {error}]",
+        user_id=speaker.user_id, thread_id=thread_id)
+    parts = [_speaker_msg_html("user", content)]
+    if answer:
+        parts.append(_speaker_msg_html("assistant", answer, avatar_id=speaker.avatar_id))
+    if error:
+        parts.append(_speaker_msg_html("assistant", error, is_error=True))
+    elif not answer:
+        parts.append(_speaker_msg_html("assistant", "(empty response from model)", is_error=True))
+    return "".join(parts)
+
+
+@router.post("/v/{video_id}/speaker/{speaker_id}/chat", response_class=HTMLResponse)
+async def post_speaker_chat(
+    video_id: str, speaker_id: int,
+    content: str = Form(...), llm_model_id: str = Form(""),
+    seed_ts: str = Form(""), seed_quote: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    video = await videos_repo.get(db, video_id)
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if video is None or speaker is None:
+        raise HTTPException(404, "Not found")
+    if video.user_id != current_user_id or speaker.user_id != current_user_id:
+        raise HTTPException(404, "Not found")
+    model, api_key, base_url = await _resolve_model(db, llm_model_id)
+    thread_id = await threads_repo.get_or_create(
+        db, user_id=current_user_id, scope="source_speaker",
+        source_id=video_id, speaker_id=speaker_id)
+    html = await _run_persona_turn(
+        db, speaker=speaker, source_context=(video.transcript or ""),
+        content=content, thread_id=thread_id, video_id=video_id,
+        model=model, api_key=api_key, base_url=base_url,
+        seed_ts=seed_ts.strip() or None, seed_quote=seed_quote.strip() or None)
+    return HTMLResponse(html)
+
+
+@router.post("/speaker/{speaker_id}/chat", response_class=HTMLResponse)
+async def post_dossier_chat(
+    speaker_id: int,
+    content: str = Form(...), llm_model_id: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    speaker = await sp_repo.get_speaker(db, speaker_id)
+    if speaker is None or speaker.user_id != current_user_id:
+        raise HTTPException(404, "Not found")
+    model, api_key, base_url = await _resolve_model(db, llm_model_id)
+    thread_id = await threads_repo.get_or_create(
+        db, user_id=current_user_id, scope="speaker", speaker_id=speaker_id)
+    # Whole-dossier chat has no single episode → no transcript context.
+    html = await _run_persona_turn(
+        db, speaker=speaker, source_context="", content=content,
+        thread_id=thread_id, video_id=None, model=model, api_key=api_key,
+        base_url=base_url, seed_ts=None, seed_quote=None)
+    return HTMLResponse(html)
