@@ -290,6 +290,11 @@ async def extract_claims_for_source(
     # Drop old claim vectors for this (speaker, source) pair before re-deriving.
     # Must happen before replace_for_source_speakers so the sub-SELECT inside
     # delete_for_source can still find the claim rows (they are deleted next).
+    # NOTE: delete_for_source commits its OWN transaction — the vector delete is
+    # NOT part of the claim replace+reinsert atomic batch below. A crash after
+    # this point but before the claim commit leaves vectors gone while claim
+    # rows roll back to the prior set; the next successful extraction re-embeds
+    # them and retrieve_for_prompt's recency fallback covers the gap meanwhile.
     for sid in speaker_ids:
         await _cve.delete_for_source(db, sid, source.id)
 

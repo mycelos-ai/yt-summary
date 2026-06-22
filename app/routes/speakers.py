@@ -413,7 +413,6 @@ async def _owned_claim(
     if claim_row is None or claim_row.speaker_id != speaker_id:
         raise HTTPException(404, "Not found")
     return claim_row
-    return claim_row
 
 
 @router.post("/speaker/{speaker_id}/sources/{source_id}/extract",
