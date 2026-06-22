@@ -12,8 +12,8 @@ from app.main import get_config, get_current_user_id, get_db
 from app.repos import chat as chat_repo
 from app.repos import chat_threads as threads_repo
 from app.repos import llm_models as llm_models_repo
-from app.repos import source_speakers as source_speakers_repo
 from app.repos import source_speakers as ss_repo
+from app.repos import speaker_claim_embeddings as claim_embeddings_repo
 from app.repos import speaker_claims as claims_repo
 from app.repos import speaker_source_candidates as candidates_repo
 from app.repos import speakers as sp_repo
@@ -413,6 +413,7 @@ async def _owned_claim(
     if claim_row is None or claim_row.speaker_id != speaker_id:
         raise HTTPException(404, "Not found")
     return claim_row
+    return claim_row
 
 
 @router.post("/speaker/{speaker_id}/sources/{source_id}/extract",
@@ -447,21 +448,18 @@ async def post_claim_review(
     if speaker is None or speaker.user_id != current_user_id:
         raise HTTPException(404, "Not found")
     # Finding 6: also verify the claim belongs to this speaker (cross-speaker check).
-    await _owned_claim(db, speaker_id, claim_id)
+    claim_row = await _owned_claim(db, speaker_id, claim_id)
     if status not in ("unreviewed", "accepted", "rejected"):
         raise HTTPException(400, "bad status")
     await claims_repo.set_review_status(db, claim_id, status)
     if status == "rejected":
-        from app.repos import speaker_claim_embeddings as cve
         with contextlib.suppress(Exception):
-            await cve.delete_claim_embedding(db, claim_id)
+            await claim_embeddings_repo.delete_claim_embedding(db, claim_id)
     else:
         # Finding #6: re-embed when un-rejecting (accepted/unreviewed) so a
         # previously-rejected claim gets its vector back. Best-effort — must
         # not break the review if embedding fails.
-        claim_row = await claims_repo.get(db, claim_id)
-        if claim_row is not None:
-            await _embed_claim_best_effort(db, claim_id, claim_row.claim)
+        await _embed_claim_best_effort(db, claim_id, claim_row.claim)
     return HTMLResponse(await _claims_fragment(db, request, speaker))
 
 
@@ -480,10 +478,8 @@ async def post_claim_edit(
     # Finding 6: also verify the claim belongs to this speaker (cross-speaker check).
     await _owned_claim(db, speaker_id, claim_id)
     fields: dict = {}
-    new_claim_text: str | None = None
     if claim.strip():
         fields["claim"] = claim.strip()
-        new_claim_text = claim.strip()
     if topic.strip():
         fields["topic"] = topic.strip()
     if evidence_text.strip():
@@ -491,8 +487,8 @@ async def post_claim_edit(
     await claims_repo.edit_claim(db, claim_id, **fields)
     # Finding #5: re-embed when the claim text changed so the vector stays
     # in sync. Best-effort — _embed_claim_best_effort never raises.
-    if new_claim_text is not None:
-        await _embed_claim_best_effort(db, claim_id, new_claim_text)
+    if "claim" in fields:
+        await _embed_claim_best_effort(db, claim_id, fields["claim"])
     return HTMLResponse(await _claims_fragment(db, request, speaker))
 
 
@@ -517,17 +513,26 @@ async def get_candidates(
     return HTMLResponse(_candidates_fragment(speaker_id, cands))
 
 
+async def _owned_candidate(db, speaker_id: int, cid: int, current_user_id: int):
+    """Ownership-check a candidate: foreign profile or a candidate belonging to
+    another speaker → 404. Returns the candidate row."""
+    await _owned_speaker(db, speaker_id, current_user_id)
+    cand = await candidates_repo.get(db, cid)
+    if cand is None or cand.speaker_id != speaker_id:
+        raise HTTPException(404, "Candidate not found")
+    return cand
+
+
 @router.post("/speaker/{speaker_id}/candidates/{cid}/confirm", response_class=HTMLResponse)
 async def confirm_candidate(
     speaker_id: int, cid: int,
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
-    await _owned_speaker(db, speaker_id, current_user_id)
-    cand = await candidates_repo.get(db, cid)
-    if cand is None or cand.speaker_id != speaker_id:
-        raise HTTPException(404, "Candidate not found")
-    await source_speakers_repo.link_speaker(
+    cand = await _owned_candidate(db, speaker_id, cid, current_user_id)
+    # The only place a discovery suggestion crosses into the dossier — by
+    # explicit user action: promote to a confirmed (manual) source link.
+    await ss_repo.link_speaker(
         db, cand.source_id, speaker_id, detection_source="manual")
     await candidates_repo.set_state(db, cid, "confirmed")
     cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
@@ -540,10 +545,7 @@ async def dismiss_candidate(
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
-    await _owned_speaker(db, speaker_id, current_user_id)
-    cand = await candidates_repo.get(db, cid)
-    if cand is None or cand.speaker_id != speaker_id:
-        raise HTTPException(404, "Candidate not found")
+    await _owned_candidate(db, speaker_id, cid, current_user_id)
     await candidates_repo.set_state(db, cid, "dismissed")
     cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
     return HTMLResponse(_candidates_fragment(speaker_id, cands))

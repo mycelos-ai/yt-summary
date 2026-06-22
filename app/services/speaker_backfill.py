@@ -13,6 +13,7 @@ import logging
 
 import aiosqlite
 
+from app.repos import known_shows as known_shows_repo
 from app.repos import source_speakers as source_speakers_repo
 from app.repos import speaker_jobs as jobs_repo
 from app.repos import speakers as speakers_repo
@@ -43,11 +44,16 @@ async def _confirmed_source_ids(db: aiosqlite.Connection, speaker_id: int) -> li
         (speaker.user_id,),
     )
     yt_rows = await cur.fetchall()
+    # Preload the enabled known-shows ONCE and reuse across every video — the
+    # list is identical for all of this user's videos, so re-querying per video
+    # would be O(videos) redundant SELECTs on a large library.
+    known_shows = await known_shows_repo.list_enabled(db, user_id=speaker.user_id)
     for r in yt_rows:
         video = await videos_repo.get(db, r["id"])
         if video is None:
             continue
-        detected = await show_match.identify_from_metadata(db, video)
+        detected = await show_match.identify_from_metadata(
+            db, video, known_shows=known_shows)
         if any(_same_person(d.name, speaker.name) for d in detected):
             # Confirmed link (show rule). Idempotent via source_speakers UNIQUE.
             await source_speakers_repo.link_speaker(

@@ -1,4 +1,5 @@
 import json
+
 from app.models import DetectedSpeaker
 from app.repos import known_shows as shows_repo
 
@@ -33,10 +34,18 @@ def _matches(show, video) -> bool:
     return False
 
 
-async def identify_from_metadata(db, video) -> list[DetectedSpeaker]:
+async def identify_from_metadata(db, video, *, known_shows=None) -> list[DetectedSpeaker]:
+    """Detect speakers from a video's metadata via the enabled known-shows.
+
+    `known_shows` lets a caller preload the enabled-shows list once and reuse
+    it across many videos (e.g. the backfill loop) instead of re-querying per
+    video. When None, the list is fetched for the video's owner.
+    """
     out: list[DetectedSpeaker] = []
     seen: set[str] = set()
-    for show in await shows_repo.list_enabled(db, user_id=video.user_id):
+    shows = (known_shows if known_shows is not None
+             else await shows_repo.list_enabled(db, user_id=video.user_id))
+    for show in shows:
         if not _matches(show, video):
             continue
         for host in json.loads(show.hosts_json or "[]"):

@@ -260,7 +260,7 @@ async def extract_claims_for_source(
 
     # --- Snapshot existing human review state BEFORE the replace/delete ---
     # Best-effort: a failure here falls back to current (no-preservation) behavior.
-    # Key: claim.strip().lower() → {"review_status": str, "topic": ..., "evidence_text": ..., "confidence": ...}
+    # Key: claim.strip().lower() → the preserved review_status (and any edits).
     _review_snapshot: dict[str, dict] = {}
     try:
         existing = await claims_repo.list_for_source_speakers(db, source.id, speaker_ids)
@@ -387,12 +387,18 @@ async def _retrieve_recency(db, speaker_id: int, *, query: str, limit: int):
     Returns rows with ``source_title`` JOIN alias + all speaker_claims columns +
     ``id``. Rows are subscriptable (``r["id"]``, ``r["claim"]``, etc.).
     """
+    # Cap the candidate pool to the most-recent N claims rather than
+    # materializing every claim a speaker has: topic-overlap re-ranking then
+    # picks the best `limit` from that pool. The pool is over-scanned (>> limit)
+    # so a high-overlap recent claim isn't cut before scoring.
+    pool = max(limit * 10, 100)
     cur = await db.execute(
         "SELECT c.*, v.title AS source_title "
         "FROM speaker_claims c JOIN videos v ON v.id = c.source_id "
         "WHERE c.speaker_id=? AND c.review_status != 'rejected' "
-        "ORDER BY c.created_at DESC, c.id DESC",
-        (speaker_id,),
+        "ORDER BY c.created_at DESC, c.id DESC "
+        "LIMIT ?",
+        (speaker_id, pool),
     )
     rows = await cur.fetchall()
     q = _tokens(query)
