@@ -258,6 +258,28 @@ async def extract_claims_for_source(
             ),
         })
 
+    # --- Snapshot existing human review state BEFORE the replace/delete ---
+    # Best-effort: a failure here falls back to current (no-preservation) behavior.
+    # Key: claim.strip().lower() → {"review_status": str, "topic": ..., "evidence_text": ..., "confidence": ...}
+    _review_snapshot: dict[str, dict] = {}
+    try:
+        existing = await claims_repo.list_for_source_speakers(db, source.id, speaker_ids)
+        for ex in existing:
+            if ex.review_status != "unreviewed":
+                key = ex.claim.strip().lower()
+                _review_snapshot[key] = {
+                    "review_status": ex.review_status,
+                    "topic": ex.topic,
+                    "evidence_text": ex.evidence_text,
+                    "confidence": ex.confidence,
+                }
+    except Exception as e:  # noqa: BLE001 — best-effort, degrade gracefully
+        log.warning(
+            "claim review snapshot failed for %s (%s: %s); re-extraction will reset statuses",
+            getattr(source, "id", None), type(e).__name__, e,
+        )
+        _review_snapshot = {}
+
     # Replace-on-reprocess: clear THIS source's rows for these speakers,
     # then insert fresh. Prevents duplicates on re-extraction.
     # commit=False on both delete and every insert; single commit after the
@@ -295,6 +317,24 @@ async def extract_claims_for_source(
         )
         inserted.append((claim_id, c["claim"]))
     await db.commit()   # claims durably committed first — atomicity preserved
+
+    # --- Re-apply preserved review state for claims with unchanged text ---
+    # Runs AFTER the atomic commit so the atomicity invariant is untouched.
+    # Each set_review_status issues its own commit — that is fine; these are
+    # independent user-state patches, not part of the extract batch.
+    if _review_snapshot:
+        for claim_id, claim_text in inserted:
+            key = claim_text.strip().lower()
+            preserved = _review_snapshot.get(key)
+            if preserved is None:
+                continue
+            try:
+                await claims_repo.set_review_status(db, claim_id, preserved["review_status"])
+            except Exception as e:  # noqa: BLE001 — best-effort
+                log.warning(
+                    "could not restore review_status for claim %s (%s: %s)",
+                    claim_id, type(e).__name__, e,
+                )
 
     # Best-effort embeddings AFTER the atomic commit.
     # A failure here degrades semantic ranking only; the recency/topic

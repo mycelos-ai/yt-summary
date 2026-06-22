@@ -351,6 +351,96 @@ def test_replace_for_source_speakers_commit_false_is_atomic(db):
     _run(go())
 
 
+def test_reextraction_preserves_review_state(db):
+    """Re-extracting the same source must carry over review_status for claims
+    whose text is UNCHANGED. Claims with different text start fresh.
+
+    RED before fix: re-extraction resets accepted → unreviewed (data loss).
+    GREEN after fix: preserved status for unchanged text; fresh for changed text.
+    """
+    async def go():
+        from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
+
+        ids, source = await _seed(db)
+
+        payload_v1 = json.dumps({
+            "claims": [
+                {
+                    "speaker": "Chamath", "claim": "Rates will fall",
+                    "topic": "rates", "evidence_text": "rates are headed down",
+                    "evidence_start_s": 10, "confidence": 0.9,
+                    "attribution_method": "explicit_name",
+                    "attribution_confidence": 0.95, "attribution_reason": "named",
+                },
+                {
+                    "speaker": "Jason", "claim": "Founders should stay scrappy",
+                    "topic": "startups", "evidence_text": "stay lean",
+                    "evidence_start_s": 60, "confidence": 0.8,
+                    "attribution_method": "speaker_marker",
+                    "attribution_confidence": 0.85, "attribution_reason": "marker",
+                },
+            ]
+        })
+        # Second payload: Chamath's claim is IDENTICAL text; Jason's claim CHANGED.
+        payload_v2 = json.dumps({
+            "claims": [
+                {
+                    "speaker": "Chamath", "claim": "Rates will fall",
+                    "topic": "rates", "evidence_text": "rates headed down again",
+                    "evidence_start_s": 11, "confidence": 0.88,
+                    "attribution_method": "explicit_name",
+                    "attribution_confidence": 0.93, "attribution_reason": "named",
+                },
+                {
+                    "speaker": "Jason", "claim": "Founders must cut burn fast",
+                    "topic": "startups", "evidence_text": "cut now",
+                    "evidence_start_s": 65, "confidence": 0.75,
+                    "attribution_method": "speaker_marker",
+                    "attribution_confidence": 0.80, "attribution_reason": "marker",
+                },
+            ]
+        })
+
+        # First extraction
+        with patch("app.services.speaker_claims.litellm.acompletion", _completion(payload_v1)):
+            await speaker_claims.extract_claims_for_source(
+                db, source, ids, model="m", api_key="k", base_url=None,
+            )
+
+        # Accept Chamath's claim; reject Jason's claim
+        cham_claims = await repo.list_for_source_speakers(db, source.id, [ids[0]])
+        jason_claims = await repo.list_for_source_speakers(db, source.id, [ids[1]])
+        assert len(cham_claims) == 1
+        assert len(jason_claims) == 1
+        await repo.set_review_status(db, cham_claims[0].id, "accepted")
+        await repo.set_review_status(db, jason_claims[0].id, "rejected")
+
+        # Second extraction: same claim text for Chamath, DIFFERENT for Jason
+        with patch("app.services.speaker_claims.litellm.acompletion", _completion(payload_v2)):
+            await speaker_claims.extract_claims_for_source(
+                db, source, ids, model="m", api_key="k", base_url=None,
+            )
+
+        # Chamath's unchanged claim must still be 'accepted'
+        cham_new = await repo.list_for_source_speakers(db, source.id, [ids[0]])
+        assert len(cham_new) == 1
+        assert cham_new[0].claim == "Rates will fall"
+        assert cham_new[0].review_status == "accepted", (
+            f"Expected 'accepted' but got '{cham_new[0].review_status}' — "
+            "re-extraction destroyed user review state (data loss)"
+        )
+
+        # Jason's changed claim must be 'unreviewed' (different text → fresh start)
+        jason_new = await repo.list_for_source_speakers(db, source.id, [ids[1]])
+        assert len(jason_new) == 1
+        assert jason_new[0].claim == "Founders must cut burn fast"
+        assert jason_new[0].review_status == "unreviewed", (
+            f"Expected 'unreviewed' for changed text but got '{jason_new[0].review_status}'"
+        )
+    _run(go())
+
+
 def test_extract_is_atomic_replace(db):
     """Finding 2 end-to-end: extract_claims_for_source performs the whole
     delete + re-insert as one atomic unit (single commit after the loop).
