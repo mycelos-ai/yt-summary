@@ -73,3 +73,69 @@ def test_hedge_instruction_has_numeric_threshold():
     p = build_speaker_system_prompt(
         speaker=_speaker(), claims=_CLAIMS, source_context="ctx")
     assert "0.7" in p
+
+
+# ---------------------------------------------------------------------------
+# Task 5: stream_speaker_reply
+# ---------------------------------------------------------------------------
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _stream_chunks(*texts: str):
+    async def gen():
+        for t in texts:
+            choice = MagicMock()
+            choice.delta.content = t
+            chunk = MagicMock()
+            chunk.choices = [choice]
+            yield chunk
+    return gen()
+
+
+async def test_stream_speaker_reply_yields_tokens():
+    from app.services.speaker_chat import stream_speaker_reply
+    with patch(
+        "app.services.speaker_chat.litellm.acompletion",
+        AsyncMock(return_value=_stream_chunks("As ", "I ", "argued")),
+    ):
+        out: list[str] = []
+        async for tok in stream_speaker_reply(
+            speaker=_speaker(), source_context="ctx", claims=_CLAIMS,
+            history=[], user_message="what about SPACs?",
+            seed_ts=None, seed_quote=None,
+            model="openai/gpt-4o", api_key="k", base_url=None,
+        ):
+            out.append(tok)
+        assert "".join(out) == "As I argued"
+
+
+async def test_stream_speaker_reply_passes_system_prompt_and_history():
+    from app.services.speaker_chat import build_speaker_system_prompt, stream_speaker_reply
+    from app.models import ChatMessage
+    from datetime import datetime
+
+    captured: dict = {}
+
+    async def fake_acompletion(**kw):
+        captured.update(kw)
+        return _stream_chunks("ok")
+
+    hist = [ChatMessage(id=1, video_id="v1", role="user", content="hi",
+                        created_at=datetime.now()),
+            ChatMessage(id=2, video_id="v1", role="assistant", content="hello",
+                        created_at=datetime.now())]
+    with patch("app.services.speaker_chat.litellm.acompletion", side_effect=fake_acompletion):
+        async for _ in stream_speaker_reply(
+            speaker=_speaker(), source_context="ctx", claims=_CLAIMS,
+            history=hist, user_message="now?", seed_ts=None, seed_quote=None,
+            model="m", api_key="k", base_url=None,
+        ):
+            pass
+    msgs = captured["messages"]
+    # [system] + 2 history turns + new user message (build_messages ordering)
+    assert msgs[0]["role"] == "system"
+    assert msgs[0]["content"] == build_speaker_system_prompt(
+        speaker=_speaker(), claims=_CLAIMS, source_context="ctx")
+    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
+    assert msgs[-1]["content"] == "now?"
+    assert captured["stream"] is True

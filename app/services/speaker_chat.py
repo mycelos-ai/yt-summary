@@ -11,6 +11,14 @@ the model NOT to self-disclaim in the reply.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from typing import Any
+
+import litellm
+
+from app.models import ChatMessage
+from app.services.chat_core import build_messages
+
 
 def _render_claims(claims: list[dict]) -> str:
     if not claims:
@@ -81,3 +89,41 @@ def build_speaker_system_prompt(
         f"{name}'s claims):\n"
         f"{source_context or '(none)'}"
     )
+
+
+async def stream_speaker_reply(
+    *,
+    speaker,
+    source_context: str,
+    claims: list[dict],
+    history: list[ChatMessage],
+    user_message: str,
+    seed_ts: str | None = None,
+    seed_quote: str | None = None,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+) -> AsyncIterator[str]:
+    messages = build_messages(
+        system_prompt=build_speaker_system_prompt(
+            speaker=speaker, claims=claims, source_context=source_context,
+            seed_ts=seed_ts, seed_quote=seed_quote,
+        ),
+        history=[(m.role, m.content) for m in history],
+        user_message=user_message,
+    )
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "api_key": api_key,
+        "stream": True,
+    }
+    if base_url:
+        kwargs["api_base"] = base_url
+
+    response = await litellm.acompletion(**kwargs)
+    async for chunk in response:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
