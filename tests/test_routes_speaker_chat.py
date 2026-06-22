@@ -235,3 +235,37 @@ def test_claim_edit_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
             f"/speaker/{b_id}/claims/{claim_id}/edit",
             data={"claim": "hijacked"})
         assert resp.status_code == 404
+
+
+def test_claim_review_rejects_claim_of_other_speaker(tmp_path, monkeypatch):
+    """Reviewing speaker A's claim via speaker B's URL must 404."""
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def setup():
+            from app.repos import speakers as sp_repo_local
+            from app.repos import speaker_claims as repo
+            from app.models import VideoKind, TranscriptSource
+            from app.repos import videos as videos_repo
+            from app.repos import llm_models as llm_models_repo
+            # Insert a video so source_id='v1' is valid
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+                kind=VideoKind.YOUTUBE, user_id=1)
+            await llm_models_repo.insert(
+                app.state.db, label="Test", provider_id="openai",
+                model="openai/gpt-4o", api_key="k", base_url="", make_default=True)
+            await app.state.db.commit()
+            # Two speakers in the same profile; a claim on speaker A
+            a_id = await sp_repo_local.resolve_speaker(app.state.db, name="Speaker A")
+            b_id = await sp_repo_local.resolve_speaker(app.state.db, name="Speaker B")
+            claim_id = await repo.insert_claim(
+                app.state.db, speaker_id=a_id, source_id="v1",
+                claim="A said this")
+            return b_id, claim_id
+        b_id, claim_id = asyncio.get_event_loop().run_until_complete(setup())
+        # Reviewing speaker A's claim via speaker B's URL must 404 (not silently mutate)
+        resp = client.post(
+            f"/speaker/{b_id}/claims/{claim_id}/review",
+            data={"status": "accepted"})
+        assert resp.status_code == 404
