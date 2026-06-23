@@ -133,3 +133,65 @@ def test_dismiss_rejects_candidate_belonging_to_other_speaker(app_client):
 
     sid_b, cid = asyncio.get_event_loop().run_until_complete(setup())
     assert app_client.post(f"/speaker/{sid_b}/candidates/{cid}/dismiss").status_code == 404
+
+
+def test_confirm_shows_not_extracted_note(app_client):
+    """Confirming a candidate returns a fragment that includes a note telling
+    the user that claims aren't extracted automatically."""
+    db = app_client.app.state.db
+    from app.repos import speakers as speakers_repo
+    from app.repos import speaker_source_candidates as cand
+
+    async def setup():
+        sid = await speakers_repo.resolve_speaker(db, name="Eve E")
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('wE',1,'web','u','Eve E talk')"
+        )
+        cid = await cand.upsert_pending(db, speaker_id=sid, source_id="wE",
+                                        signal="title_match", score=0.6)
+        await db.commit()
+        return sid, cid
+
+    sid, cid = asyncio.get_event_loop().run_until_complete(setup())
+
+    r = app_client.post(f"/speaker/{sid}/candidates/{cid}/confirm")
+    assert r.status_code == 200
+    assert "Extract" in r.text, "confirm response must contain the not-extracted note"
+
+    # Existing confirm behavior must still hold
+    async def check():
+        cur = await db.execute(
+            "SELECT detection_source FROM source_speakers "
+            "WHERE speaker_id=? AND source_id='wE'", (sid,)
+        )
+        row = await cur.fetchone()
+        assert row is not None and row["detection_source"] == "manual"
+        from app.repos import speaker_source_candidates as c2
+        assert (await c2.get(db, cid)).state == "confirmed"
+
+    asyncio.get_event_loop().run_until_complete(check())
+
+
+def test_dismiss_has_no_note(app_client):
+    """Dismissing a candidate returns a fragment WITHOUT the not-extracted note."""
+    db = app_client.app.state.db
+    from app.repos import speakers as speakers_repo
+    from app.repos import speaker_source_candidates as cand
+
+    async def setup():
+        sid = await speakers_repo.resolve_speaker(db, name="Frank F")
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('wF',1,'web','u','Frank F talk')"
+        )
+        cid = await cand.upsert_pending(db, speaker_id=sid, source_id="wF",
+                                        signal="title_match", score=0.5)
+        await db.commit()
+        return sid, cid
+
+    sid, cid = asyncio.get_event_loop().run_until_complete(setup())
+
+    r = app_client.post(f"/speaker/{sid}/candidates/{cid}/dismiss")
+    assert r.status_code == 200
+    assert "aren't extracted" not in r.text, "dismiss response must NOT contain the not-extracted note"

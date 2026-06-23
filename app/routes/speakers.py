@@ -495,10 +495,10 @@ async def post_claim_edit(
 # Task 10 (PR 4): Candidate confirm / dismiss / list routes
 # ---------------------------------------------------------------------------
 
-def _candidates_fragment(speaker_id: int, candidates) -> str:
+def _candidates_fragment(speaker_id: int, candidates, note: str | None = None) -> str:
     """Render the pending-candidates partial for HTMX swap responses."""
     return templates.get_template("_speaker_candidates.html").render(
-        speaker_id=speaker_id, candidates=candidates)
+        speaker_id=speaker_id, candidates=candidates, note=note)
 
 
 @router.get("/speaker/{speaker_id}/candidates", response_class=HTMLResponse)
@@ -535,7 +535,10 @@ async def confirm_candidate(
         db, cand.source_id, speaker_id, detection_source="manual")
     await candidates_repo.set_state(db, cid, "confirmed")
     cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
-    return HTMLResponse(_candidates_fragment(speaker_id, cands))
+    return HTMLResponse(_candidates_fragment(
+        speaker_id, cands,
+        note='Source added. Its claims aren\'t extracted automatically — use "Extract" on the source to add them to the dossier.',
+    ))
 
 
 @router.post("/speaker/{speaker_id}/candidates/{cid}/dismiss", response_class=HTMLResponse)

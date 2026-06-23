@@ -2,6 +2,9 @@
    Rendered by the candidate list/confirm/dismiss routes. speaker_id + candidates
    are passed from the route helper. #}
 <div id="speaker-candidates" class="speaker-candidates">
+  {% if note %}
+    <p class="candidates-note" role="status">{{ note | e }}</p>
+  {% endif %}
   {% if not candidates %}
     <p class="candidates-empty">No possible sources right now.</p>
   {% else %}
