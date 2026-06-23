@@ -56,7 +56,8 @@ async def history(
         )
     else:
         cursor = await db.execute(
-            "SELECT * FROM chat_messages WHERE video_id=? ORDER BY created_at ASC, id ASC",
+            "SELECT * FROM chat_messages WHERE video_id=? AND thread_id IS NULL "
+            "ORDER BY created_at ASC, id ASC",
             (video_id,),
         )
     rows = await cursor.fetchall()

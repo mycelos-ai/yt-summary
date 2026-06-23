@@ -61,3 +61,46 @@ async def test_history_both_none_raises(db: aiosqlite.Connection):
     import pytest
     with pytest.raises(ValueError, match="history requires video_id or thread_id"):
         await chat_repo.history(db)
+
+
+async def test_history_no_thread_excludes_threaded_rows(db: aiosqlite.Connection):
+    """No-thread history(video_id) must not return rows that belong to a thread.
+
+    This is the regression gate for the persona→video-chat leak fix.
+    The threadless branch (ELSE) must filter AND thread_id IS NULL so that
+    persona/thread-scoped rows with the same video_id cannot bleed into
+    the normal video-chat history, regardless of their video_id value.
+    """
+    # Seed video and a valid chat_threads row (FK target).
+    await _video(db)
+    await db.execute("INSERT INTO speakers (user_id, name, name_key) VALUES (1,'P','p')")
+    await db.execute(
+        "INSERT INTO chat_threads (id, user_id, scope, speaker_id) VALUES (99,1,'speaker',1)"
+    )
+    await db.commit()
+
+    # A normal video-chat row (thread_id=NULL) — must appear in history(video_id).
+    await chat_repo.append(db, "v1", "user", "VIDEO_MSG", user_id=1)
+
+    # A thread-scoped row that carries the same video_id AND a thread_id —
+    # simulates the pre-workaround leak shape (or a future mistake).
+    await db.execute(
+        "INSERT INTO chat_messages (user_id, video_id, role, content, thread_id) "
+        "VALUES (1,'v1','assistant','PERSONA_MSG',99)"
+    )
+    await db.commit()
+
+    # history(video_id) with no thread_id must return ONLY the normal row.
+    msgs = await chat_repo.history(db, "v1")
+    contents = [m.content for m in msgs]
+    assert contents == ["VIDEO_MSG"], (
+        f"Expected only VIDEO_MSG but got: {contents!r}. "
+        "Thread-scoped row leaked into the no-thread video-chat history."
+    )
+
+    # The thread_id branch must still return the threaded row.
+    thread_msgs = await chat_repo.history(db, thread_id=99)
+    thread_contents = [m.content for m in thread_msgs]
+    assert "PERSONA_MSG" in thread_contents, (
+        f"thread_id branch should return PERSONA_MSG but got: {thread_contents!r}"
+    )
