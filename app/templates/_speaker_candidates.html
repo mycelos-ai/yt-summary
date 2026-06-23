@@ -15,9 +15,11 @@
         <li class="candidate" data-cid="{{ c.id }}">
           <span class="candidate-signal">{{ c.signal | e }}</span>
           <span class="candidate-source">{{ c.source_id | e }}</span>
-          <button hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/confirm"
+          <button class="btn btn-secondary"
+                  hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/confirm"
                   hx-target="#speaker-candidates" hx-swap="outerHTML">Confirm</button>
-          <button hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/dismiss"
+          <button class="btn-link"
+                  hx-post="/speaker/{{ speaker_id }}/candidates/{{ c.id }}/dismiss"
                   hx-target="#speaker-candidates" hx-swap="outerHTML">Dismiss</button>
         </li>
       {% endfor %}

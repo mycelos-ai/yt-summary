@@ -2827,3 +2827,178 @@ mark.highlight-not_interesting {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ============================================================
+   Speaker page chrome — previously unstyled (UX pass 2026-06-23).
+   Reuses the app's existing tokens + .btn / .chat / settings-form
+   patterns so the speaker page matches the rest of the app.
+   ============================================================ */
+.speaker-page { max-width: 820px; }
+
+/* Header: avatar + identity + activate/deactivate, on one row. */
+.speaker-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+.speaker-id { flex: 1; min-width: 0; }
+.speaker-id h1 { font-size: 30px; margin: 0; line-height: 1.15; }
+.speaker-role {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--steel);
+  margin: 5px 0 0;
+}
+.speaker-style { font-size: 14px; margin: 4px 0 0; }
+.speaker-photo {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--rounded-full);
+  object-fit: cover;
+  background: var(--avatar-bg);
+  flex-shrink: 0;
+}
+.speaker-header .profile-avatar { flex-shrink: 0; }
+.speaker-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Persona chat is the hero: give the thread presence even when empty. */
+.speaker-chat { margin-top: 28px; }
+.speaker-chat .chat-thread { min-height: 300px; }
+.speaker-chat .chat-thread:empty::before {
+  content: "Start the conversation — ask a question to chat in character.";
+  display: block;
+  align-self: center;
+  margin: auto;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* "Appears in" — was a raw <ul>. */
+.speaker-sources { margin-top: 28px; }
+.speaker-sources h2 { font-size: 16px; margin-bottom: 10px; }
+.speaker-sources .source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.speaker-sources .source-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.src-kind { font-size: 12px; }
+
+/* Track record + Possible sources recede behind a collapsed <details>. */
+.speaker-collapsible {
+  margin-top: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.speaker-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.speaker-collapsible > summary::-webkit-details-marker { display: none; }
+.speaker-collapsible > summary::after {
+  content: "▸";
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 150ms ease;
+}
+.speaker-collapsible[open] > summary::after { transform: rotate(90deg); }
+.speaker-collapsible > summary .collapsible-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.speaker-collapsible[open] > summary {
+  border-bottom: 1px solid var(--hairline);
+}
+.speaker-collapsible > .speaker-collapsible-body { padding: 4px 16px 14px; }
+
+/* Edit identity: a compact collapsible right under the header — the
+   summary reads as a quiet header action, the form opens below it. */
+.speaker-edit-panel {
+  margin-top: -14px;   /* pull up snug under the header */
+  margin-bottom: 8px;
+}
+.speaker-edit-panel > summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--steel);
+  user-select: none;
+  list-style: none;
+  padding: 4px 0;
+}
+.speaker-edit-panel > summary::-webkit-details-marker { display: none; }
+.speaker-edit-panel > summary::before {
+  content: "✎";
+  font-size: 13px;
+  color: var(--muted);
+}
+.speaker-edit-panel > summary:hover { color: var(--brand-green-deep); }
+.speaker-edit-panel[open] > summary { margin-bottom: 8px; }
+.speaker-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 460px;
+  margin-top: 16px;
+}
+.speaker-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.speaker-edit input[type="text"],
+.speaker-edit input:not([type]),
+.speaker-edit select {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--canvas);
+  outline: none;
+  transition: border-color 150ms ease;
+}
+.speaker-edit input:focus,
+.speaker-edit select:focus { border-color: var(--brand-green); }
+.speaker-edit input[type="file"] { font-size: 13px; color: var(--slate); }
+
+/* Candidate confirm/dismiss buttons get .btn classes in the template;
+   tidy their row spacing. */
+.speaker-candidates-wrap .candidate { flex-wrap: wrap; }
+.speaker-candidates-wrap .candidate .btn,
+.speaker-candidates-wrap .candidate .btn-link { margin-left: auto; }
+
+.dossier-topic-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+.track-record-peek .peek-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+.track-record-peek .peek-more { margin: 6px 0 0; font-size: 13px; }

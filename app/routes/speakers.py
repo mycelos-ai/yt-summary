@@ -130,11 +130,14 @@ async def speaker_page(
     speaker = await _owned_speaker(db, speaker_id, current_user_id)
     sources = await ss_repo.list_sources_for_speaker(db, speaker_id)
     grouped = await claims_repo.list_for_speaker(db, speaker_id, grouped_by_topic=True)
+    # grouped is a {topic: [claims]} dict (grouped_by_topic=True).
+    claim_count = (sum(len(v) for v in grouped.values())
+                   if isinstance(grouped, dict) else len(grouped))
     candidates = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
     return templates.TemplateResponse(
         request, "speaker.html",
         {"speaker": speaker, "sources": sources, "avatars": avatars.AVATARS,
-         "grouped": grouped, "candidates": candidates},
+         "grouped": grouped, "claim_count": claim_count, "candidates": candidates},
     )
 
 

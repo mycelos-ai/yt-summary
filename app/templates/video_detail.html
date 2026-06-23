@@ -172,15 +172,12 @@
     </details>
   {% endif %}
 
-  <div class="persona-disclaimer" data-persona-banner hidden>
-    ⚠️ Simulated — AI impression based on your sources, not their real words.
-  </div>
-
   {% if track_record %}
-  <details class="track-record-peek" open>
-    <summary>What {{ persona_name | e }} has said before</summary>
+  <details class="track-record-peek">
+    <summary>What {{ persona_name | e }} has said before
+      <span class="peek-count">· {{ track_record | length }}</span></summary>
     <ul>
-      {% for c in track_record %}
+      {% for c in track_record[:5] %}
       <li>
         <a href="/v/{{ c.source_id }}{% if c.evidence_start_s is not none %}#t={{ c.evidence_start_s }}{% endif %}">
           {{ c.claim | e }}
@@ -191,6 +188,9 @@
       </li>
       {% endfor %}
     </ul>
+    {% if track_record | length > 5 and persona_speaker_id %}
+      <p class="peek-more"><a href="/speaker/{{ persona_speaker_id }}">+ {{ track_record | length - 5 }} more on the speaker page</a></p>
+    {% endif %}
   </details>
   {% endif %}
 
@@ -202,6 +202,9 @@
         {% for msg in chat_history %}
           {% include "_chat_message.html" %}
         {% endfor %}
+      </div>
+      <div class="persona-disclaimer" data-persona-banner hidden>
+        ⚠️ Simulated — AI impression based on your sources, not their real words.
       </div>
       <form
         class="chat-composer"

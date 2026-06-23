@@ -276,6 +276,7 @@ async def _import_text(
     same row rather than duplicating (idempotent like web imports whose
     id comes from the canonical URL)."""
     import hashlib
+
     from app.models import TranscriptSource
 
     digest = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()[:16]
@@ -626,8 +627,10 @@ async def video_detail(
     # linked speaker). No chat query at page load → recency order.
     track_record = []
     persona_name = ""
+    persona_speaker_id = None
     if speakers:
         persona_name = speakers[0].name
+        persona_speaker_id = speakers[0].id
         from app.repos import speaker_claims as claims_repo
         track_record = [
             c for c in await claims_repo.list_for_speaker(db, speakers[0].id)
@@ -652,6 +655,7 @@ async def video_detail(
             "speakers": speakers,
             "track_record": track_record,
             "persona_name": persona_name,
+            "persona_speaker_id": persona_speaker_id,
         },
     )
 

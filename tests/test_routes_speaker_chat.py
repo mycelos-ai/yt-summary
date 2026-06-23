@@ -27,6 +27,8 @@ async def _setup(app, *, active=True):
         kind=VideoKind.YOUTUBE, user_id=1)
     await videos_repo.set_transcript(
         app.state.db, "vs1", "transcript body", TranscriptSource.AUTO_SUBS)
+    # A summary makes the chat section render (the persona banner lives in it).
+    await videos_repo.set_summary(app.state.db, "vs1", "summary body", "openai/gpt-4o")
     cur = await app.state.db.execute(
         "INSERT INTO speakers (user_id, name, name_key, is_active) "
         "VALUES (1,'Chamath','chamath',?)",
@@ -440,6 +442,8 @@ async def _setup_no_link(app):
         kind=VideoKind.YOUTUBE, user_id=1)
     await videos_repo.set_transcript(
         app.state.db, "vs1", "transcript body", TranscriptSource.AUTO_SUBS)
+    # A summary makes the chat section render (the persona banner lives in it).
+    await videos_repo.set_summary(app.state.db, "vs1", "summary body", "openai/gpt-4o")
     cur = await app.state.db.execute(
         "INSERT INTO speakers (user_id, name, name_key, is_active) "
         "VALUES (1,'Chamath','chamath',1)")
