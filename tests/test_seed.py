@@ -17,8 +17,8 @@ def test_seed_shows_idempotent(db):
         cur = await db.execute("SELECT COUNT(*) FROM known_shows WHERE user_id IS NULL")
         n = (await cur.fetchone())[0]
         assert n >= 3
-        # marker set
-        assert await settings_repo.get(db, "known_shows_seed_version") == "1"
+        # marker set (version matches known_shows.json "version" field)
+        assert await settings_repo.get(db, "known_shows_seed_version") == "2"
         # no duplication
         cur = await db.execute(
             "SELECT name, COUNT(*) c FROM known_shows GROUP BY name HAVING c>1"
@@ -40,6 +40,24 @@ def test_seed_speakers_idempotent(db):
             "SELECT name_key, COUNT(*) c FROM known_speakers GROUP BY name_key HAVING c>1"
         )
         assert await cur.fetchone() is None
+    _run(go())
+
+
+def test_reseed_sets_allin_channel_id(db):
+    """Reseed must write channel_id='UCESLZhusAkFfsNsApnjF_Cg' onto the All-In row.
+    This proves Part 1 of the speaker detection fix: the seed version bump triggers
+    an ON CONFLICT DO UPDATE that patches the previously-NULL channel_id."""
+    async def go():
+        await seed.seed_known_shows(db)
+        cur = await db.execute(
+            "SELECT channel_id FROM known_shows "
+            "WHERE name='All-In Podcast' AND user_id IS NULL"
+        )
+        row = await cur.fetchone()
+        assert row is not None, "All-In Podcast must be seeded"
+        assert row[0] == "UCESLZhusAkFfsNsApnjF_Cg", (
+            f"All-In channel_id not set correctly: {row[0]!r}"
+        )
     _run(go())
 
 

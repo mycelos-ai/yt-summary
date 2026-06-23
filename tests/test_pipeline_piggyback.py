@@ -2,6 +2,8 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+ALLIN_CHANNEL_ID = "UCESLZhusAkFfsNsApnjF_Cg"
+
 
 def _run(c):
     return asyncio.get_event_loop().run_until_complete(c)
@@ -51,6 +53,96 @@ def test_piggyback_skips_when_no_active_speaker(db):
             await pipeline._extract_active_speaker_claims(
                 db, video, model="m", api_key="k", base_url=None)
         extract.assert_not_called()  # no expensive call when nobody is active
+    _run(go())
+
+
+def test_backfill_channel_id_writes_when_missing(db):
+    """_backfill_channel_id must write channel_id when the video row has NULL."""
+    async def go():
+        from app import pipeline
+        from app.repos import videos as videos_repo
+
+        # Insert a YouTube video with no channel_id (legacy row).
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, transcript) "
+            "VALUES ('bcid1', 1, 'youtube', 'https://youtu.be/x', 'Ep', 'body')"
+        )
+        await db.commit()
+        video = await videos_repo.get(db, "bcid1")
+        assert video is not None
+        assert video.channel_id is None, "precondition: channel_id must be NULL"
+
+        # A minimal meta stub with channel_id set (as returned by fetch_metadata).
+        class _Meta:
+            channel_id = ALLIN_CHANNEL_ID
+            tags: set = set()
+
+        await pipeline._backfill_channel_id(db, video, _Meta())
+
+        refreshed = await videos_repo.get(db, "bcid1")
+        assert refreshed is not None
+        assert refreshed.channel_id == ALLIN_CHANNEL_ID, (
+            f"channel_id not written: {refreshed.channel_id!r}"
+        )
+    _run(go())
+
+
+def test_backfill_channel_id_skips_when_already_set(db):
+    """_backfill_channel_id must NOT clobber an existing channel_id."""
+    async def go():
+        from app import pipeline
+        from app.repos import videos as videos_repo
+
+        # Insert a video that already has a channel_id.
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, transcript, channel_id) "
+            "VALUES ('bcid2', 1, 'youtube', 'https://youtu.be/y', 'Ep', 'body', 'EXISTING')"
+        )
+        await db.commit()
+        video = await videos_repo.get(db, "bcid2")
+        assert video is not None
+        assert video.channel_id == "EXISTING"
+
+        class _Meta:
+            channel_id = ALLIN_CHANNEL_ID
+            tags: set = set()
+
+        await pipeline._backfill_channel_id(db, video, _Meta())
+
+        refreshed = await videos_repo.get(db, "bcid2")
+        assert refreshed is not None
+        # The guard in _backfill_channel_id checks `not video.channel_id` so
+        # the upsert is skipped entirely; the existing value must survive.
+        assert refreshed.channel_id == "EXISTING", (
+            f"channel_id clobbered: {refreshed.channel_id!r}"
+        )
+    _run(go())
+
+
+def test_backfill_channel_id_noop_when_meta_has_none(db):
+    """_backfill_channel_id must not write NULL when meta.channel_id is absent."""
+    async def go():
+        from app import pipeline
+        from app.repos import videos as videos_repo
+
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, transcript) "
+            "VALUES ('bcid3', 1, 'youtube', 'https://youtu.be/z', 'Ep', 'body')"
+        )
+        await db.commit()
+        video = await videos_repo.get(db, "bcid3")
+        assert video is not None
+        assert video.channel_id is None
+
+        class _MetaNone:
+            channel_id = None
+            tags: set = set()
+
+        await pipeline._backfill_channel_id(db, video, _MetaNone())
+
+        refreshed = await videos_repo.get(db, "bcid3")
+        assert refreshed is not None
+        assert refreshed.channel_id is None, "should remain NULL when meta has no channel_id"
     _run(go())
 
 

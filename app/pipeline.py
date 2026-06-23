@@ -180,15 +180,23 @@ async def process_video(
     # Web pages have no equivalent metadata field worth chasing.
     if video.kind == VideoKind.YOUTUBE:
         existing_tags = await tags_repo.tags_for_video(db, video_id)
-        if not existing_tags:
+        if not existing_tags or not video.channel_id:
             try:
                 meta = await fetch_metadata(video.url, cookies_path=cookies)
                 if meta.tags:
                     await tags_repo.set_tags_for_video(
                         db, video_id, list(meta.tags)
                     )
+                # Backfill channel_id for legacy rows that pre-date the
+                # channel_id ingest (e.g. All-In Podcast videos ingested
+                # before the channel_id column was populated). This write
+                # happens BEFORE the end-of-pipeline detect_and_link so
+                # the refreshed video object picks it up and show-match
+                # can fire on channel_id. upsert_metadata COALESCEs, so
+                # a non-NULL existing channel_id is never clobbered.
+                await _backfill_channel_id(db, video, meta)
             except Exception:
-                # Tag backfill is a nice-to-have; don't fail the whole job.
+                # Tag + channel_id backfill is a nice-to-have; don't fail.
                 pass
 
     if not model:
@@ -459,6 +467,32 @@ async def _try_embed_summary(
             video_id,
             type(e).__name__,
             e,
+        )
+
+
+async def _backfill_channel_id(db, video, meta) -> None:
+    """Write channel_id from yt-dlp metadata back to the video row when the
+    stored channel_id is missing (NULL/empty). Best-effort: called from inside
+    a try/except so any failure is already silenced by the caller.
+
+    upsert_metadata COALESCEs channel_id, so this never overwrites a value
+    that was already set on the row.  Writing early (before the end-of-pipeline
+    detect_and_link) means the refreshed video object — fetched later via
+    videos_repo.get — will carry the backfilled channel_id and show-match
+    can fire on it."""
+    if not video.channel_id and meta.channel_id:
+        await videos_repo.upsert_metadata(
+            db,
+            video_id=video.id,
+            url=video.url,
+            title=video.title,
+            description=video.description or "",
+            thumbnail_path=video.thumbnail_path,
+            duration_seconds=video.duration_seconds,
+            user_id=video.user_id,
+            kind=video.kind,
+            youtube_id=getattr(video, "youtube_id", None),
+            channel_id=meta.channel_id,
         )
 
 

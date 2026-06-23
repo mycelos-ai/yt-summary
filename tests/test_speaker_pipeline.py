@@ -1,8 +1,13 @@
 import asyncio
+import json
 
 from app.models import Video, VideoKind
 from app.repos import source_speakers as ss_repo
 from app.services import speaker_pipeline
+
+ALLIN_CHANNEL_ID = "UCESLZhusAkFfsNsApnjF_Cg"
+ALLIN_HOSTS = ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"]
+ALLIN_TOPIC_TITLE = "OpenAI Misses Targets, Codex vs Claude, Elon vs Sam Trial"
 
 
 def _run(c):
@@ -61,6 +66,81 @@ def test_detect_and_link_skips_when_no_transcript(db):
         await _seed_video_row(db)
         v = _video(transcript=None)
         assert await speaker_pipeline.detect_and_link(db, v) == []
+    _run(go())
+
+
+async def _seed_allin_show(db):
+    """Insert All-In Podcast known_shows row with real channel_id."""
+    await db.execute(
+        "INSERT INTO known_shows "
+        "(user_id, name, channel_id, title_pattern, hosts_json, guest_rule, enabled) "
+        "VALUES (NULL, 'All-In Podcast', ?, 'All-In', ?, NULL, 1) "
+        "ON CONFLICT(name) WHERE user_id IS NULL DO UPDATE SET "
+        "channel_id=excluded.channel_id, title_pattern=excluded.title_pattern, "
+        "hosts_json=excluded.hosts_json",
+        (ALLIN_CHANNEL_ID, json.dumps(ALLIN_HOSTS)),
+    )
+    await db.commit()
+
+
+async def _seed_allin_video(db, vid="allin1", channel_id=ALLIN_CHANNEL_ID, title=None):
+    t = title or ALLIN_TOPIC_TITLE
+    await db.execute(
+        "INSERT INTO videos (id, user_id, kind, url, title, channel_id, transcript) "
+        "VALUES (?, 1, 'youtube', 'u', ?, ?, 'body')",
+        (vid, t, channel_id),
+    )
+    await db.commit()
+
+
+def _allin_video(*, vid="allin1", channel_id=ALLIN_CHANNEL_ID, title=None):
+    t = title or ALLIN_TOPIC_TITLE
+    return _video(
+        id=vid,
+        title=t,
+        channel_id=channel_id,
+        description="",
+        transcript="body",
+    )
+
+
+# --- All-In detection tests (bug repro + fix proof) --------------------------
+
+def test_allin_video_detects_via_channel_id(db):
+    """channel_id match alone links all 4 hosts; topic-list title never has 'All-In'."""
+    async def go():
+        await _seed_allin_show(db)
+        await _seed_allin_video(db)
+        video = _allin_video()
+        # Title does NOT contain "All-In" — only channel_id match should fire.
+        assert "All-In" not in video.title, "test precondition: title must not contain 'All-In'"
+        ids = await speaker_pipeline.detect_and_link(db, video)
+        assert len(ids) == 4, f"expected 4 host ids, got {ids!r}"
+        linked_names = {p.name for p in await ss_repo.list_for_source(db, "allin1")}
+        assert linked_names == set(ALLIN_HOSTS), f"linked names mismatch: {linked_names!r}"
+        # detection_source must be show_rule — query the join table directly
+        cur = await db.execute(
+            "SELECT DISTINCT detection_source FROM source_speakers WHERE source_id='allin1'"
+        )
+        sources = {r[0] for r in await cur.fetchall()}
+        assert sources == {"show_rule"}, f"unexpected detection_source values: {sources!r}"
+    _run(go())
+
+
+def test_allin_video_no_detection_without_channel_id_or_title(db):
+    """Bug repro: NULL channel_id + topic-list title (no 'All-In') yields no detection."""
+    async def go():
+        await _seed_allin_show(db)
+        vid = "allin_null"
+        await db.execute(
+            "INSERT INTO videos (id, user_id, kind, url, title, channel_id, transcript) "
+            "VALUES (?, 1, 'youtube', 'u', ?, NULL, 'body')",
+            (vid, ALLIN_TOPIC_TITLE),
+        )
+        await db.commit()
+        video = _allin_video(vid=vid, channel_id=None)
+        ids = await speaker_pipeline.detect_and_link(db, video)
+        assert ids == [], f"expected no detection when channel_id=NULL and title has no 'All-In', got {ids!r}"
     _run(go())
 
 
