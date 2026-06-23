@@ -1,9 +1,7 @@
 import asyncio
 
-import pytest
-
-from app.services import seed
 from app.repos import settings as settings_repo
+from app.services import seed
 
 
 def _run(c):
@@ -18,7 +16,7 @@ def test_seed_shows_idempotent(db):
         n = (await cur.fetchone())[0]
         assert n >= 3
         # marker set (version matches known_shows.json "version" field)
-        assert await settings_repo.get(db, "known_shows_seed_version") == "2"
+        assert await settings_repo.get(db, "known_shows_seed_version") == "4"
         # no duplication
         cur = await db.execute(
             "SELECT name, COUNT(*) c FROM known_shows GROUP BY name HAVING c>1"
@@ -34,7 +32,7 @@ def test_seed_speakers_idempotent(db):
         cur = await db.execute("SELECT COUNT(*) FROM known_speakers")
         assert (await cur.fetchone())[0] >= 2
         # marker set
-        assert await settings_repo.get(db, "known_speakers_seed_version") == "1"
+        assert await settings_repo.get(db, "known_speakers_seed_version") == "5"
         # no duplication by name_key
         cur = await db.execute(
             "SELECT name_key, COUNT(*) c FROM known_speakers GROUP BY name_key HAVING c>1"
@@ -145,4 +143,114 @@ def test_reseed_does_not_break_with_linked_speaker(db):
         row = await cur.fetchone()
         assert row is not None
         assert row[0] == known_id
+    _run(go())
+
+
+def test_seed_speakers_carries_curated_photo_paths(db):
+    async def go():
+        await seed.seed_known_speakers(db)
+        cur = await db.execute(
+            "SELECT avatar_photo_path, style_note FROM known_speakers "
+            "WHERE name_key='steven bartlett'"
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        # After the fix, seed photos are stored as relative static paths
+        assert row["avatar_photo_path"] == "podcasters/steven-bartlett.png", (
+            f"Expected relative static path, got: {row['avatar_photo_path']!r}"
+        )
+        assert "reflective interviewer" in row["style_note"]
+
+    _run(go())
+
+
+def test_seed_photo_stored_as_relative_static_path(db):
+    """Seed photos (app/static/podcasters/*.png) must be stored as relative
+    web paths ('podcasters/x.png'), NOT as absolute filesystem paths."""
+    async def go():
+        await seed.seed_known_speakers(db)
+        cur = await db.execute(
+            "SELECT avatar_photo_path FROM known_speakers "
+            "WHERE name_key='chamath palihapitiya'"
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        path = row["avatar_photo_path"]
+        # Must be the relative web path — no leading slash, no filesystem prefix
+        assert path == "podcasters/chamath-palihapitiya.png", (
+            f"Expected relative static path, got: {path!r}"
+        )
+        # Must NOT contain any absolute-path components
+        assert not path.startswith("/"), f"Path must not be absolute: {path!r}"
+        assert "app/static" not in path, f"Path must not contain app/static: {path!r}"
+        assert "/Users/" not in path, f"Path must not be a host path: {path!r}"
+        assert path.count("/") == 1, f"Should be exactly one slash (subdir/file): {path!r}"
+    _run(go())
+
+
+def test_seed_links_and_photographs_unlinked_speaker(db):
+    """An existing speakers row with known_speaker_id=NULL but matching name_key
+    must get known_speaker_id backfilled AND avatar_photo_path set to the relative
+    static path on re-seed."""
+    async def go():
+        # First seed known_speakers so the catalog rows exist
+        await seed.seed_known_speakers(db)
+
+        # Insert a profile speaker simulating show-match detection: name matches
+        # Chamath but known_speaker_id is NULL (not yet linked), no photo
+        await db.execute(
+            "INSERT INTO speakers (user_id, name, name_key, avatar_photo_path) "
+            "VALUES (1, 'Chamath Palihapitiya', 'chamath palihapitiya', NULL)"
+        )
+        # Force re-seed by deleting the version marker
+        await db.execute(
+            "DELETE FROM settings WHERE key='known_speakers_seed_version'"
+        )
+        await db.commit()
+
+        # Re-run the seed loader
+        await seed.seed_known_speakers(db)
+
+        # The un-linked speaker must now have known_speaker_id and avatar_photo_path set
+        cur = await db.execute(
+            "SELECT known_speaker_id, avatar_photo_path FROM speakers "
+            "WHERE name_key='chamath palihapitiya' AND user_id=1"
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        assert row["known_speaker_id"] is not None, (
+            "known_speaker_id must be backfilled by name_key match"
+        )
+        assert row["avatar_photo_path"] == "podcasters/chamath-palihapitiya.png", (
+            f"Expected relative static path, got: {row['avatar_photo_path']!r}"
+        )
+    _run(go())
+
+
+def test_seed_speakers_does_not_overwrite_existing_profile_photo(db):
+    async def go():
+        await seed.seed_known_speakers(db)
+        cur = await db.execute(
+            "SELECT id FROM known_speakers WHERE name_key='lex fridman'"
+        )
+        known_id = (await cur.fetchone())["id"]
+        await db.execute(
+            "INSERT INTO speakers "
+            "(user_id, known_speaker_id, name, name_key, avatar_photo_path) "
+            "VALUES (1, ?, 'Lex Fridman', 'lex fridman', '/custom/lex.png')",
+            (known_id,),
+        )
+        await db.execute(
+            "DELETE FROM settings WHERE key='known_speakers_seed_version'"
+        )
+        await db.commit()
+
+        await seed.seed_known_speakers(db)
+
+        cur = await db.execute(
+            "SELECT avatar_photo_path FROM speakers WHERE name_key='lex fridman'"
+        )
+        row = await cur.fetchone()
+        assert row["avatar_photo_path"] == "/custom/lex.png"
+
     _run(go())

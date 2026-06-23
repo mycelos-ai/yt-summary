@@ -11,7 +11,11 @@
             style="--avatar-bg: {{ sp.avatar_id | avatar_bg }};">
         <a class="speaker-chip-name" href="/speaker/{{ sp.id }}">
           {% if sp.avatar_photo_path %}
-            <img class="speaker-chip-avatar" src="/speaker/{{ sp.id }}/photo" alt="">
+            {% if sp.avatar_photo_path.startswith('/') %}
+              <img class="speaker-chip-avatar" src="/speaker/{{ sp.id }}/photo" alt="">
+            {% else %}
+              <img class="speaker-chip-avatar" src="/static/{{ sp.avatar_photo_path }}" alt="">
+            {% endif %}
           {% endif %}
           {{ sp.name }}
         </a>

@@ -1,13 +1,18 @@
-{# app/templates/speaker.html — PR 2: header + confirmed sources only.
-   Claims (dossier) and candidate "possible sources" are PR 3/4 — the
-   extension points are marked below but intentionally NOT built. #}
+{# app/templates/speaker.html — UX pass 2026-06-23.
+   Persona CHAT is the hero (front, right under the header); the claims
+   dossier and candidates recede into collapsed <details>; the edit form
+   moves to the bottom. Buttons reuse the app's .btn system. #}
 {% extends "base.html" %}
 {% block title %}{{ speaker.name }} — yt-summary{% endblock %}
 {% block content %}
 <article class="speaker-page">
   <header class="speaker-header" style="--avatar-bg: {{ speaker.avatar_id | avatar_bg }};">
     {% if speaker.avatar_photo_path %}
-      <img class="speaker-photo" src="/speaker/{{ speaker.id }}/photo" alt="{{ speaker.name }}">
+      {% if speaker.avatar_photo_path.startswith('/') %}
+        <img class="speaker-photo" src="/speaker/{{ speaker.id }}/photo" alt="{{ speaker.name }}">
+      {% else %}
+        <img class="speaker-photo" src="/static/{{ speaker.avatar_photo_path }}" alt="{{ speaker.name }}">
+      {% endif %}
     {% elif speaker.avatar_id %}
       <span class="profile-avatar profile-avatar--image profile-avatar--large"
             style="--avatar-bg: {{ speaker.avatar_id | avatar_bg }};">
@@ -27,17 +32,21 @@
 
     <div class="speaker-actions">
       {% if speaker.is_active %}
-        <button hx-post="/speaker/{{ speaker.id }}/deactivate?caller=page"
+        <button class="btn btn-secondary"
+                hx-post="/speaker/{{ speaker.id }}/deactivate?caller=page"
                 hx-target="closest .speaker-actions" hx-swap="innerHTML">Deactivate</button>
       {% else %}
-        <button hx-post="/speaker/{{ speaker.id }}/activate?caller=page"
+        <button class="btn btn-accent"
+                hx-post="/speaker/{{ speaker.id }}/activate?caller=page"
                 hx-target="closest .speaker-actions" hx-swap="innerHTML">Activate</button>
       {% endif %}
     </div>
   </header>
 
+  {# ── Edit identity: collapsible, right under the header where the
+       avatar/name/style it edits live ─────────────────────────── #}
   <details class="speaker-edit-panel">
-    <summary>Edit</summary>
+    <summary>Edit identity</summary>
     <form class="speaker-edit" method="post" action="/speaker/{{ speaker.id }}/edit"
           enctype="multipart/form-data">
       <label>
@@ -65,10 +74,41 @@
         Photo
         <input type="file" name="photo" accept="image/*">
       </label>
-      <button type="submit">Save</button>
+      <button class="btn btn-accent" type="submit">Save</button>
     </form>
   </details>
 
+  {# ── THE HERO: persona chat, front and center ───────────────── #}
+  <section class="chat speaker-chat">
+    <div class="persona-disclaimer">
+      ⚠️ Simulated — AI impression of {{ speaker.name | e }} based on your
+      sources, not their real words.
+    </div>
+    <div id="chat-history" class="chat-thread"></div>
+    <form class="chat-composer"
+          hx-post="/speaker/{{ speaker.id }}/chat"
+          hx-target="#chat-history" hx-swap="beforeend"
+          hx-disabled-elt="find input, find button">
+      <input type="text" name="content" placeholder="Chat with {{ speaker.name | e }}…" required>
+      <button class="btn btn-accent" type="submit">
+        <span class="btn-label">Send</span>
+        <span class="btn-spinner" aria-hidden="true"></span>
+      </button>
+    </form>
+  </section>
+
+  {# ── Track record: the grounding/evidence layer, collapsed ──── #}
+  <details class="speaker-collapsible speaker-track-record">
+    <summary>
+      Track record
+      {% if claim_count %}<span class="collapsible-count">· {{ claim_count }} claims</span>{% endif %}
+    </summary>
+    <div class="speaker-collapsible-body">
+      {% include "_speaker_claims.html" %}
+    </div>
+  </details>
+
+  {# ── Appears in: provenance (utility) ───────────────────────── #}
   <section class="speaker-sources">
     <h2>Appears in</h2>
     {% if sources %}
@@ -85,29 +125,15 @@
     {% endif %}
   </section>
 
-  <section class="speaker-section speaker-track-record">
-    <h2>Track record</h2>
-    {% include "_speaker_claims.html" %}
-  </section>
-
-  <section class="speaker-section speaker-chat">
-    <div class="persona-disclaimer">
-      ⚠️ Simulated — AI impression of {{ speaker.name | e }} based on your
-      sources, not their real words.
+  {# ── Possible sources: discovery queue, collapsed ───────────── #}
+  <details class="speaker-collapsible speaker-candidates-wrap" aria-label="Possible sources">
+    <summary>Possible sources</summary>
+    <div class="speaker-collapsible-body">
+      {% with speaker_id = speaker.id %}
+        {% include "_speaker_candidates.html" %}
+      {% endwith %}
     </div>
-    <div id="chat-history" class="chat-thread"></div>
-    <form class="chat-composer"
-          hx-post="/speaker/{{ speaker.id }}/chat"
-          hx-target="#chat-history" hx-swap="beforeend">
-      <input type="text" name="content" placeholder="Chat with {{ speaker.name | e }}…" required>
-      <button type="submit">Send</button>
-    </form>
-  </section>
+  </details>
 
-  <section class="speaker-section speaker-candidates-wrap" aria-label="Possible sources">
-    {% with speaker_id = speaker.id %}
-      {% include "_speaker_candidates.html" %}
-    {% endwith %}
-  </section>
 </article>
 {% endblock %}

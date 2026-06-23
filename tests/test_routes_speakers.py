@@ -405,6 +405,62 @@ def test_activate_from_chips_returns_full_strip_with_unlink(tmp_path, monkeypatc
         # (the panel has different structure than the strip)
 
 
+# ---------------------------------------------------------------------------
+# Seed photo URL routing tests (Part C): relative = /static/, absolute = /photo
+# ---------------------------------------------------------------------------
+
+def test_speaker_page_renders_static_photo_url(tmp_path, monkeypatch):
+    """Speaker with a relative avatar_photo_path (seed photo) must render as
+    /static/{path}, NOT as /speaker/{id}/photo."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        async def setup():
+            from app.repos import speakers as sp_repo
+            sp_id = await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Static Photo Speaker")
+            await app.state.db.execute(
+                "UPDATE speakers SET avatar_photo_path=? WHERE id=?",
+                ("podcasters/chamath-palihapitiya.png", sp_id),
+            )
+            await app.state.db.commit()
+            return sp_id
+        speaker_id = _run(setup())
+
+        page = client.get(f"/speaker/{speaker_id}")
+        assert page.status_code == 200
+        assert 'src="/static/podcasters/chamath-palihapitiya.png"' in page.text, (
+            "Relative seed photo must render as /static/... URL"
+        )
+        assert f'src="/speaker/{speaker_id}/photo"' not in page.text, (
+            "Relative seed photo must NOT use the /speaker/{id}/photo route"
+        )
+
+
+def test_speaker_page_uploaded_photo_uses_photo_route(tmp_path, monkeypatch):
+    """Speaker with an absolute avatar_photo_path (uploaded file) must render
+    via /speaker/{id}/photo, NOT /static/."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        async def setup():
+            from app.repos import speakers as sp_repo
+            sp_id = await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Upload Photo Speaker")
+            await app.state.db.execute(
+                "UPDATE speakers SET avatar_photo_path=? WHERE id=?",
+                ("/data/speaker_photos/99.png", sp_id),
+            )
+            await app.state.db.commit()
+            return sp_id
+        speaker_id = _run(setup())
+
+        page = client.get(f"/speaker/{speaker_id}")
+        assert page.status_code == 200
+        assert f'src="/speaker/{speaker_id}/photo"' in page.text, (
+            "Absolute upload path must use /speaker/{id}/photo route"
+        )
+        assert '/static/data/' not in page.text, (
+            "Absolute upload path must NOT render as /static/..."
+        )
+
+
 def test_activate_from_chips_foreign_video_is_404(tmp_path, monkeypatch):
     """Activating from chip strip with foreign video_id returns 404."""
     app, client = _client(tmp_path, monkeypatch)

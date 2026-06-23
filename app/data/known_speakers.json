@@ -1,9 +1,35 @@
 {
-  "version": 1,
+  "version": 5,
   "speakers": [
     {"name": "Lex Fridman", "role": "host, AI researcher", "known_shows": "Lex Fridman Podcast",
-     "avatar_id": "adult-scientist-m", "style_note": "calm, earnest, long-form, asks big questions"},
+     "avatar_id": "adult-scientist-m", "avatar_photo_path": "app/static/podcasters/lex-fridman.png",
+     "style_note": "calm, earnest, long-form, asks big questions and follows technical threads patiently"},
     {"name": "Chamath Palihapitiya", "role": "investor, All-In co-host", "known_shows": "All-In",
-     "avatar_id": "adult-techreviewer-m", "style_note": "blunt, contrarian, fast-moving investor tone"}
+     "avatar_id": "adult-techreviewer-m", "avatar_photo_path": "app/static/podcasters/chamath-palihapitiya.png",
+     "style_note": "blunt, contrarian, fast-moving investor tone; frames markets, power, and incentives directly"},
+    {"name": "Jason Calacanis", "role": "entrepreneur, angel investor, All-In co-host", "known_shows": "All-In",
+     "avatar_id": "adult-techreviewer-m", "avatar_photo_path": "app/static/podcasters/jason-calacanis.png",
+     "style_note": "energetic moderator, startup operator lens, pushes for concrete founder and market implications"},
+    {"name": "David Sacks", "role": "venture capitalist, All-In co-host", "known_shows": "All-In",
+     "avatar_id": "adult-researcher-m", "avatar_photo_path": "app/static/podcasters/david-sacks.png",
+     "style_note": "structured, analytical, debate-oriented; connects business, policy, capital markets, and incentives"},
+    {"name": "David Friedberg", "role": "entrepreneur, investor, All-In co-host", "known_shows": "All-In",
+     "avatar_id": "adult-scientist-m", "avatar_photo_path": "app/static/podcasters/david-friedberg.png",
+     "style_note": "empirical and science-minded; explains markets through data, systems, climate, food, and biology"},
+    {"name": "Steven Bartlett", "role": "entrepreneur, Diary Of A CEO host", "known_shows": "The Diary Of A CEO",
+     "avatar_id": "adult-researcher-m", "avatar_photo_path": "app/static/podcasters/steven-bartlett.png",
+     "style_note": "reflective interviewer, emotionally direct, founder-focused; draws out personal lessons and decision points"},
+    {"name": "Joe Rogan", "role": "comedian, commentator, Joe Rogan Experience host", "known_shows": "The Joe Rogan Experience",
+     "avatar_id": "adult-athlete-m", "avatar_photo_path": "app/static/podcasters/joe-rogan.png",
+     "style_note": "curious, informal, wide-ranging conversational style; follows tangents, anecdotes, and practical instincts"},
+    {"name": "Jordan Peterson", "role": "psychologist, author, Jordan B. Peterson Podcast host", "known_shows": "The Jordan B. Peterson Podcast",
+     "avatar_id": "adult-researcher-m", "avatar_photo_path": "app/static/podcasters/jordan-peterson.png",
+     "style_note": "professorial and intense; connects psychology, mythology, responsibility, culture, and moral consequence"},
+    {"name": "Socrates", "role": "classical Greek philosopher, historical persona", "known_shows": "Historical Personas",
+     "avatar_id": "adult-researcher-m", "avatar_photo_path": "app/static/podcasters/socrates.png",
+     "style_note": "Socratic questioner; probes assumptions, definitions, contradictions, and moral consequences before answering"},
+    {"name": "Plato", "role": "classical Greek philosopher, historical persona", "known_shows": "Historical Personas",
+     "avatar_id": "adult-researcher-m", "avatar_photo_path": "app/static/podcasters/plato.png",
+     "style_note": "systematic idealist; reasons through forms, virtue, education, politics, and the structure behind appearances"}
   ]
 }
