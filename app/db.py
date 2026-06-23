@@ -339,6 +339,7 @@ CREATE TABLE IF NOT EXISTS known_speakers (
     role TEXT,
     known_shows TEXT,
     avatar_id TEXT,
+    avatar_photo_path TEXT,
     style_note TEXT,
     seed_version INTEGER NOT NULL DEFAULT 1
 );
@@ -487,6 +488,9 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     columns referenced by CREATE INDEX statements already exist.
     """
     # Only migrate tables that actually exist (no-op on a blank database).
+    if await _table_exists(conn, "known_speakers"):
+        await _ensure_column(conn, "known_speakers", "avatar_photo_path", "TEXT")
+
     if await _table_exists(conn, "videos"):
         video_cols = await _table_columns(conn, "videos")
         if "user_id" not in video_cols:

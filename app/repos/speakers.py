@@ -41,7 +41,8 @@ async def resolve_speaker(
 
     # Look up the known_speakers catalog by name_key to inherit curated identity.
     ks_cur = await db.execute(
-        "SELECT id, role, avatar_id, style_note FROM known_speakers WHERE name_key=?",
+        "SELECT id, role, avatar_id, avatar_photo_path, style_note "
+        "FROM known_speakers WHERE name_key=?",
         (key,),
     )
     ks = await ks_cur.fetchone()
@@ -52,9 +53,13 @@ async def resolve_speaker(
         effective_role = role if role is not None else ks["role"]
         cur = await db.execute(
             "INSERT INTO speakers "
-            "(user_id, name, name_key, role, known_speaker_id, avatar_id, style_note) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (user_id, name, key, effective_role, ks["id"], ks["avatar_id"], ks["style_note"]),
+            "(user_id, name, name_key, role, known_speaker_id, avatar_id, "
+            "avatar_photo_path, style_note) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                user_id, name, key, effective_role, ks["id"], ks["avatar_id"],
+                ks["avatar_photo_path"], ks["style_note"],
+            ),
         )
     else:
         cur = await db.execute(

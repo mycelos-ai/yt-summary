@@ -1,4 +1,5 @@
 import asyncio
+
 from app.repos import speakers as repo
 
 
@@ -24,7 +25,9 @@ def test_resolve_speaker_upserts_same_person(db):
     _run(go())
 
 
-async def _upsert_known_speaker(db, *, name, role, avatar_id, style_note):
+async def _upsert_known_speaker(
+    db, *, name, role, avatar_id, style_note, avatar_photo_path=None,
+):
     """Helper: upsert a known_speakers row and return its id.
 
     Uses ON CONFLICT(name_key) so it is safe even when the seed loader has
@@ -33,11 +36,14 @@ async def _upsert_known_speaker(db, *, name, role, avatar_id, style_note):
     """
     key = repo.normalize_name_key(name)
     await db.execute(
-        "INSERT INTO known_speakers (name, name_key, role, avatar_id, style_note) "
-        "VALUES (?,?,?,?,?) "
+        "INSERT INTO known_speakers "
+        "(name, name_key, role, avatar_id, avatar_photo_path, style_note) "
+        "VALUES (?,?,?,?,?,?) "
         "ON CONFLICT(name_key) DO UPDATE SET "
-        "role=excluded.role, avatar_id=excluded.avatar_id, style_note=excluded.style_note",
-        (name, key, role, avatar_id, style_note),
+        "role=excluded.role, avatar_id=excluded.avatar_id, "
+        "avatar_photo_path=excluded.avatar_photo_path, "
+        "style_note=excluded.style_note",
+        (name, key, role, avatar_id, avatar_photo_path, style_note),
     )
     await db.commit()
     cur = await db.execute(
@@ -62,6 +68,24 @@ def test_resolve_speaker_inherits_known_speaker_identity(db):
         assert sp.avatar_id == "lex_av"
         assert sp.style_note == "calm and probing"
         assert sp.role == "host"  # inherited from known_speakers (caller passed no role)
+    _run(go())
+
+
+def test_resolve_speaker_inherits_known_speaker_photo(db):
+    async def go():
+        await _upsert_known_speaker(
+            db,
+            name="Steven Bartlett",
+            role="host",
+            avatar_id="host_av",
+            avatar_photo_path="/assets/steven.png",
+            style_note="reflective interviewer",
+        )
+        sp_id = await repo.resolve_speaker(db, name="Steven Bartlett")
+        sp = await repo.get_speaker(db, sp_id)
+        assert sp.avatar_photo_path == "/assets/steven.png"
+        assert sp.style_note == "reflective interviewer"
+
     _run(go())
 
 

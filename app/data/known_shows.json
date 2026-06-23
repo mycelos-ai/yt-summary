@@ -1,10 +1,14 @@
 {
-  "version": 2,
+  "version": 4,
   "shows": [
     {"name": "Lex Fridman Podcast", "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
      "title_pattern": "Lex Fridman Podcast", "hosts": ["Lex Fridman"], "guest_rule": "before:: "},
     {"name": "The Diary Of A CEO", "channel_id": null,
      "title_pattern": "The Diary Of A CEO", "hosts": ["Steven Bartlett"], "guest_rule": "after:with "},
+    {"name": "The Joe Rogan Experience", "channel_id": null,
+     "title_pattern": "Joe Rogan Experience", "hosts": ["Joe Rogan"], "guest_rule": "after: - "},
+    {"name": "The Jordan B. Peterson Podcast", "channel_id": null,
+     "title_pattern": "Jordan B. Peterson", "hosts": ["Jordan Peterson"], "guest_rule": null},
     {"name": "All-In Podcast", "channel_id": "UCESLZhusAkFfsNsApnjF_Cg", "title_pattern": "All-In",
      "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null}
   ]
