@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "shows": [
     {"name": "Lex Fridman Podcast", "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
      "title_pattern": "Lex Fridman Podcast", "hosts": ["Lex Fridman"], "guest_rule": "before:: "},
@@ -9,6 +9,20 @@
      "title_pattern": "Joe Rogan Experience", "hosts": ["Joe Rogan"], "guest_rule": "after: - "},
     {"name": "The Jordan B. Peterson Podcast", "channel_id": null,
      "title_pattern": "Jordan B. Peterson", "hosts": ["Jordan Peterson"], "guest_rule": null},
+    {"name": "Huberman Lab", "channel_id": null,
+     "title_pattern": "Huberman Lab", "hosts": ["Andrew Huberman"], "guest_rule": null},
+    {"name": "This Past Weekend", "channel_id": null,
+     "title_pattern": "This Past Weekend", "hosts": ["Theo Von"], "guest_rule": null},
+    {"name": "Call Her Daddy", "channel_id": null,
+     "title_pattern": "Call Her Daddy", "hosts": ["Alex Cooper"], "guest_rule": null},
+    {"name": "Armchair Expert", "channel_id": null,
+     "title_pattern": "Armchair Expert", "hosts": ["Dax Shepard"], "guest_rule": null},
+    {"name": "The Mel Robbins Podcast", "channel_id": null,
+     "title_pattern": "Mel Robbins", "hosts": ["Mel Robbins"], "guest_rule": null},
+    {"name": "Club Shay Shay", "channel_id": null,
+     "title_pattern": "Club Shay Shay", "hosts": ["Shannon Sharpe"], "guest_rule": null},
+    {"name": "The Shawn Ryan Show", "channel_id": null,
+     "title_pattern": "Shawn Ryan Show", "hosts": ["Shawn Ryan"], "guest_rule": null},
     {"name": "All-In Podcast", "channel_id": "UCESLZhusAkFfsNsApnjF_Cg", "title_pattern": "All-In",
      "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null}
   ]
