@@ -84,9 +84,13 @@
       ⚠️ Simulated — AI impression of {{ speaker.name | e }} based on your
       sources, not their real words.
     </div>
+    {% if context_video %}
+      <p class="chat-context-note">Chatting with {{ speaker.name | e }} about
+        <a href="/v/{{ context_video.id }}">{{ context_video.title | e }}</a></p>
+    {% endif %}
     <div id="chat-history" class="chat-thread"></div>
     <form class="chat-composer"
-          hx-post="/speaker/{{ speaker.id }}/chat"
+          hx-post="{% if context_video %}/v/{{ context_video.id }}/speaker/{{ speaker.id }}/chat{% else %}/speaker/{{ speaker.id }}/chat{% endif %}"
           hx-target="#chat-history" hx-swap="beforeend"
           hx-disabled-elt="find input, find button">
       <input type="text" name="content" placeholder="Chat with {{ speaker.name | e }}…" required>

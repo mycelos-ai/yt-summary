@@ -476,3 +476,91 @@ def test_activate_from_chips_foreign_video_is_404(tmp_path, monkeypatch):
         # Activate with foreign video_id
         resp = client.post(f"/speaker/{speaker_id}/activate?caller=chips&video_id=vforeign")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Wire-up tests: chip jump carries video context → speaker page (Part 1 + 2)
+# ---------------------------------------------------------------------------
+
+async def _seed_speaker_linked(db, vid="vc1", user_id=1, speaker_name="Alice"):
+    """Seed a video + an active linked speaker. Returns speaker_id."""
+    from app.repos import source_speakers as ss_repo
+    from app.repos import speakers as sp_repo
+    await _seed_video(db, vid=vid, user_id=user_id)
+    speaker_id = await sp_repo.resolve_speaker(db, user_id=user_id, name=speaker_name)
+    await sp_repo.set_active(db, speaker_id, True)
+    await ss_repo.link_speaker(db, vid, speaker_id, detection_source="manual")
+    await db.commit()
+    return speaker_id
+
+
+def test_speaker_page_with_video_id_posts_to_video_route(tmp_path, monkeypatch):
+    """GET /speaker/{id}?video_id={vid} → composer posts to /v/{vid}/speaker/{id}/chat
+    and a context note with the video title is shown."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        speaker_id = _run(_seed_speaker_linked(app.state.db))
+        resp = client.get(f"/speaker/{speaker_id}?video_id=vc1")
+        assert resp.status_code == 200
+        body = resp.text
+        # composer must target the video-context route
+        assert f"/v/vc1/speaker/{speaker_id}/chat" in body
+        # and must NOT target the generic dossier route (only)
+        assert f'hx-post="/speaker/{speaker_id}/chat"' not in body
+        # context note with video title
+        assert "Test summary" not in body or "Lex Fridman" in body
+        assert "chat-context-note" in body
+
+
+def test_speaker_page_without_video_id_unchanged(tmp_path, monkeypatch):
+    """GET /speaker/{id} (no query) → composer still posts to /speaker/{id}/chat;
+    no context note rendered."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        speaker_id = _run(_seed_speaker_linked(app.state.db))
+        resp = client.get(f"/speaker/{speaker_id}")
+        assert resp.status_code == 200
+        body = resp.text
+        # generic dossier route
+        assert f'hx-post="/speaker/{speaker_id}/chat"' in body
+        # no video-context route
+        assert "/v/vc1/speaker/" not in body
+        # no context note
+        assert "chat-context-note" not in body
+
+
+def test_speaker_page_stale_video_id_degrades(tmp_path, monkeypatch):
+    """GET /speaker/{id}?video_id=does-not-exist → 200, falls back to generic
+    dossier composer (no 404)."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        speaker_id = _run(_seed_speaker_linked(app.state.db))
+        resp = client.get(f"/speaker/{speaker_id}?video_id=does-not-exist")
+        assert resp.status_code == 200
+        body = resp.text
+        # falls back to generic route
+        assert f'hx-post="/speaker/{speaker_id}/chat"' in body
+        # no context note
+        assert "chat-context-note" not in body
+
+
+def test_active_chip_links_with_video_id(tmp_path, monkeypatch):
+    """An active linked speaker chip's name link must include ?video_id={vid}."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        speaker_id = _run(_seed_speaker_linked(app.state.db))
+        # GET the full video detail page which includes the chips template
+        resp = client.get("/v/vc1")
+        assert resp.status_code == 200
+        assert f"/speaker/{speaker_id}?video_id=vc1" in resp.text
+
+
+def test_video_detail_has_chat_or_divider(tmp_path, monkeypatch):
+    """A video detail page with summary + linked speaker must contain
+    the chat-or-divider element."""
+    app, client = _client(tmp_path, monkeypatch)
+    with client:
+        _run(_seed_speaker_linked(app.state.db))
+        resp = client.get("/v/vc1")
+        assert resp.status_code == 200
+        assert "chat-or-divider" in resp.text

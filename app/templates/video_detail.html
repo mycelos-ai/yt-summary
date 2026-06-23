@@ -197,7 +197,6 @@
   {% if video.summary %}
     <section class="chat">
       <h2>Chat</h2>
-      {% include "_speaker_chips.html" %}
       <div id="chat-history" class="chat-thread">
         {% for msg in chat_history %}
           {% include "_chat_message.html" %}
@@ -234,6 +233,8 @@
         <span class="spinner" aria-hidden="true"></span>
         <span>Asking the model…</span>
       </p>
+      <div class="chat-or-divider"><span>or chat with a person</span></div>
+      {% include "_speaker_chips.html" %}
     </section>
   {% endif %}
 

@@ -124,6 +124,7 @@ async def _owned_speaker(
 async def speaker_page(
     request: Request,
     speaker_id: int,
+    video_id: str = "",
     db: aiosqlite.Connection = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -134,10 +135,17 @@ async def speaker_page(
     claim_count = (sum(len(v) for v in grouped.values())
                    if isinstance(grouped, dict) else len(grouped))
     candidates = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
+    # Load optional video context — degrade gracefully on stale/foreign id.
+    context_video = None
+    if video_id.strip():
+        candidate = await videos_repo.get(db, video_id.strip())
+        if candidate is not None and candidate.user_id == current_user_id:
+            context_video = candidate
     return templates.TemplateResponse(
         request, "speaker.html",
         {"speaker": speaker, "sources": sources, "avatars": avatars.AVATARS,
-         "grouped": grouped, "claim_count": claim_count, "candidates": candidates},
+         "grouped": grouped, "claim_count": claim_count, "candidates": candidates,
+         "context_video": context_video},
     )
 
 

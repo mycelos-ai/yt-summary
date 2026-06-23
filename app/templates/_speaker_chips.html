@@ -9,7 +9,7 @@
     {% for sp in speakers %}
       <span class="speaker-chip {% if sp.is_active %}is-active{% else %}is-inactive{% endif %}"
             style="--avatar-bg: {{ sp.avatar_id | avatar_bg }};">
-        <a class="speaker-chip-name" href="/speaker/{{ sp.id }}">
+        <a class="speaker-chip-name" href="/speaker/{{ sp.id }}?video_id={{ video.id }}">
           {% if sp.avatar_photo_path %}
             {% if sp.avatar_photo_path.startswith('/') %}
               <img class="speaker-chip-avatar" src="/speaker/{{ sp.id }}/photo" alt="">

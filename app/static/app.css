@@ -882,6 +882,43 @@ button.section-download {
   display: inline-flex;
 }
 
+/* OR divider between the neutral video chat and the speaker chips. */
+.chat-or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 12px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.chat-or-divider::before,
+.chat-or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+
+/* Context note above the persona composer when the speaker page is opened
+   from a video chip (carries video context). */
+.chat-context-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  line-height: 1.4;
+}
+.chat-context-note a {
+  color: var(--steel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-context-note a:hover { color: var(--ink); }
+
 .chat-msg-error {
   background: rgba(212, 86, 86, 0.06);
   border: 1px solid rgba(212, 86, 86, 0.24);
