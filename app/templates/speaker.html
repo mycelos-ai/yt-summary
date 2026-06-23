@@ -80,10 +80,7 @@
 
   {# ── THE HERO: persona chat, front and center ───────────────── #}
   <section class="chat speaker-chat">
-    <div class="persona-disclaimer">
-      ⚠️ Simulated — AI impression of {{ speaker.name | e }} based on your
-      sources, not their real words.
-    </div>
+    {% with name = speaker.name %}{% include "_persona_disclaimer.html" %}{% endwith %}
     {% if context_video %}
       <p class="chat-context-note">Chatting with {{ speaker.name | e }} about
         <a href="/v/{{ context_video.id }}">{{ context_video.title | e }}</a></p>

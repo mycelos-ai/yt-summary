@@ -1,0 +1,19 @@
+{# Persona "simulated" disclaimer with an expandable legal clarification.
+   Single source of truth — included by speaker.html and video_detail.html so
+   the wording stays consistent. Optional `name` var personalises the summary
+   line ("AI impression of {name}"); falls back to a generic line when unset.
+   Pass `hidden=True` to render it collapsed-by-default-hidden (the neutral
+   video chat keeps the banner in the DOM but hidden). #}
+<details class="persona-disclaimer"{% if data_persona_banner %} data-persona-banner{% endif %}{% if hidden %} hidden{% endif %}>
+  <summary>
+    ⚠️ Simulated — AI impression{% if name %} of {{ name | e }}{% endif %}
+    based on your sources, not their real words.
+    <span class="persona-disclaimer-more">Read more</span>
+  </summary>
+  <div class="persona-disclaimer-detail">
+    <p><strong>Unofficial AI simulation.</strong></p>
+    <p>Not affiliated with or endorsed by this person.</p>
+    <p>Generated responses are not real statements.</p>
+    <p>Based only on user-provided sources.</p>
+  </div>
+</details>

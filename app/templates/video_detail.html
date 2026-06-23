@@ -202,9 +202,7 @@
           {% include "_chat_message.html" %}
         {% endfor %}
       </div>
-      <div class="persona-disclaimer" data-persona-banner hidden>
-        ⚠️ Simulated — AI impression based on your sources, not their real words.
-      </div>
+      {% with hidden = True, data_persona_banner = True %}{% include "_persona_disclaimer.html" %}{% endwith %}
       <form
         class="chat-composer"
         hx-post="/v/{{ video.id }}/chat"

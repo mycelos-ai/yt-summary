@@ -309,6 +309,13 @@ is the place to start; later specs cover playlists, the API, embedding
 search, the Quick Setup wizard, newsletter aggregation, multi-model
 re-summary, and the daily digest + interest-profile feedback loop.
 
+## Personas & responsible use
+
+This project does not include or endorse any real-person persona.
+Users may create local personas from sources they lawfully provide.
+Any AI-generated persona is unofficial, unaffiliated, and must be clearly labelled as simulated.
+Do not use this software to impersonate, defame, deceive, or commercially exploit real persons.
+
 ## License
 
 [MIT](LICENSE) — do whatever you want, just don't sue me.
