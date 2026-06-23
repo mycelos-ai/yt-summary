@@ -215,3 +215,36 @@ async def test_stream_speaker_reply_passes_system_prompt_and_history():
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
     assert msgs[-1]["content"] == "now?"
     assert captured["stream"] is True
+
+
+# ---------------------------------------------------------------------------
+# Speculative-persona: speaker not linked to the per-episode source
+# ---------------------------------------------------------------------------
+
+def test_prompt_marks_speculative_when_not_present():
+    """build_speaker_system_prompt with speaker_present=False must inject
+    a speculative-framing clause into the prompt."""
+    from app.services.speaker_chat import build_speaker_system_prompt
+    p = build_speaker_system_prompt(
+        speaker=_speaker(), claims=_CLAIMS, source_context="some transcript",
+        speaker_present=False,
+    )
+    # The speculative clause must be present
+    assert "did NOT actually appear" in p
+
+
+def test_prompt_normal_when_present():
+    """build_speaker_system_prompt with speaker_present=True (the default) must
+    NOT inject the speculative clause — normal linked behaviour is unchanged."""
+    from app.services.speaker_chat import build_speaker_system_prompt
+    # Explicit True
+    p_explicit = build_speaker_system_prompt(
+        speaker=_speaker(), claims=_CLAIMS, source_context="some transcript",
+        speaker_present=True,
+    )
+    assert "did NOT actually appear" not in p_explicit
+    # Default (omitted param) must also be unchanged
+    p_default = build_speaker_system_prompt(
+        speaker=_speaker(), claims=_CLAIMS, source_context="some transcript",
+    )
+    assert "did NOT actually appear" not in p_default

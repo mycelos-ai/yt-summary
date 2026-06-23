@@ -422,6 +422,62 @@ def test_reaccept_reembeds(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Speculative banner: speaker not linked to the per-episode source
+# ---------------------------------------------------------------------------
+
+async def _setup_no_link(app):
+    """Like _setup but WITHOUT inserting the source_speakers row."""
+    from app.models import TranscriptSource, VideoKind
+    from app.repos import llm_models as llm_models_repo
+    from app.repos import videos as videos_repo
+    await videos_repo.upsert_metadata(
+        app.state.db, video_id="vs1", url="u", title="All-In Ep",
+        description="", thumbnail_path=None, duration_seconds=None,
+        kind=VideoKind.YOUTUBE, user_id=1)
+    await videos_repo.set_transcript(
+        app.state.db, "vs1", "transcript body", TranscriptSource.AUTO_SUBS)
+    cur = await app.state.db.execute(
+        "INSERT INTO speakers (user_id, name, name_key, is_active) "
+        "VALUES (1,'Chamath','chamath',1)")
+    speaker_id = cur.lastrowid
+    # NOTE: no source_speakers row inserted — speaker is NOT linked to vs1
+    await llm_models_repo.insert(
+        app.state.db, label="Test", provider_id="openai", model="openai/gpt-4o",
+        api_key="k", base_url="", make_default=True)
+    await app.state.db.commit()
+    return speaker_id
+
+
+def test_persona_speculative_banner_when_speaker_not_linked(tmp_path, monkeypatch):
+    """Per-episode persona chat is ALLOWED when speaker is not linked (200),
+    but the response must include the speculative banner."""
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        speaker_id = asyncio.get_event_loop().run_until_complete(_setup_no_link(app))
+        with patch("app.routes.speakers.stream_speaker_reply", side_effect=_fake_stream):
+            resp = client.post(
+                f"/v/vs1/speaker/{speaker_id}/chat",
+                data={"content": "what do you think?"})
+    assert resp.status_code == 200
+    assert "persona-speculative" in resp.text
+    assert "did not appear in this source" in resp.text
+
+
+def test_persona_no_banner_when_linked(tmp_path, monkeypatch):
+    """When the speaker IS linked to the video the speculative banner must be ABSENT."""
+    app = _client(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        speaker_id = asyncio.get_event_loop().run_until_complete(_setup(app))
+        with patch("app.routes.speakers.stream_speaker_reply", side_effect=_fake_stream):
+            resp = client.post(
+                f"/v/vs1/speaker/{speaker_id}/chat",
+                data={"content": "what about SPACs?"})
+    assert resp.status_code == 200
+    assert "persona-speculative" not in resp.text
+    assert "did not appear in this source" not in resp.text
+
+
+# ---------------------------------------------------------------------------
 # Finding #7: empty stream must not persist "[error: None]" to history
 # ---------------------------------------------------------------------------
 

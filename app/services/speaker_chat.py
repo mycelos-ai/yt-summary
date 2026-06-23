@@ -54,6 +54,7 @@ def _render_claims(claims: list[dict]) -> str:
 def build_speaker_system_prompt(
     *, speaker, claims: list[dict], source_context: str,
     seed_ts: str | None = None, seed_quote: str | None = None,
+    speaker_present: bool = True,
 ) -> str:
     name = speaker.name
     role_clause = f", {speaker.role}" if getattr(speaker, "role", None) else ""
@@ -64,6 +65,16 @@ def build_speaker_system_prompt(
         quote = f"'{seed_quote}'" if seed_quote else ""
         seed_block = (
             f"\nThe viewer is jumping in at this moment: {ts}{quote}\n"
+        )
+
+    speculative_clause = ""
+    if not speaker_present:
+        speculative_clause = (
+            f"\nSPECULATIVE MODE: {name} did NOT actually appear in the CURRENT SOURCE. "
+            "Treat the transcript as a TOPIC to react to, NOT as something you participated in. "
+            "Make clear your take is speculative/extrapolated from your known positions "
+            "(e.g. 'I wasn't part of this, but based on what I've argued, I'd probably say…'). "
+            "Do not claim to have been there or to have said anything in it.\n"
         )
 
     return (
@@ -95,6 +106,7 @@ def build_speaker_system_prompt(
         "- Don't break character to disclaim you're an AI — the interface "
         "already says so.\n\n"
         f"STYLE NOTE: {style_note}\n"
+        f"{speculative_clause}"
         f"{seed_block}\n"
         f"ATTRIBUTED CLAIMS (extracted from {name}'s sources, each with its "
         "source and an attribution-confidence tag):\n"
@@ -114,6 +126,7 @@ async def stream_speaker_reply(
     user_message: str,
     seed_ts: str | None = None,
     seed_quote: str | None = None,
+    speaker_present: bool = True,
     model: str,
     api_key: str,
     base_url: str | None,
@@ -121,7 +134,7 @@ async def stream_speaker_reply(
     messages = build_messages(
         system_prompt=build_speaker_system_prompt(
             speaker=speaker, claims=claims, source_context=source_context,
-            seed_ts=seed_ts, seed_quote=seed_quote,
+            seed_ts=seed_ts, seed_quote=seed_quote, speaker_present=speaker_present,
         ),
         history=[(m.role, m.content) for m in history],
         user_message=user_message,

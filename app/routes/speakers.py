@@ -300,6 +300,7 @@ async def _run_persona_turn(
     db, *, speaker, source_context: str, content: str, thread_id: int,
     video_id: str | None, model: str, api_key: str, base_url: str | None,
     seed_ts: str | None, seed_quote: str | None,
+    speaker_present: bool = True,
 ) -> str:
     # video_id is the episode id for per-episode turns, None for whole-dossier
     # (scope='speaker') turns. PR 1 made chat_messages.video_id nullable; when
@@ -314,7 +315,8 @@ async def _run_persona_turn(
         async for tok in stream_speaker_reply(
             speaker=speaker, source_context=source_context, claims=claims,
             history=history, user_message=content, seed_ts=seed_ts,
-            seed_quote=seed_quote, model=model, api_key=api_key, base_url=base_url,
+            seed_quote=seed_quote, speaker_present=speaker_present,
+            model=model, api_key=api_key, base_url=base_url,
         ):
             collected.append(tok)
     except Exception as e:  # noqa: BLE001 — surface as an error bubble
@@ -329,7 +331,12 @@ async def _run_persona_turn(
     await chat_repo.append(
         db, None, "assistant", persisted_content,
         user_id=speaker.user_id, thread_id=thread_id)
-    parts = [_speaker_msg_html("user", content)]
+    parts = []
+    if not speaker_present:
+        parts.append('<div class="persona-speculative" role="note">Speculative — '
+                     f'{escape(speaker.name)} did not appear in this source; this is an '
+                     'extrapolation from their known positions.</div>')
+    parts.append(_speaker_msg_html("user", content))
     if answer:
         parts.append(_speaker_msg_html("assistant", answer, avatar_id=speaker.avatar_id))
     if error:
@@ -357,11 +364,14 @@ async def post_speaker_chat(
     thread_id = await threads_repo.get_or_create(
         db, user_id=current_user_id, scope="source_speaker",
         source_id=video_id, speaker_id=speaker_id)
+    linked = await ss_repo.list_for_source(db, video_id)
+    speaker_present = any(s.id == speaker_id for s in linked)
     html = await _run_persona_turn(
         db, speaker=speaker, source_context=(video.transcript or ""),
         content=content, thread_id=thread_id, video_id=video_id,
         model=model, api_key=api_key, base_url=base_url,
-        seed_ts=seed_ts.strip() or None, seed_quote=seed_quote.strip() or None)
+        seed_ts=seed_ts.strip() or None, seed_quote=seed_quote.strip() or None,
+        speaker_present=speaker_present)
     return HTMLResponse(html)
 
 
