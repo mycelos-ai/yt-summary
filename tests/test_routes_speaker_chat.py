@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -155,9 +155,11 @@ def test_claim_review_sets_status(tmp_path, monkeypatch):
                 claim="c", topic="t")
             return speaker_id, cid
         speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.post(
-            f"/speaker/{speaker_id}/claims/{cid}/review",
-            data={"status": "accepted"})
+        # The review route re-embeds on non-reject status: mock to avoid real model.
+        with patch("app.routes.speakers._embed_claim_best_effort", AsyncMock()):
+            resp = client.post(
+                f"/speaker/{speaker_id}/claims/{cid}/review",
+                data={"status": "accepted"})
         assert resp.status_code == 200
 
         async def check():
@@ -178,9 +180,11 @@ def test_claim_edit_updates_text(tmp_path, monkeypatch):
                 claim="old", topic="t")
             return speaker_id, cid
         speaker_id, cid = asyncio.get_event_loop().run_until_complete(setup())
-        resp = client.post(
-            f"/speaker/{speaker_id}/claims/{cid}/edit",
-            data={"claim": "new text", "topic": "macro"})
+        # The edit route re-embeds when claim text changes: mock to avoid real model.
+        with patch("app.routes.speakers._embed_claim_best_effort", AsyncMock()):
+            resp = client.post(
+                f"/speaker/{speaker_id}/claims/{cid}/edit",
+                data={"claim": "new text", "topic": "macro"})
         assert resp.status_code == 200
         assert "new text" in resp.text
 
