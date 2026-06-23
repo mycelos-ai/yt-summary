@@ -151,12 +151,17 @@ async def seed_known_speakers(db: aiosqlite.Connection) -> None:
         # created by show-match detection before linkage worked).  The second
         # branch also backfills known_speaker_id so the link is established.
         name_key = _key(s["name"])
+        new_photo = _asset_path(s.get("avatar_photo_path"))
         await db.execute(
             "UPDATE speakers SET "
             "known_speaker_id=COALESCE(known_speaker_id, "
             "  (SELECT id FROM known_speakers WHERE name_key=?)), "
             "avatar_id=COALESCE(avatar_id, ?), "
-            "avatar_photo_path=COALESCE(avatar_photo_path, ?), "
+            "avatar_photo_path=CASE "
+            "  WHEN avatar_photo_path IS NULL THEN ? "
+            "  WHEN avatar_photo_path LIKE '%podcasters/%' THEN ? "
+            "  ELSE avatar_photo_path "
+            "END, "
             "style_note=COALESCE(style_note, ?), "
             "updated_at=datetime('now') "
             "WHERE known_speaker_id=(SELECT id FROM known_speakers WHERE name_key=?) "
@@ -164,7 +169,8 @@ async def seed_known_speakers(db: aiosqlite.Connection) -> None:
             (
                 name_key,
                 s.get("avatar_id"),
-                _asset_path(s.get("avatar_photo_path")),
+                new_photo,  # NULL branch
+                new_photo,  # stale seed path branch
                 s.get("style_note"),
                 name_key,
                 name_key,

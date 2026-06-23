@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "speakers": [
     {"name": "Lex Fridman", "role": "host, AI researcher", "known_shows": "Lex Fridman Podcast",
      "avatar_id": "adult-scientist-m", "avatar_photo_path": "app/static/podcasters/lex-fridman.png",

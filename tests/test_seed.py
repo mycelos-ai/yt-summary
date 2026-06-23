@@ -32,7 +32,7 @@ def test_seed_speakers_idempotent(db):
         cur = await db.execute("SELECT COUNT(*) FROM known_speakers")
         assert (await cur.fetchone())[0] >= 2
         # marker set
-        assert await settings_repo.get(db, "known_speakers_seed_version") == "5"
+        assert await settings_repo.get(db, "known_speakers_seed_version") == "6"
         # no duplication by name_key
         cur = await db.execute(
             "SELECT name_key, COUNT(*) c FROM known_speakers GROUP BY name_key HAVING c>1"
@@ -223,6 +223,87 @@ def test_seed_links_and_photographs_unlinked_speaker(db):
         )
         assert row["avatar_photo_path"] == "podcasters/chamath-palihapitiya.png", (
             f"Expected relative static path, got: {row['avatar_photo_path']!r}"
+        )
+    _run(go())
+
+
+def test_reseed_replaces_stale_absolute_seed_photo_path(db):
+    """A speakers row with a stale ABSOLUTE seed path (contains 'podcasters/')
+    must get overwritten with the new relative path on re-seed.
+    A stale path looks like '/Users/old/app/static/podcasters/chamath.png' or
+    '/app/app/static/podcasters/chamath.png' — both contain 'podcasters/'."""
+    async def go():
+        # Seed so known_speakers rows exist
+        await seed.seed_known_speakers(db)
+
+        # Find the known_speaker id for Chamath
+        cur = await db.execute(
+            "SELECT id FROM known_speakers WHERE name_key='chamath palihapitiya'"
+        )
+        known_id = (await cur.fetchone())["id"]
+
+        # Insert a profile speaker with a STALE ABSOLUTE seed path
+        stale_path = "/Users/old/app/static/podcasters/chamath-palihapitiya.png"
+        await db.execute(
+            "INSERT INTO speakers "
+            "(user_id, known_speaker_id, name, name_key, avatar_photo_path) "
+            "VALUES (1, ?, 'Chamath Palihapitiya', 'chamath palihapitiya', ?)",
+            (known_id, stale_path),
+        )
+        await db.execute(
+            "DELETE FROM settings WHERE key='known_speakers_seed_version'"
+        )
+        await db.commit()
+
+        # Re-seed
+        await seed.seed_known_speakers(db)
+
+        cur = await db.execute(
+            "SELECT avatar_photo_path FROM speakers "
+            "WHERE name_key='chamath palihapitiya' AND user_id=1"
+        )
+        row = await cur.fetchone()
+        assert row["avatar_photo_path"] == "podcasters/chamath-palihapitiya.png", (
+            f"Stale absolute seed path was not overwritten; got: {row['avatar_photo_path']!r}"
+        )
+    _run(go())
+
+
+def test_reseed_preserves_manual_upload_photo(db):
+    """A speakers row with a manual upload path (contains 'speaker_photos',
+    NOT 'podcasters/') must NOT be overwritten on re-seed."""
+    async def go():
+        # Seed so known_speakers rows exist
+        await seed.seed_known_speakers(db)
+
+        cur = await db.execute(
+            "SELECT id FROM known_speakers WHERE name_key='chamath palihapitiya'"
+        )
+        known_id = (await cur.fetchone())["id"]
+
+        # Insert a profile speaker with a manual upload path
+        manual_path = "/data/speaker_photos/2.jpg"
+        await db.execute(
+            "INSERT INTO speakers "
+            "(user_id, known_speaker_id, name, name_key, avatar_photo_path) "
+            "VALUES (1, ?, 'Chamath Palihapitiya', 'chamath palihapitiya', ?)",
+            (known_id, manual_path),
+        )
+        await db.execute(
+            "DELETE FROM settings WHERE key='known_speakers_seed_version'"
+        )
+        await db.commit()
+
+        # Re-seed
+        await seed.seed_known_speakers(db)
+
+        cur = await db.execute(
+            "SELECT avatar_photo_path FROM speakers "
+            "WHERE name_key='chamath palihapitiya' AND user_id=1"
+        )
+        row = await cur.fetchone()
+        assert row["avatar_photo_path"] == manual_path, (
+            f"Manual upload path was overwritten; got: {row['avatar_photo_path']!r}"
         )
     _run(go())
 
