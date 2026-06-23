@@ -78,29 +78,74 @@ def amy_low_voice() -> Path:
     return onnx
 
 
+def _embed_model_is_cached() -> bool:
+    """True only if the sentence-transformers model is already in the local
+    HF cache — checked WITHOUT any network access.
+
+    huggingface_hub's ``try_to_load_from_cache`` returns a path when the
+    snapshot exists locally and a sentinel otherwise; it never hits the
+    network. If the probe itself can't run, assume "not cached" so the
+    warmup is skipped rather than risking a blocking download.
+    """
+    try:
+        import os
+
+        from huggingface_hub import try_to_load_from_cache
+
+        from app.services.embeddings_local import MODEL_NAME
+
+        # config.json is read at load time by every SentenceTransformer.
+        # try_to_load_from_cache returns a real file path string when the
+        # file is cached, and a non-str sentinel otherwise — so a path that
+        # points at an existing file is a reliable "cached" signal without
+        # importing version-specific sentinel constants.
+        hit = try_to_load_from_cache(MODEL_NAME, "config.json")
+        return isinstance(hit, str) and os.path.isfile(hit)
+    except Exception:
+        return False
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _warmup_local_embedder() -> None:
-    """Trigger the sentence-transformers model load once per pytest run.
+    """Warm the sentence-transformers singleton once per run — but ONLY when
+    it can be done locally, so an offline machine without the model cached
+    never blocks the whole suite in network retry-backoff.
 
-    Without this, the first test that calls embed_text pays the ~30 s
-    download/load cost. With it, every test sees a warm singleton.
+    Skipped entirely when:
+    - ``YTS_SKIP_EMBED_WARMUP`` is set (explicit opt-out), or
+    - the model is not present in the local HF cache.
 
-    autouse=True so tests don't have to opt in. The fixture body is
-    sync — it spins up an event loop just for the warmup call.
+    Tests that genuinely need real embeddings will then fail with their own
+    assertions instead of the suite stalling. Cached/online machines still
+    get a warm singleton (fast first embed). autouse=True so opted-in tests
+    don't have to request it. The body is sync — it spins up an event loop
+    just for the warmup call.
     """
     import asyncio
     import contextlib
+    import os
 
     from app.services import embeddings_local
 
-    # If a previous test session already loaded the model in this
-    # process, the singleton is still set — bail out fast.
+    # Already loaded in this process (e.g. a prior session) — fast bail.
     if embeddings_local._model is not None:
         return
-    # If the model can't load (e.g. offline CI without HF cache),
-    # let individual tests fail with their own assertions; don't
-    # block the whole suite collection.
-    with contextlib.suppress(Exception):
-        asyncio.get_event_loop().run_until_complete(
-            embeddings_local.embed_text("warmup")
-        )
+    # Explicit opt-out, or model not cached locally → do NOT touch the
+    # network (which would hang offline). Skip warmup; real-embedding tests
+    # own their own failure.
+    if os.environ.get("YTS_SKIP_EMBED_WARMUP") or not _embed_model_is_cached():
+        return
+    # Belt-and-suspenders: pin HF offline for the warmup so even an
+    # unexpected cache miss fails fast instead of downloading/backing off.
+    prev_offline = os.environ.get("HF_HUB_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        with contextlib.suppress(Exception):
+            asyncio.get_event_loop().run_until_complete(
+                embeddings_local.embed_text("warmup")
+            )
+    finally:
+        if prev_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = prev_offline
