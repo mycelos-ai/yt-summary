@@ -90,11 +90,10 @@ async def test_embed_text_loads_when_cached(monkeypatch):
     """When the model IS cached and the singleton is None, embed_text must
     attempt to load (the gate must NOT block a legitimate cached load).
 
-    We patch _model_is_cached=True and inject a fake SentenceTransformer that
-    returns a known vector so no real network or model file is needed.
+    We patch _model_is_cached=True and inject a fake model (via a stubbed
+    _load_model_sync) so no real network or model file is needed — the point
+    is only that the cached path is NOT blocked by the fast-fail gate.
     """
-    import asyncio
-
     class _FakeModel:
         """Minimal SentenceTransformer stand-in."""
         def encode(self, text, **kw):
@@ -105,19 +104,9 @@ async def test_embed_text_loads_when_cached(monkeypatch):
     monkeypatch.setattr(embeddings_local, "_model", None)
     monkeypatch.setattr(embeddings_local, "_model_is_cached", lambda: True)
 
-    # Patch SentenceTransformer at the point _load_model_sync imports it.
-    import unittest.mock as mock_mod
-
-    fake_st_cls = mock_mod.MagicMock(return_value=_FakeModel())
-
     def _patched_load_sync():
-        """Replace _load_model_sync to inject the fake class without a real import."""
-        with mock_mod.patch(
-            "app.services.embeddings_local._load_model_sync",
-            side_effect=None,
-        ):
-            pass
-        # Directly set the singleton as _load_model_sync would.
+        # Set the singleton exactly as the real _load_model_sync would, but
+        # without importing/loading SentenceTransformer.
         embeddings_local._model = _FakeModel()
         return embeddings_local._model
 
