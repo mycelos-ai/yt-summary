@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "shows": [
     {"name": "Lex Fridman Podcast", "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
      "title_pattern": "Lex Fridman Podcast", "hosts": ["Lex Fridman"], "guest_rule": "before:: "},
@@ -23,6 +23,20 @@
      "title_pattern": "Club Shay Shay", "hosts": ["Shannon Sharpe"], "guest_rule": null},
     {"name": "The Shawn Ryan Show", "channel_id": null,
      "title_pattern": "Shawn Ryan Show", "hosts": ["Shawn Ryan"], "guest_rule": null},
+    {"name": "The Tim Ferriss Show", "channel_id": null,
+     "title_pattern": "Tim Ferriss", "hosts": ["Tim Ferriss"], "guest_rule": null},
+    {"name": "Modern Wisdom", "channel_id": null,
+     "title_pattern": "Modern Wisdom", "hosts": ["Chris Williamson"], "guest_rule": null},
+    {"name": "Making Sense", "channel_id": null,
+     "title_pattern": "Making Sense", "hosts": ["Sam Harris"], "guest_rule": null},
+    {"name": "The Peter Attia Drive", "channel_id": null,
+     "title_pattern": "Peter Attia", "hosts": ["Peter Attia"], "guest_rule": null},
+    {"name": "PBD Podcast", "channel_id": null,
+     "title_pattern": "PBD Podcast", "hosts": ["Patrick Bet-David"], "guest_rule": null},
+    {"name": "On Purpose", "channel_id": null,
+     "title_pattern": "On Purpose", "hosts": ["Jay Shetty"], "guest_rule": null},
+    {"name": "Waveform", "channel_id": null,
+     "title_pattern": "Waveform", "hosts": ["Marques Brownlee"], "guest_rule": null},
     {"name": "All-In Podcast", "channel_id": "UCESLZhusAkFfsNsApnjF_Cg", "title_pattern": "All-In",
      "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null}
   ]
