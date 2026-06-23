@@ -19,7 +19,6 @@ import litellm
 from app.models import ChatMessage
 from app.services.chat_core import build_messages
 
-
 _EVIDENCE_TRUNCATE = 200  # chars; keeps rendered lines readable
 
 

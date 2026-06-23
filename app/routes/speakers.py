@@ -547,7 +547,8 @@ async def confirm_candidate(
     cands = await candidates_repo.list_for_speaker(db, speaker_id, state="pending")
     return HTMLResponse(_candidates_fragment(
         speaker_id, cands,
-        note='Source added. Its claims aren\'t extracted automatically — use "Extract" on the source to add them to the dossier.',
+        note='Source added. Its claims aren\'t extracted automatically — '
+             'use "Extract" on the source to add them to the dossier.',
     ))
 
 
