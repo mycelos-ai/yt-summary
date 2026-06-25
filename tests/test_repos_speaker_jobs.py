@@ -56,7 +56,8 @@ def test_enqueue_dedups_pending(db):
         jid2 = await sj.enqueue(db, sid)   # duplicate while pending
         assert jid2 == jid1, "second enqueue must return the existing job id"
         cur = await db.execute(
-            "SELECT COUNT(*) FROM speaker_jobs WHERE speaker_id=? AND state IN ('pending','running')",
+            "SELECT COUNT(*) FROM speaker_jobs "
+            "WHERE speaker_id=? AND state IN ('pending','running')",
             (sid,),
         )
         row = await cur.fetchone()

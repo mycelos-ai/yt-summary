@@ -17,8 +17,9 @@ def _video(vid, title, summary="some summary text"):
     # Minimal stand-in; compute_related_links only reads .id/.title/
     # .summary/.highlights_json on candidates and .id/.summary on the
     # subject. Use the real Video if the helper exists in conftest.
+    from datetime import UTC, datetime
+
     from app.models import Video, VideoKind
-    from datetime import datetime, UTC
     return Video(
         id=vid, url=f"https://x/{vid}", title=title, description="",
         thumbnail_path=None, duration_seconds=None, transcript=None,
@@ -99,7 +100,7 @@ async def test_invalid_json_raises(monkeypatch):
         return "not json at all"
     monkeypatch.setattr(related_links, "_llm_select", fake_llm)
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         await related_links.compute_related_links(
             db=None, video=_video("v1", "Subject"), user_id=1,
             model_row=_FakeModelRow(),

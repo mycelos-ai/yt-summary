@@ -87,7 +87,7 @@ def test_set_state_rejects_invalid_state(db):
                                         signal="embedding", score=0.5)
         try:
             await cand.set_state(db, cid, "approved")  # not a valid state
-            assert False, "expected ValueError"
+            raise AssertionError("expected ValueError")
         except ValueError:
             pass
     _run(go())
@@ -123,7 +123,7 @@ def test_email_from_is_a_strong_signal(db):
         # sender name+addr go in DESCRIPTION as "From {name} <{addr}>".
         await _video(db, "eA", kind="email", title="Not Boring: weekly",
                      description="From Packy McCormick <packy@notboring.co>", url="")
-        ids = await speaker_discovery.discover_candidates(db, sid)
+        await speaker_discovery.discover_candidates(db, sid)
         rows = await cand.list_for_speaker(db, sid)
         em = [r for r in rows if r.signal == "email_from"]
         assert em, "newsletter sender should produce an email_from candidate"

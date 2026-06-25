@@ -14,7 +14,6 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from app.repos import speaker_claim_embeddings as cve
 
 
@@ -54,8 +53,8 @@ def test_extracted_claims_get_embedded(db):
     """Claims inserted by extract_claims_for_source must be embedded so
     search_claim_vectors can find them with a semantically-near query."""
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claim_embeddings as cve
+        from app.services import speaker_claims
         from app.services.embeddings_local import embed_text
 
         sid, source = await _seed_speaker_and_video(db, "Eddie E", "vE")
@@ -96,8 +95,8 @@ def test_reprocess_drops_old_claim_vectors(db):
     - the NEW claim's topic IS findable
     """
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claim_embeddings as cve
+        from app.services import speaker_claims
         from app.services.embeddings_local import embed_text
 
         sid, source = await _seed_speaker_and_video(db, "Frank F", "vF")
@@ -270,8 +269,8 @@ def test_rejected_claim_excluded_from_retrieval(db):
     in speaker_claim_embeddings would be re-injected via KNN.
     """
     async def go():
-        from app.repos import speakers as speakers_repo
         from app.repos import speaker_claims as repo
+        from app.repos import speakers as speakers_repo
         from app.services import speaker_claims
 
         sid = await speakers_repo.resolve_speaker(db, name="Hannah H")

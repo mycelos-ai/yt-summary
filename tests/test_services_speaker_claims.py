@@ -49,8 +49,8 @@ _CLEAN = json.dumps({
 
 def test_clean_json_produces_attributed_claims(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
         with patch("app.services.speaker_claims.litellm.acompletion", _completion(_CLEAN)):
             out = await speaker_claims.extract_claims_for_source(
@@ -71,8 +71,8 @@ def test_clean_json_produces_attributed_claims(db):
 
 def test_prose_wrapped_json_still_parsed(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
         wrapped = "Sure, here are the claims:\n```json\n" + _CLEAN + "\n```\nDone."
         with patch("app.services.speaker_claims.litellm.acompletion", _completion(wrapped)):
@@ -86,10 +86,13 @@ def test_prose_wrapped_json_still_parsed(db):
 
 def test_garbage_returns_empty_no_raise(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
-        with patch("app.services.speaker_claims.litellm.acompletion", _completion("not json at all")):
+        with patch(
+            "app.services.speaker_claims.litellm.acompletion",
+            _completion("not json at all"),
+        ):
             out = await speaker_claims.extract_claims_for_source(
                 db, source, ids, model="m", api_key="k", base_url=None,
             )
@@ -100,8 +103,8 @@ def test_garbage_returns_empty_no_raise(db):
 
 def test_unattributable_statement_makes_no_claim(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
         # speaker not in the expected list, or null → dropped
         payload = json.dumps({"claims": [
@@ -172,8 +175,8 @@ def test_llm_exception_returns_empty(db):
 
 def test_reprocess_replaces_prior_claims(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
         with patch("app.services.speaker_claims.litellm.acompletion", _completion(_CLEAN)):
             await speaker_claims.extract_claims_for_source(
@@ -187,8 +190,8 @@ def test_reprocess_replaces_prior_claims(db):
 
 def test_retrieve_ranks_topic_overlap_then_recency(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         cur = await db.execute(
             "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
         sid = cur.lastrowid
@@ -213,8 +216,8 @@ def test_retrieve_ranks_topic_overlap_then_recency(db):
 
 def test_retrieve_respects_limit_and_is_cross_source(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         cur = await db.execute(
             "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
         sid = cur.lastrowid
@@ -239,8 +242,8 @@ def test_retrieve_respects_limit_and_is_cross_source(db):
 
 def test_retrieve_excludes_rejected(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         cur = await db.execute(
             "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
         sid = cur.lastrowid
@@ -263,8 +266,8 @@ def test_retrieve_excludes_rejected(db):
 
 def test_retrieve_returns_exactly_9_contract_keys(db):
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         cur = await db.execute(
             "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'C','c')")
         sid = cur.lastrowid
@@ -289,8 +292,8 @@ def test_garbage_does_not_wipe_existing_claims(db):
     claims are NOT deleted. The replace_for_source_speakers call happens AFTER
     successful parsing, so garbage responses skip the delete-then-re-insert cycle."""
     async def go():
-        from app.services import speaker_claims
         from app.repos import speaker_claims as repo
+        from app.services import speaker_claims
         ids, source = await _seed(db)
 
         # First extraction: seed with good claims
@@ -304,7 +307,10 @@ def test_garbage_does_not_wipe_existing_claims(db):
         assert first_claim == "SPACs are mispriced"
 
         # Second extraction: garbage response (invalid JSON)
-        with patch("app.services.speaker_claims.litellm.acompletion", _completion("not json at all")):
+        with patch(
+            "app.services.speaker_claims.litellm.acompletion",
+            _completion("not json at all"),
+        ):
             second_out = await speaker_claims.extract_claims_for_source(
                 db, source, ids, model="m", api_key="k", base_url=None,
             )

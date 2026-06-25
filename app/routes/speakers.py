@@ -190,14 +190,14 @@ async def edit_speaker(
         # Clean up old photo if it has a different extension
         if speaker.avatar_photo_path:
             old_path = Path(speaker.avatar_photo_path)
-            if old_path != dest and old_path.exists() and old_path.parent == dest.parent:
-                # Ensure the old file belongs to this speaker (stem matches speaker_id)
-                if old_path.stem == str(speaker_id):
-                    try:
-                        old_path.unlink()
-                    except Exception:
-                        # Cleanup failure must not break the upload
-                        pass
+            if (  # noqa: ASYNC240
+                old_path != dest
+                and old_path.exists()  # noqa: ASYNC240
+                and old_path.parent == dest.parent
+                and old_path.stem == str(speaker_id)
+            ):
+                with contextlib.suppress(Exception):
+                    old_path.unlink()  # noqa: ASYNC240
         await sp_repo.set_photo_path(db, speaker_id, str(dest))
     return RedirectResponse(f"/speaker/{speaker_id}", status_code=303)
 
@@ -209,7 +209,7 @@ async def speaker_photo(
     current_user_id: int = Depends(get_current_user_id),
 ):
     speaker = await _owned_speaker(db, speaker_id, current_user_id)
-    if not speaker.avatar_photo_path or not Path(speaker.avatar_photo_path).exists():
+    if not speaker.avatar_photo_path or not Path(speaker.avatar_photo_path).exists():  # noqa: ASYNC240
         raise HTTPException(404)
     return FileResponse(speaker.avatar_photo_path)
 

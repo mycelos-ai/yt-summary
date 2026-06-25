@@ -1,9 +1,8 @@
 import httpx
 import pytest
 
-from app.services.playlist_index import PlaylistApiError, _playlist_id_from_url
-from app.services.playlist_index import fetch_via_api
 from app.services import playlist_index
+from app.services.playlist_index import PlaylistApiError, _playlist_id_from_url, fetch_via_api
 
 
 def _page(items, next_token=None):

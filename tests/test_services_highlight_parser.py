@@ -141,7 +141,7 @@ def test_parses_envelope_with_escaped_smart_quotes():
     escapes), so a strict json.loads fails and the whole raw blob would
     wrongly surface as the summary. The parser must repair these illegal
     escapes and unwrap the envelope."""
-    raw = r'''{"summary": "He cited \“Policy on the AI Exponential\” in his essay.", "highlights": [{"text": "A claim", "rank": 1, "reason": "why"}]}'''
+    raw = r'''{"summary": "He cited \"Policy on the AI Exponential\" in his essay.", "highlights": [{"text": "A claim", "rank": 1, "reason": "why"}]}'''  # noqa: E501
     summary, highlights = parse_summary_payload(raw)
     # Must be the UNWRAPPED summary, not the raw JSON blob.
     assert summary.startswith("He cited")

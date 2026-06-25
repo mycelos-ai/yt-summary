@@ -53,7 +53,8 @@ def test_speaker_claim_embeddings_table_exists(db):
 
 
 def test_init_schema_twice_keeps_vec_table(tmp_path):
-    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
     async def go():
         conn = await connect(cfg)
         await init_schema(conn)
@@ -105,7 +106,8 @@ def test_search_scopes_to_one_speaker(db):
 def test_delete_for_source_drops_only_that_source(db):
     async def go():
         sid = await speakers_repo.resolve_speaker(db, name="Carol C")
-        await _seed_video(db, "v1"); await _seed_video(db, "v2")
+        await _seed_video(db, "v1")
+        await _seed_video(db, "v2")
         c1 = await _seed_claim(db, sid, "v1", "claim one")
         c2 = await _seed_claim(db, sid, "v2", "claim two")
         v = await embed_text("seed")
@@ -153,7 +155,7 @@ def test_search_recall_cliff_owned_claim_survives_30_nearer_foreign_claims(db):
             f"neural networks and deep learning architecture {i}"
             for i in range(30)
         ]
-        for i, txt in enumerate(foreign_texts):
+        for _, txt in enumerate(foreign_texts):
             cid = await _seed_claim(db, foreign, "vR", txt)
             vec = await embed_text(txt)
             await cve.upsert_claim_embedding(db, cid, vec)

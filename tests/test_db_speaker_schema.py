@@ -3,8 +3,8 @@ from pathlib import Path
 
 import aiosqlite
 
-from app.db import connect, init_schema, _run_migrations
 from app.config import Config
+from app.db import _run_migrations, connect, init_schema
 from app.models import VideoKind
 
 
@@ -14,7 +14,8 @@ def test_videokind_has_text():
 
 
 def _fresh_db(tmp_path):
-    cfg = Config(data_dir=Path(tmp_path)); cfg.ensure_dirs()
+    cfg = Config(data_dir=Path(tmp_path))
+    cfg.ensure_dirs()
     async def go():
         conn = await connect(cfg)
         await init_schema(conn)
@@ -49,7 +50,8 @@ def test_videos_has_channel_id(tmp_path):
 
 
 def test_migrations_run_twice_clean(tmp_path):
-    cfg = Config(data_dir=Path(tmp_path)); cfg.ensure_dirs()
+    cfg = Config(data_dir=Path(tmp_path))
+    cfg.ensure_dirs()
     async def go():
         conn = await connect(cfg)
         await init_schema(conn)
@@ -75,7 +77,7 @@ def test_speaker_tables_exist(tmp_path):
     async def go():
         cur = await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         names = {r[0] for r in await cur.fetchall()}
-        assert EXPECTED_TABLES <= names
+        assert names >= EXPECTED_TABLES
         cur = await conn.execute("PRAGMA table_info(chat_messages)")
         cols = {r[1] for r in await cur.fetchall()}
         assert "thread_id" in cols
@@ -86,13 +88,19 @@ def test_speaker_tables_exist(tmp_path):
 def test_chat_threads_partial_unique_blocks_dupe_speaker_thread(tmp_path):
     conn = _fresh_db(tmp_path)
     async def go():
-        await conn.execute("INSERT INTO speakers (user_id, name, name_key) VALUES (1,'X','x')")
-        await conn.execute("INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)")
+        await conn.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'X','x')"
+        )
+        await conn.execute(
+            "INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)"
+        )
         await conn.commit()
         import aiosqlite as _a
         raised = False
         try:
-            await conn.execute("INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)")
+            await conn.execute(
+                "INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)"
+            )
             await conn.commit()
         except _a.IntegrityError:
             raised = True
@@ -105,8 +113,12 @@ def test_chat_messages_video_id_nullable(tmp_path):
     conn = _fresh_db(tmp_path)
     async def go():
         # a thread-scoped row with NO video must be insertable
-        await conn.execute("INSERT INTO speakers (user_id, name, name_key) VALUES (1,'X','x')")
-        await conn.execute("INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)")
+        await conn.execute(
+            "INSERT INTO speakers (user_id, name, name_key) VALUES (1,'X','x')"
+        )
+        await conn.execute(
+            "INSERT INTO chat_threads (user_id, scope, speaker_id) VALUES (1,'speaker',1)"
+        )
         await conn.execute(
             "INSERT INTO chat_messages (user_id, video_id, role, content, thread_id) "
             "VALUES (1, NULL, 'user', 'hi', 1)"
@@ -250,7 +262,8 @@ def test_chat_threads_check_added_on_upgrade(tmp_path):
 
         # 6. Orphan row must be gone (it had scope='speaker', both NULLs).
         cur = await conn.execute(
-            "SELECT COUNT(*) FROM chat_threads WHERE scope='speaker' AND source_id IS NULL AND speaker_id IS NULL"
+            "SELECT COUNT(*) FROM chat_threads "
+            "WHERE scope='speaker' AND source_id IS NULL AND speaker_id IS NULL"
         )
         orphan_row = await cur.fetchone()
         assert orphan_row is not None and orphan_row[0] == 0, (
@@ -289,7 +302,8 @@ def test_chat_threads_migration_idempotent(tmp_path):
         count_after_second = r2[0] if r2 else -2
 
         assert count_after_first == count_after_second == 1, (
-            f"Idempotency: counts must be stable (1, 1), got ({count_after_first}, {count_after_second})"
+            f"Idempotency: counts must be stable (1, 1), "
+            f"got ({count_after_first}, {count_after_second})"
         )
 
         # Shape CHECK must still be present.

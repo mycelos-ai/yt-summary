@@ -140,7 +140,9 @@ def test_allin_video_no_detection_without_channel_id_or_title(db):
         await db.commit()
         video = _allin_video(vid=vid, channel_id=None)
         ids = await speaker_pipeline.detect_and_link(db, video)
-        assert ids == [], f"expected no detection when channel_id=NULL and title has no 'All-In', got {ids!r}"
+        assert ids == [], (
+            f"expected no detection when channel_id=NULL and title has no 'All-In', got {ids!r}"
+        )
     _run(go())
 
 

@@ -108,7 +108,6 @@ def test_backfill_skips_archived_youtube_for_linking(db, monkeypatch):
     """_confirmed_source_ids step-1 show-match must skip archived youtube videos."""
     async def go():
         from app.models import DetectedSpeaker
-        from app.repos import source_speakers as ss_repo
 
         sid = await speakers_repo.resolve_speaker(db, name="Ray R")
         # Insert an ARCHIVED youtube video whose title would match the speaker.
@@ -148,7 +147,8 @@ def test_run_pending_backfills_drains_queue(db, monkeypatch):
     async def go():
         from app.repos import speaker_jobs as sj
         sid = await speakers_repo.resolve_speaker(db, name="Quinn Q")
-        await _video(db, "qv"); await _link(db, sid, "qv")
+        await _video(db, "qv")
+        await _link(db, sid, "qv")
         await sj.enqueue(db, sid)
 
         async def fake_extract(db_, source, speaker_ids, **kw):

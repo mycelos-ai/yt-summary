@@ -713,7 +713,8 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
                     CHECK(
                         (scope='source'         AND source_id IS NOT NULL AND speaker_id IS NULL) OR
                         (scope='speaker'        AND speaker_id IS NOT NULL AND source_id IS NULL) OR
-                        (scope='source_speaker' AND source_id IS NOT NULL AND speaker_id IS NOT NULL)
+                        (scope='source_speaker' AND source_id IS NOT NULL
+                            AND speaker_id IS NOT NULL)
                     )
                 );
                 INSERT INTO chat_threads_new (id, user_id, scope, source_id, speaker_id, created_at)

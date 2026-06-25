@@ -16,8 +16,8 @@ def _client(tmp_path, monkeypatch):
 
 
 async def _seed_video(db, vid="vc1", user_id=1):
-    from app.repos import videos as videos_repo
     from app.models import TranscriptSource
+    from app.repos import videos as videos_repo
     # Use the real Lex Fridman channel_id so the already-seeded known_show
     # (inserted by seed_known_shows at schema-init) matches — avoids a
     # UNIQUE constraint error on (name) WHERE user_id IS NULL.
@@ -416,7 +416,9 @@ def test_speaker_page_renders_static_photo_url(tmp_path, monkeypatch):
     with client:
         async def setup():
             from app.repos import speakers as sp_repo
-            sp_id = await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Static Photo Speaker")
+            sp_id = await sp_repo.resolve_speaker(
+                app.state.db, user_id=1, name="Static Photo Speaker"
+            )
             await app.state.db.execute(
                 "UPDATE speakers SET avatar_photo_path=? WHERE id=?",
                 ("podcasters/chamath-palihapitiya.png", sp_id),
@@ -442,7 +444,9 @@ def test_speaker_page_uploaded_photo_uses_photo_route(tmp_path, monkeypatch):
     with client:
         async def setup():
             from app.repos import speakers as sp_repo
-            sp_id = await sp_repo.resolve_speaker(app.state.db, user_id=1, name="Upload Photo Speaker")
+            sp_id = await sp_repo.resolve_speaker(
+                app.state.db, user_id=1, name="Upload Photo Speaker"
+            )
             await app.state.db.execute(
                 "UPDATE speakers SET avatar_photo_path=? WHERE id=?",
                 ("/data/speaker_photos/99.png", sp_id),

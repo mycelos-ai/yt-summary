@@ -244,7 +244,8 @@ async def _make_pl(db):
 
 
 async def test_index_playlist_uses_api_when_key_set(db, tmp_path, monkeypatch):
-    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
     pl = await _make_pl(db)
     await settings_repo.set_for_user(db, 1, "youtube_api_key", "KEY")
     monkeypatch.setattr(
@@ -260,7 +261,8 @@ async def test_index_playlist_uses_api_when_key_set(db, tmp_path, monkeypatch):
 
 
 async def test_index_playlist_falls_back_when_no_key(db, tmp_path, monkeypatch):
-    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
     pl = await _make_pl(db)
     # no youtube_api_key set
     monkeypatch.setattr(
@@ -276,7 +278,8 @@ async def test_index_playlist_falls_back_when_no_key(db, tmp_path, monkeypatch):
 
 
 async def test_index_playlist_falls_back_on_api_error(db, tmp_path, monkeypatch):
-    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
     pl = await _make_pl(db)
     await settings_repo.set_for_user(db, 1, "youtube_api_key", "KEY")
     monkeypatch.setattr(
@@ -297,7 +300,8 @@ async def test_index_playlist_uses_api_for_non_default_user(db, tmp_path, monkey
     get_for_user(db, user_id=2, ...) returned None and the feature was silently
     disabled for any profile other than user 1."""
     from app.repos import users as users_repo
-    cfg = Config(data_dir=tmp_path); cfg.ensure_dirs()
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
 
     # Create a second user and a playlist owned by that user.
     second_user = await users_repo.create(db, name="other")

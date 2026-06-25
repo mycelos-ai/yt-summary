@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from app.repos import known_shows as repo
 
 

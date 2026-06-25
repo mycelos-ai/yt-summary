@@ -16,8 +16,8 @@ def app_client(tmp_path, monkeypatch):
 def test_confirm_promotes_candidate_to_link(app_client):
     app = app_client.app
     db = app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Rita R")
@@ -48,8 +48,8 @@ def test_confirm_promotes_candidate_to_link(app_client):
 
 def test_dismiss_sets_state(app_client):
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Sam S")
@@ -87,8 +87,8 @@ def test_confirm_rejects_candidate_belonging_to_other_speaker(app_client):
     """Cross-speaker guard: a candidate owned by speaker A cannot be confirmed
     under speaker B's URL, even if both speakers belong to the same user."""
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid_a = await speakers_repo.resolve_speaker(db, name="Alice A")
@@ -117,8 +117,8 @@ def test_dismiss_rejects_candidate_belonging_to_other_speaker(app_client):
     """Cross-speaker guard: a candidate owned by speaker A cannot be dismissed
     under speaker B's URL, even if both speakers belong to the same user."""
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid_a = await speakers_repo.resolve_speaker(db, name="Carol C")
@@ -139,8 +139,8 @@ def test_confirm_shows_not_extracted_note(app_client):
     """Confirming a candidate returns a fragment that includes a note telling
     the user that claims aren't extracted automatically."""
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Eve E")
@@ -176,8 +176,8 @@ def test_confirm_shows_not_extracted_note(app_client):
 def test_dismiss_has_no_note(app_client):
     """Dismissing a candidate returns a fragment WITHOUT the not-extracted note."""
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Frank F")
@@ -194,4 +194,6 @@ def test_dismiss_has_no_note(app_client):
 
     r = app_client.post(f"/speaker/{sid}/candidates/{cid}/dismiss")
     assert r.status_code == 200
-    assert "aren't extracted" not in r.text, "dismiss response must NOT contain the not-extracted note"
+    assert "aren't extracted" not in r.text, (
+        "dismiss response must NOT contain the not-extracted note"
+    )

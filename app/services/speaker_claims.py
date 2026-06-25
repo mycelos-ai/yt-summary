@@ -66,7 +66,8 @@ def _system_prompt(speaker_names: list[str]) -> str:
         '      "evidence_start_s": <integer seconds into the video, or null>,\n'
         '      "text_start_offset": <integer char offset for article/text, or null>,\n'
         '      "confidence": <0..1 paraphrase fidelity>,\n'
-        '      "attribution_method": "<explicit_name|speaker_marker|metadata_context|llm_inferred>",\n'
+        '      "attribution_method": '
+        '"<explicit_name|speaker_marker|metadata_context|llm_inferred>",\n'
         '      "attribution_confidence": <0..1 confidence the claim is THIS speaker\'s>,\n'
         '      "attribution_reason": "<short why, e.g. \\"named in prior sentence\\">"\n'
         "    }\n"

@@ -1,4 +1,6 @@
 # tests/test_services_speaker_chat.py
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from app.models import Speaker
 
 
@@ -78,7 +80,6 @@ def test_hedge_instruction_has_numeric_threshold():
 # ---------------------------------------------------------------------------
 # Task 5: stream_speaker_reply
 # ---------------------------------------------------------------------------
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _stream_chunks(*texts: str):
@@ -147,7 +148,8 @@ def test_render_claims_includes_evidence_text():
     # imply evidence is present (no trailing empty quotes / no bare "evidence:")
     no_ev_section = p[p.index("rates are sticky"):]
     assert '""' not in no_ev_section.split("\n")[0]
-    assert "evidence: " not in no_ev_section.split("\n")[0].lower() or "we expect" not in no_ev_section.split("\n")[0]
+    first_line = no_ev_section.split("\n")[0]
+    assert "evidence: " not in first_line.lower() or "we expect" not in first_line
 
 
 def test_unattributed_claim_is_hedged():
@@ -186,9 +188,10 @@ def test_unattributed_claim_is_hedged():
 
 
 async def test_stream_speaker_reply_passes_system_prompt_and_history():
-    from app.services.speaker_chat import build_speaker_system_prompt, stream_speaker_reply
-    from app.models import ChatMessage
     from datetime import datetime
+
+    from app.models import ChatMessage
+    from app.services.speaker_chat import build_speaker_system_prompt, stream_speaker_reply
 
     captured: dict = {}
 

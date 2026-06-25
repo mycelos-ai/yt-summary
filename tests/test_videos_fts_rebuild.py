@@ -18,7 +18,6 @@ import aiosqlite
 from app.config import Config
 from app.db import connect, init_schema
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

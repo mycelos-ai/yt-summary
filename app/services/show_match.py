@@ -29,9 +29,10 @@ def _matches(show, video) -> bool:
         return True
     if show.title_pattern and show.title_pattern.lower() in (video.title or "").lower():
         return True
-    if show.description_pattern and show.description_pattern.lower() in (video.description or "").lower():
-        return True
-    return False
+    return bool(
+        show.description_pattern
+        and show.description_pattern.lower() in (video.description or "").lower()
+    )
 
 
 async def identify_from_metadata(db, video, *, known_shows=None) -> list[DetectedSpeaker]:
@@ -52,7 +53,10 @@ async def identify_from_metadata(db, video, *, known_shows=None) -> list[Detecte
             if host.lower() not in seen:
                 seen.add(host.lower())
                 out.append(DetectedSpeaker(name=host, role="host", is_host=True))
-        guest = _parse_guest(show.guest_rule, video.title) or _parse_guest(show.guest_rule, video.description)
+        guest = (
+            _parse_guest(show.guest_rule, video.title)
+            or _parse_guest(show.guest_rule, video.description)
+        )
         if guest and guest.lower() not in seen:
             seen.add(guest.lower())
             out.append(DetectedSpeaker(name=guest, role="guest", is_host=False))

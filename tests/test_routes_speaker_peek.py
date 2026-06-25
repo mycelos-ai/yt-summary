@@ -15,13 +15,14 @@ def app_client(tmp_path, monkeypatch):
 
 def test_speaker_page_shows_candidates_block_separately(app_client):
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_source_candidates as cand
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Uma U")
         await db.execute(
-            "INSERT INTO videos (id, user_id, kind, url, title) VALUES ('wU',1,'web','u','Uma U on X')"
+            "INSERT INTO videos (id, user_id, kind, url, title) "
+            "VALUES ('wU',1,'web','u','Uma U on X')"
         )
         await cand.upsert_pending(db, speaker_id=sid, source_id="wU",
                                   signal="title_match", score=0.4)
@@ -37,8 +38,8 @@ def test_speaker_page_shows_candidates_block_separately(app_client):
 
 def test_track_record_peek_renders_claim_links(app_client):
     db = app_client.app.state.db
-    from app.repos import speakers as speakers_repo
     from app.repos import speaker_claim_embeddings as cve
+    from app.repos import speakers as speakers_repo
 
     async def setup():
         sid = await speakers_repo.resolve_speaker(db, name="Vic V")
@@ -53,7 +54,8 @@ def test_track_record_peek_renders_claim_links(app_client):
         )
         await db.commit()
         from app.services.embeddings_local import embed_text
-        await cve.upsert_claim_embedding(db, cur.lastrowid, await embed_text("Markets are cyclical"))
+        vec = await embed_text("Markets are cyclical")
+        await cve.upsert_claim_embedding(db, cur.lastrowid, vec)
         # Link the speaker to the video so the persona chat surface renders.
         await db.execute(
             "INSERT INTO source_speakers (source_id, speaker_id, detection_source) "
@@ -61,7 +63,7 @@ def test_track_record_peek_renders_claim_links(app_client):
         )
         await db.commit()
         return sid
-    sid = asyncio.get_event_loop().run_until_complete(setup())
+    asyncio.get_event_loop().run_until_complete(setup())
 
     # The video detail page hosts the persona chat + peek.
     html = app_client.get("/v/yV").text
