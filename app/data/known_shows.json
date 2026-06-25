@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "shows": [
     {"name": "Lex Fridman Podcast", "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
      "title_pattern": "Lex Fridman Podcast", "hosts": ["Lex Fridman"], "guest_rule": "before:: "},
@@ -38,6 +38,9 @@
     {"name": "Waveform", "channel_id": null,
      "title_pattern": "Waveform", "hosts": ["Marques Brownlee"], "guest_rule": null},
     {"name": "All-In Podcast", "channel_id": "UCESLZhusAkFfsNsApnjF_Cg", "title_pattern": "All-In",
-     "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null}
+     "hosts": ["Chamath Palihapitiya", "Jason Calacanis", "David Sacks", "David Friedberg"], "guest_rule": null},
+    {"name": "The Innermost Loop", "channel_id": null, "title_pattern": null,
+     "description_pattern": "theinnermostloop@substack.com",
+     "hosts": ["Alexander Wissner-Gross"], "guest_rule": null}
   ]
 }

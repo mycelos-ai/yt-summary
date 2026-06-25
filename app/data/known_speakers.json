@@ -1,9 +1,12 @@
 {
-  "version": 8,
+  "version": 9,
   "speakers": [
     {"name": "Lex Fridman", "role": "host, AI researcher", "known_shows": "Lex Fridman Podcast",
      "avatar_id": "adult-scientist-m", "avatar_photo_path": "app/static/podcasters/lex-fridman.png",
      "style_note": "calm, earnest, long-form, asks big questions and follows technical threads patiently"},
+    {"name": "Alexander Wissner-Gross", "role": "AI researcher, physicist, entrepreneur, public speaker", "known_shows": "The Innermost Loop",
+     "avatar_id": "adult-scientist-m", "avatar_photo_path": "app/static/podcasters/alexander-wissner-gross.png",
+     "style_note": "inventive and analytical; connects physics, entropy, intelligence, AI systems, entrepreneurship, and future-facing research"},
     {"name": "Chamath Palihapitiya", "role": "investor, All-In co-host", "known_shows": "All-In",
      "avatar_id": "adult-techreviewer-m", "avatar_photo_path": "app/static/podcasters/chamath-palihapitiya.png",
      "style_note": "blunt, contrarian, fast-moving investor tone; frames markets, power, and incentives directly"},

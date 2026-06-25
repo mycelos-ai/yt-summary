@@ -16,7 +16,7 @@ def test_seed_shows_idempotent(db):
         n = (await cur.fetchone())[0]
         assert n >= 3
         # marker set (version matches known_shows.json "version" field)
-        assert await settings_repo.get(db, "known_shows_seed_version") == "6"
+        assert await settings_repo.get(db, "known_shows_seed_version") == "7"
         # no duplication
         cur = await db.execute(
             "SELECT name, COUNT(*) c FROM known_shows GROUP BY name HAVING c>1"
@@ -32,7 +32,7 @@ def test_seed_speakers_idempotent(db):
         cur = await db.execute("SELECT COUNT(*) FROM known_speakers")
         assert (await cur.fetchone())[0] >= 2
         # marker set
-        assert await settings_repo.get(db, "known_speakers_seed_version") == "8"
+        assert await settings_repo.get(db, "known_speakers_seed_version") == "9"
         # no duplication by name_key
         cur = await db.execute(
             "SELECT name_key, COUNT(*) c FROM known_speakers GROUP BY name_key HAVING c>1"
