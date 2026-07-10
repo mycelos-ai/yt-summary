@@ -52,6 +52,10 @@ RUN pip install --no-cache-dir .
 
 COPY app ./app
 
+# Bake the local semantic-search model into the image. Runtime code loads it
+# with local_files_only=True, so requests never trigger Hugging Face downloads.
+RUN python -c "from sentence_transformers import SentenceTransformer; from app.services.embeddings_local import MODEL_NAME; SentenceTransformer(MODEL_NAME)"
+
 RUN mkdir -p /data
 
 EXPOSE 8000

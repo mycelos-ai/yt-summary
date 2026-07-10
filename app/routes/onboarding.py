@@ -216,7 +216,7 @@ async def test_provider(
         kwargs["api_base"] = base_url
 
     try:
-        response = await litellm.acompletion(**kwargs)
+        response: Any = await litellm.acompletion(**kwargs)
         text = (response.choices[0].message.content or "").strip()
         return HTMLResponse(
             f'<p class="status status-done">✓ {model} responded: '

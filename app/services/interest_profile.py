@@ -12,6 +12,7 @@ gets folded in on the next consolidate.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import aiosqlite
 import litellm
@@ -68,7 +69,7 @@ async def _call_consolidate_llm(
     }
     if base_url:
         kwargs["api_base"] = base_url
-    response = await litellm.acompletion(**kwargs)
+    response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 
 

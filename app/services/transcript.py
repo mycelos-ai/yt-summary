@@ -52,7 +52,10 @@ def _build_whisper_progress(
         # onto the main loop. Any failure (loop closed, etc.) is fine
         # to swallow — progress is best-effort.
         with contextlib.suppress(Exception):
-            asyncio.run_coroutine_threadsafe(progress_cb(message), loop)
+            async def _deliver() -> None:
+                await progress_cb(message)
+
+            asyncio.run_coroutine_threadsafe(_deliver(), loop)
 
     return on_segment
 

@@ -74,26 +74,23 @@ def _load_model_sync():
                 f"embedding model {MODEL_NAME} not cached locally; "
                 "refusing to download in-request"
             )
-        import os
         log.info("Loading sentence-transformers model %s …", MODEL_NAME)
-        # Belt-and-suspenders: even though the cache gate above already
-        # prevents reaching here when uncached, pin HF_HUB_OFFLINE for
-        # the load itself so a false-positive cache probe can never
-        # trigger a download or backoff.  We restore the previous value
-        # afterwards so a subsequent intentional online use (e.g. a
-        # different part of the app) is not broken.
-        prev_offline = os.environ.get("HF_HUB_OFFLINE")
-        os.environ["HF_HUB_OFFLINE"] = "1"
+        # ``local_files_only`` is the decisive guard. Environment variables
+        # are read and cached by parts of the Hugging Face stack at import
+        # time, so setting HF_HUB_OFFLINE immediately before construction is
+        # not reliable when huggingface_hub was imported by the cache probe.
+        # A partial cache may pass the cheap config.json check above; in that
+        # case the constructor fails locally and is wrapped as RuntimeError.
         try:
             # Imported lazily so the rest of the app doesn't pay the
             # transformers+torch import cost when embeddings aren't used.
             from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer(MODEL_NAME)
-        finally:
-            if prev_offline is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = prev_offline
+            _model = SentenceTransformer(MODEL_NAME, local_files_only=True)
+        except Exception as e:
+            raise RuntimeError(
+                f"embedding model {MODEL_NAME} is only partially cached; "
+                "refusing to download in-request"
+            ) from e
         log.info("Model %s ready (dim=%d)", MODEL_NAME, EMBEDDING_DIM)
     return _model
 

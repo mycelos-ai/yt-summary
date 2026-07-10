@@ -116,3 +116,26 @@ async def test_embed_text_loads_when_cached(monkeypatch):
     assert isinstance(vec, list)
     # The fake encode returns two floats
     assert len(vec) == 2
+
+
+def test_model_loader_forces_local_files_only(monkeypatch):
+    """A partial cache must never make SentenceTransformer contact HF."""
+    seen = {}
+
+    class _FakeModel:
+        pass
+
+    def fake_constructor(model_name, **kwargs):
+        seen["model_name"] = model_name
+        seen.update(kwargs)
+        return _FakeModel()
+
+    monkeypatch.setattr(embeddings_local, "_model", None)
+    monkeypatch.setattr(embeddings_local, "_model_is_cached", lambda: True)
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", fake_constructor,
+    )
+
+    assert isinstance(embeddings_local._load_model_sync(), _FakeModel)
+    assert seen["model_name"] == embeddings_local.MODEL_NAME
+    assert seen["local_files_only"] is True

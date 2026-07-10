@@ -252,7 +252,7 @@ async def api_submit_audio(
 
     target_language = payload.get("target_language")
     allowed_languages = {v.language for v in tts_voices.VOICES}
-    if target_language not in allowed_languages:
+    if not isinstance(target_language, str) or target_language not in allowed_languages:
         raise HTTPException(
             status_code=400,
             detail={
@@ -279,7 +279,7 @@ async def api_submit_audio(
 
     voice = payload.get("voice")
     voices = tts_voices.voices_for_language(target_language)
-    if not any(v.id == voice for v in voices):
+    if not isinstance(voice, str) or not any(v.id == voice for v in voices):
         raise HTTPException(
             status_code=400,
             detail={
@@ -291,7 +291,7 @@ async def api_submit_audio(
 
     quality = payload.get("quality")
     qualities = tts_voices.qualities_for_voice(target_language, voice)
-    if quality not in qualities:
+    if not isinstance(quality, str) or quality not in qualities:
         raise HTTPException(
             status_code=400,
             detail={

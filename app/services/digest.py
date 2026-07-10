@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import aiosqlite
 import litellm
@@ -216,7 +217,7 @@ async def _call_digest_llm(
     }
     if base_url:
         kwargs["api_base"] = base_url
-    response = await litellm.acompletion(**kwargs)
+    response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 
 

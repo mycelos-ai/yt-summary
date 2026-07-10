@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import aiosqlite
 import litellm
@@ -96,7 +97,7 @@ async def _completion_messages(
     kwargs: dict = {"model": model, "messages": messages, "api_key": api_key}
     if base_url:
         kwargs["api_base"] = base_url
-    response = await litellm.acompletion(**kwargs)
+    response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 
 
@@ -144,7 +145,7 @@ async def run_message(db: aiosqlite.Connection, *, message_id: int) -> None:
     """Answer one pending assistant message using the thread's fixed
     source set and prior turns as context. Marks the message ready/failed."""
     from app.repos import synthesis_messages as sm_repo
-    from app.services.chat_core import build_messages
+    from app.services.chat_core import HistoryEntry, build_messages
     msg = await sm_repo.get(db, message_id)
     if msg is None:
         return
@@ -175,7 +176,7 @@ async def run_message(db: aiosqlite.Connection, *, message_id: int) -> None:
         # Drop turns with no content (a prior assistant turn that failed or
         # is still pending) — passing ("assistant", None) into the model
         # breaks the messages contract.
-        hist = [
+        hist: list[HistoryEntry] = [
             (t.role, t.content) for t in prior[:-1] if t.content is not None
         ]
         messages = build_messages(system_prompt=system, history=hist,
@@ -201,6 +202,6 @@ async def ask_now(
     await run_message(db, message_id=assistant_id)
     s = await syntheses_repo.get(db, s_id)
     answer = await sm_repo.get(db, assistant_id)
+    if s is None or answer is None:
+        raise RuntimeError("ask thread disappeared immediately after creation")
     return s, answer
-
-

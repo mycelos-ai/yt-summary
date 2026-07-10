@@ -543,7 +543,7 @@ async def _completion(
     }
     if base_url:
         kwargs["api_base"] = base_url
-    response = await litellm.acompletion(**kwargs)
+    response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 
 

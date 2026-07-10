@@ -44,7 +44,9 @@ async def test_download_thumbnail_writes_file(tmp_path):
     from app.services.youtube import download_thumbnail
     target = tmp_path / "thumb.jpg"
     fake_jpeg = b"\xff\xd8\xff\xe0fakejpeg"
-    with respx.mock:
+    with respx.mock, patch(
+        "app.services.youtube.validate_public_http_url", return_value=None,
+    ):
         respx.get("https://img.example/thumb.jpg").mock(
             return_value=Response(200, content=fake_jpeg)
         )
@@ -57,6 +59,14 @@ async def test_download_thumbnail_handles_missing_url(tmp_path):
     target = tmp_path / "thumb.jpg"
     await download_thumbnail(None, target)
     assert not target.exists()
+
+
+async def test_download_thumbnail_rejects_private_target(tmp_path):
+    from app.services.network_safety import UnsafeUrlError
+    from app.services.youtube import download_thumbnail
+
+    with pytest.raises(UnsafeUrlError, match="local or private"):
+        await download_thumbnail("http://169.254.169.254/metadata", tmp_path / "x.jpg")
 
 
 def test_vtt_to_plain_text():

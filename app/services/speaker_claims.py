@@ -200,7 +200,7 @@ async def extract_claims_for_source(
         kwargs["api_base"] = base_url
 
     try:
-        response = await litellm.acompletion(**kwargs)
+        response: Any = await litellm.acompletion(**kwargs)
         raw = response.choices[0].message.content or ""
     except Exception as e:  # noqa: BLE001 — extraction is best-effort
         log.warning(
