@@ -20,6 +20,8 @@ import httpx
 import trafilatura
 from trafilatura.metadata import extract_metadata
 
+from app.services.network_safety import UnsafeUrlError, validate_public_http_url
+
 
 @dataclass(frozen=True)
 class ArticleMetadata:
@@ -66,14 +68,26 @@ def _fetch_html_once(
     merged_headers = dict(_BROWSER_HEADERS)
     if headers:
         merged_headers.update(headers)
+
+    # Validate the initial target and every redirect before httpx opens the
+    # corresponding connection. The request hook preserves httpx's normal
+    # redirect and credential-handling semantics.
+    validate_public_http_url(url)
+
+    def _validate_request(request: httpx.Request) -> None:
+        validate_public_http_url(str(request.url))
+
     try:
         with httpx.Client(
             headers=merged_headers,
             cookies=cookies or {},
             follow_redirects=True,
             timeout=15.0,
+            event_hooks={"request": [_validate_request]},
         ) as client:
             resp = client.get(url)
+    except UnsafeUrlError:
+        raise
     except httpx.HTTPError as e:
         raise ValueError(
             f"Could not reach the page ({type(e).__name__}: {e})"

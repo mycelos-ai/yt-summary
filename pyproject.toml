@@ -58,7 +58,7 @@ ignore = ["B008"]  # FastAPI uses Depends() in default args by design
 "tests/**" = ["ASYNC240"]
 
 [tool.pyright]
-include = ["app", "tests"]
+include = ["app"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
 

@@ -18,7 +18,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install
         run: pip install -e ".[dev]"
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: huggingface-minilm-${{ runner.os }}-v1
+      - name: Prepare embedding model
+        run: python -c "from sentence_transformers import SentenceTransformer; from app.services.embeddings_local import MODEL_NAME; SentenceTransformer(MODEL_NAME)"
       - name: Lint
         run: ruff check .
+      - name: Type check application
+        run: pyright
       - name: Test
         run: pytest -q

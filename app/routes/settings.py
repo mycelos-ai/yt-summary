@@ -3,6 +3,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import aiosqlite
 import httpx
@@ -497,7 +498,7 @@ async def llm_models_test(
     if base_url:
         kwargs["api_base"] = base_url
     try:
-        response = await litellm.acompletion(**kwargs)
+        response: Any = await litellm.acompletion(**kwargs)
         message = response.choices[0].message
         # Reasoning-tier models put their visible answer on .content
         # but their internal trace on .reasoning_content (litellm

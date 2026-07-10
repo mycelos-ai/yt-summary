@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal, overload
 
 import aiosqlite
 
@@ -60,9 +61,21 @@ async def get(db: aiosqlite.Connection, claim_id: int) -> "SpeakerClaim | None":
     return _row(row) if row is not None else None
 
 
+@overload
+async def list_for_speaker(
+    db: aiosqlite.Connection, speaker_id: int, *, grouped_by_topic: Literal[False] = False,
+) -> list[SpeakerClaim]: ...
+
+
+@overload
+async def list_for_speaker(
+    db: aiosqlite.Connection, speaker_id: int, *, grouped_by_topic: Literal[True],
+) -> dict[str, list[SpeakerClaim]]: ...
+
+
 async def list_for_speaker(
     db: aiosqlite.Connection, speaker_id: int, *, grouped_by_topic: bool = False,
-):
+) -> list[SpeakerClaim] | dict[str, list[SpeakerClaim]]:
     cur = await db.execute(
         "SELECT * FROM speaker_claims WHERE speaker_id=? "
         "ORDER BY topic IS NULL, topic COLLATE NOCASE, created_at DESC, id DESC",

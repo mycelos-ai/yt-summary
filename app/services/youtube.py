@@ -10,6 +10,8 @@ import anyio
 import httpx
 from yt_dlp import YoutubeDL
 
+from app.services.network_safety import validate_public_http_url
+
 log = logging.getLogger(__name__)
 
 _VIDEO_ID_RE = re.compile(
@@ -60,7 +62,7 @@ def _base_opts(cookies_path: Path | None) -> dict[str, Any]:
 def _extract_info(url: str, cookies_path: Path | None) -> dict[str, Any]:
     opts = _base_opts(cookies_path)
     opts["skip_download"] = True
-    with YoutubeDL(opts) as ydl:
+    with YoutubeDL(opts) as ydl:  # pyright: ignore[reportArgumentType]
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
 
@@ -109,6 +111,7 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
 async def download_thumbnail(url: str | None, target: Path) -> None:
     if not url:
         return
+    await asyncio.to_thread(validate_public_http_url, url)
     async_target = anyio.Path(target)
     await async_target.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
@@ -129,7 +132,7 @@ def _extract_info_with_subs(url: str, cookies_path: Path | None) -> dict[str, An
         "subtitleslangs": ["en", "de"],
         "subtitlesformat": "vtt",
     })
-    with YoutubeDL(opts) as ydl:
+    with YoutubeDL(opts) as ydl:  # pyright: ignore[reportArgumentType]
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
 
@@ -439,7 +442,7 @@ async def fetch_subtitles(
 
 
 def _run_yt_dlp_download(opts: dict[str, Any], url: str) -> None:
-    with YoutubeDL(opts) as ydl:
+    with YoutubeDL(opts) as ydl:  # pyright: ignore[reportArgumentType]
         ydl.download([url])
 
 

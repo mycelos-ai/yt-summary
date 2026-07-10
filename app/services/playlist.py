@@ -35,7 +35,7 @@ def _extract_playlist_info(url: str, cookies_path: Path | None) -> dict[str, Any
     }
     if cookies_path:
         opts["cookiefile"] = str(cookies_path)
-    with YoutubeDL(opts) as ydl:
+    with YoutubeDL(opts) as ydl:  # pyright: ignore[reportArgumentType]
         return ydl.extract_info(url, download=False)  # type: ignore[return-value]
 
 

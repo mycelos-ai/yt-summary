@@ -51,7 +51,7 @@ async def stream_reply(
     if base_url:
         kwargs["api_base"] = base_url
 
-    response = await litellm.acompletion(**kwargs)
+    response: Any = await litellm.acompletion(**kwargs)
     async for chunk in response:
         delta = chunk.choices[0].delta.content
         if delta:

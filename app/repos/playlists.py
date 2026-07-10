@@ -53,6 +53,21 @@ async def get(db: aiosqlite.Connection, playlist_id: str) -> Playlist | None:
     return _row_to_playlist(row) if row else None
 
 
+async def list_all(db: aiosqlite.Connection) -> list[Playlist]:
+    """Return every saved playlist across all profiles.
+
+    This is intentionally a scheduler-facing query. User-facing routes
+    should keep using ``list_for_user`` so profile filtering remains
+    explicit at their boundary.
+    """
+    cursor = await db.execute(
+        "SELECT * FROM playlists "
+        "ORDER BY COALESCE(last_refreshed_at, created_at) DESC, id DESC"
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_playlist(r) for r in rows]
+
+
 async def list_for_user(
     db: aiosqlite.Connection,
     user_id: int,

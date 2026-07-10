@@ -2,6 +2,9 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+import respx
+
+from app.services import network_safety
 
 SAMPLE_HTML = """
 <!doctype html>
@@ -20,6 +23,13 @@ SAMPLE_HTML = """
   <footer>Footer noise we don't want.</footer>
 </body></html>
 """
+
+
+@pytest.fixture(autouse=True)
+def _public_test_dns(monkeypatch):
+    monkeypatch.setattr(
+        network_safety, "_resolve_host", lambda host, port: {"93.184.216.34"},
+    )
 
 
 def _fake_response(*, status_code: int = 200, html: str = "", url: str | None = None):
@@ -136,6 +146,20 @@ async def test_fetch_article_uses_canonical_url_after_redirect():
         article = await fetch_article("https://example.com/short")
 
     assert article.url == "https://example.com/canonical-after-redirect"
+
+
+async def test_fetch_article_rejects_redirect_to_private_address():
+    from app.services.network_safety import UnsafeUrlError
+    from app.services.reader import fetch_article
+
+    with respx.mock:
+        respx.get("https://example.com/short").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "http://127.0.0.1/internal"},
+            )
+        )
+        with pytest.raises(UnsafeUrlError, match="local or private"):
+            await fetch_article("https://example.com/short")
 
 
 # --- curl-supplied cookies + headers (paywall-behind-a-subscription) ---

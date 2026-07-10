@@ -6,6 +6,7 @@ import aiosqlite
 from app.config import Config
 from app.repos import playlists as playlists_repo
 from app.repos import settings as settings_repo
+from app.repos import users as users_repo
 from app.scheduler import PlaylistScheduler
 
 
@@ -41,6 +42,41 @@ async def test_scheduler_calls_sync_for_each_playlist(db: aiosqlite.Connection, 
     await task
 
     assert set(sync_calls[:2]) == {"p1", "p2"}
+
+
+async def test_scheduler_syncs_playlists_for_every_profile(
+    db: aiosqlite.Connection, tmp_path,
+):
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    second = await users_repo.create(db, name="Second profile")
+    await playlists_repo.create(
+        db, playlist_id="p-default", user_id=1, url="u", title="Default",
+        description="", thumbnail_path=None,
+    )
+    await playlists_repo.create(
+        db, playlist_id="p-second", user_id=second.id, url="u", title="Second",
+        description="", thumbnail_path=None,
+    )
+    await settings_repo.set(db, "playlist_refresh_interval_hours", "0")
+
+    sync_calls: list[str] = []
+
+    async def fake_sync(db_, config_, playlist_id):
+        sync_calls.append(playlist_id)
+
+    scheduler = PlaylistScheduler(
+        db=db, config=config, sync_fn=fake_sync, min_sleep_seconds=0.05,
+    )
+    task = asyncio.create_task(scheduler.run())
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if {"p-default", "p-second"}.issubset(sync_calls):
+            break
+    scheduler.stop()
+    await task
+
+    assert {"p-default", "p-second"}.issubset(sync_calls)
 
 
 async def test_scheduler_swallows_per_playlist_errors(

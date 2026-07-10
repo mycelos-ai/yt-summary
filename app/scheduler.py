@@ -24,7 +24,7 @@ from app.services import embeddings as embeddings_service
 
 log = logging.getLogger(__name__)
 
-SyncFn = Callable[[aiosqlite.Connection, Config, str], Awaitable[None]]
+SyncFn = Callable[[aiosqlite.Connection, Config, str], Awaitable[object]]
 # Mailbox sync takes a user_id (per-profile IMAP config) rather than a
 # playlist id, and may return a result object or None (disabled mailbox).
 MailSyncFn = Callable[[aiosqlite.Connection, Config, int], Awaitable[object]]
@@ -182,9 +182,9 @@ class PlaylistScheduler:
                 return
             self._touch(current_step="scanning")
             try:
-                playlists = await playlists_repo.list_for_user(self._db, 1)
+                playlists = await playlists_repo.list_all(self._db)
             except Exception:
-                log.exception("scheduler: list_for_user failed")
+                log.exception("scheduler: listing playlists failed")
                 await self._record_tick()
                 continue
             for playlist in playlists:

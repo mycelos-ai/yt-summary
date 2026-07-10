@@ -221,6 +221,7 @@ class TtsWorker:
             and not translated_text
         )
         if needs_translation:
+            assert source_lang is not None
             await set_step("translating")
             complete = await self._build_complete()
             chunks_step_total = {"n": 0}
@@ -358,7 +359,7 @@ class TtsWorker:
             }
             if base_url:
                 kwargs["api_base"] = base_url
-            response = await litellm.acompletion(**kwargs)
+            response: Any = await litellm.acompletion(**kwargs)
             return response.choices[0].message.content or ""
 
         return _complete

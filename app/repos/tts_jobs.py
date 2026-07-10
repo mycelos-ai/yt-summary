@@ -123,7 +123,7 @@ async def complete(
     job_id: int,
     *,
     audio_path: str,
-    duration_seconds: float,
+    duration_seconds: float | None,
     translated_text: str | None,
 ) -> None:
     await db.execute(

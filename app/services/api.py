@@ -21,7 +21,7 @@ from app.services.url_classify import classify_url, web_id_from_url
 from app.services.youtube import download_thumbnail, fetch_metadata
 
 
-class VideoResource(TypedDict, total=False):
+class VideoResource(TypedDict):
     id: str
     kind: str
     url: str

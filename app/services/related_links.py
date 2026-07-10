@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import aiosqlite
 import litellm
@@ -70,7 +71,7 @@ async def _llm_select(
     }
     if model_row.base_url:
         kwargs["api_base"] = model_row.base_url
-    resp = await litellm.acompletion(**kwargs)
+    resp: Any = await litellm.acompletion(**kwargs)
     return resp.choices[0].message.content or ""
 
 

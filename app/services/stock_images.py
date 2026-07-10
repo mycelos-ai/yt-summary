@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import anyio
 import httpx
@@ -134,7 +135,7 @@ async def generate_image_query(*, summary: str, model_row) -> str | None:
         }
         if model_row.base_url:
             kwargs["api_base"] = model_row.base_url
-        resp = await litellm.acompletion(**kwargs)
+        resp: Any = await litellm.acompletion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         return text or None
     except Exception as e:  # pragma: no cover - defensive
