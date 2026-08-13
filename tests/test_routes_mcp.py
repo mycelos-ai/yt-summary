@@ -47,6 +47,26 @@ async def test_mcp_search(seeded_db_and_config):
     assert any(h["video_id"] == "mcptest1" for h in hits)
 
 
+async def test_mcp_search_items_carry_source(seeded_db_and_config):
+    db, _ = seeded_db_and_config
+    from app.routes.mcp import _tool_search
+    from app.services.export import SOURCE
+    hits = await _tool_search(db, query="MCP", limit=5)
+    assert hits, "expected at least one hit to check"
+    assert all(h["source"] == SOURCE for h in hits)
+    # The id field keeps its existing name — renaming breaks hosts.
+    assert all("video_id" in h for h in hits)
+
+
+async def test_mcp_list_recent_items_carry_source(seeded_db_and_config):
+    db, _ = seeded_db_and_config
+    from app.routes.mcp import _tool_list_recent
+    from app.services.export import SOURCE
+    rows = await _tool_list_recent(db, limit=5)
+    assert rows, "expected at least one row to check"
+    assert all(r["source"] == SOURCE for r in rows)
+
+
 async def test_mcp_ask_library(seeded_db_and_config, monkeypatch):
     db, _ = seeded_db_and_config
     from app.repos import llm_models as llm_models_repo
