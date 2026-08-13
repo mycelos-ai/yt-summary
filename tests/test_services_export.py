@@ -105,6 +105,17 @@ def test_render_item_md_has_frontmatter_and_summary():
     assert "youtube.com/watch?v=abc12345678&t=94s" in out
 
 
+def test_render_item_md_frontmatter_carries_identity():
+    from app.services.export import SOURCE, render_item_md
+    v = _video()
+    out = render_item_md(v, tags=[], playlists=[])
+    # An exported note must say what it is and where it came from,
+    # so a re-import can match it to the existing item.
+    assert f'id: "{v.id}"' in out
+    assert f'source: "{SOURCE}"' in out
+    assert "updated: 2026-06-10T12:00:00Z" in out
+
+
 def test_render_item_md_transcript_opt_in():
     from app.services.export import render_item_md
     without = render_item_md(_video(), tags=[], playlists=[])
@@ -154,6 +165,15 @@ def test_render_item_json_includes_transcript_when_opted_in():
     assert doc["transcript"] == "hello world transcript"
 
 
+def test_render_item_json_carries_identity():
+    from app.services.export import SOURCE, render_item_json
+    v = _video()
+    doc = render_item_json(v, tags=[], playlists=[])
+    assert doc["id"] == v.id
+    assert doc["source"] == SOURCE
+    assert doc["updated_at"] == "2026-06-10T12:00:00Z"
+
+
 # ----------------------------------------------------------- bulk zip
 
 def test_build_export_zip_md_has_manifest_and_one_file_per_item():
@@ -183,6 +203,20 @@ def test_build_export_zip_md_has_manifest_and_one_file_per_item():
     assert entry["title"] == "First"
     assert entry["url"] == a.url
     assert entry["file"] in md_names
+
+
+def test_build_export_zip_manifest_carries_source():
+    import io
+    import json
+    import zipfile
+
+    from app.services.export import SOURCE, build_export_zip
+    items = [{"video": _video(), "tags": [], "playlists": []}]
+    raw = build_export_zip(items, fmt="md")
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    assert manifest[0]["source"] == SOURCE
+    assert manifest[0]["id"] == "1:abc12345678"
 
 
 def test_build_export_zip_json_format_writes_json_files():
