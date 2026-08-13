@@ -14,6 +14,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.config import Config
 from app.services import api as api_svc
+from app.services.export import SOURCE
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def _tool_submit_url(
     )
     out = {
         "video_id": resource["id"],
+        "source": SOURCE,
         "kind": resource["kind"],
         "summary_ready": resource["summary_ready"],
         "title": resource["title"],
@@ -74,6 +76,7 @@ async def _tool_search(
                 excerpt = v.summary[:200]
         out.append({
             "video_id": h["id"],
+            "source": SOURCE,
             "title": h["title"],
             "url": h["url"],
             "summary_excerpt": excerpt,
@@ -127,6 +130,7 @@ async def _tool_list_recent(
     return [
         {
             "video_id": v["id"],
+            "source": SOURCE,
             "title": v["title"],
             "url": v["url"],
             "summary_ready": v["summary_ready"],
