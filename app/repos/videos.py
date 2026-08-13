@@ -358,6 +358,100 @@ async def list_recent(
     return [_row_to_video(r) for r in rows]
 
 
+def _normalize_ts(value: str | None) -> str | None:
+    """Coerce a caller-supplied timestamp to the stored string form.
+
+    SQLite writes `datetime('now')` as '2026-08-13 17:37:05' — space
+    separator, naive UTC. Callers send ISO-8601, often with a 'T' and a
+    'Z'. These are compared as strings inside SQL, and ' ' < 'T', so an
+    un-normalized 'T' bound silently skips every row on that second.
+    Returns None for empty input, meaning "no lower bound".
+    """
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1]
+    return cleaned.replace("T", " ", 1)
+
+
+def _parse_cursor(cursor: str | None) -> tuple[str, str] | None:
+    """Split "<updated_at>|<id>" into its parts.
+
+    Returns None for anything unparseable, which the caller treats as
+    "start from the beginning". A resync is cheap; a crashed sync loop
+    is not.
+    """
+    if not cursor or "|" not in cursor:
+        return None
+    stamp, _, last_id = cursor.partition("|")
+    stamp = _normalize_ts(stamp)
+    if not stamp or not last_id:
+        return None
+    return stamp, last_id
+
+
+def make_cursor(video: Video) -> str:
+    """The opaque resume token for `list_updated_since`.
+
+    Deliberately built from the raw stored form rather than
+    `datetime.isoformat()` — see `_normalize_ts`.
+    """
+    stamp = video.updated_at.strftime("%Y-%m-%d %H:%M:%S")
+    return f"{stamp}|{video.id}"
+
+
+async def list_updated_since(
+    db: aiosqlite.Connection,
+    *,
+    user_id: int = 1,
+    since: str | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
+) -> list[Video]:
+    """Active items changed at or after `since`, oldest change first.
+
+    For incremental sync: ordered by (updated_at ASC, id ASC) so a
+    cursor can resume exactly, including across items that share an
+    `updated_at`. `cursor` is the last seen "<updated_at>|<id>" pair
+    and wins over `since` when both are given.
+
+    Filters `archived_at IS NULL`, matching `list_recent`: archiving an
+    item removes it from the sync feed. An item archived *after* it
+    synced is not signalled to the consumer — deletion propagation is
+    out of scope.
+
+    Unlike `list_recent`, this orders by `updated_at` rather than
+    `created_at`: summaries are updated in place (resummarize,
+    highlights, language backfill) without a new row, and a
+    created_at-ordered feed would never re-emit them.
+    """
+    where = ["user_id = ?", "archived_at IS NULL"]
+    params: list = [user_id]
+
+    resume = _parse_cursor(cursor)
+    if resume is not None:
+        stamp, last_id = resume
+        where.append("(updated_at > ? OR (updated_at = ? AND id > ?))")
+        params += [stamp, stamp, last_id]
+    else:
+        bound = _normalize_ts(since)
+        if bound is not None:
+            where.append("updated_at >= ?")
+            params.append(bound)
+
+    params.append(limit)
+    cur = await db.execute(
+        "SELECT * FROM videos WHERE " + " AND ".join(where)
+        + " ORDER BY updated_at ASC, id ASC LIMIT ?",
+        tuple(params),
+    )
+    rows = await cur.fetchall()
+    return [_row_to_video(r) for r in rows]
+
+
 async def get_most_recent(
     db: aiosqlite.Connection, *, user_id: int = 1,
 ) -> Video | None:
