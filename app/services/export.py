@@ -18,6 +18,7 @@ import json
 import re
 import unicodedata
 import zipfile
+from datetime import datetime
 
 from app.models import Video, VideoKind
 
@@ -25,6 +26,22 @@ from app.models import Video, VideoKind
 # summarizer emits (see services/summarizer.py). We keep the visible
 # label (group 1) and rewrite only the href target (group 2).
 _TS_LINK_RE = re.compile(r"(\[\d{1,2}(?::\d{2}){1,2}\])\(#t=(\d+)\)")
+
+# Provenance stamped onto every outgoing item. A consumer keys items by
+# the pair (source, id): `id` is unique within this instance, `source`
+# says which instance it came from. A module constant on purpose — if a
+# second instance ever exists, this is the single line an
+# YTS_INSTANCE_ID env var would replace.
+SOURCE = "yt-summary"
+
+
+def _utc_iso(value: datetime) -> str:
+    """ISO-8601 with an explicit `Z`.
+
+    Stored timestamps are UTC but parse back naive (tzinfo=None), so a
+    consumer would otherwise be free to read them as local time.
+    """
+    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _slug(text: str) -> str:
@@ -89,10 +106,13 @@ def render_item_md(
     appends a `## Highlights` list. Both default off — the summary is the
     knowledge artifact."""
     fm: list[str] = ["---"]
+    fm.append(f"id: {_yaml_quote(video.id)}")
+    fm.append(f"source: {_yaml_quote(SOURCE)}")
     fm.append(f"title: {_yaml_quote(video.title)}")
     fm.append(f"source_url: {_yaml_quote(video.url)}")
     fm.append(f"kind: {video.kind.value}")
     fm.append(f"created: {video.created_at.strftime('%Y-%m-%d')}")
+    fm.append(f"updated: {_utc_iso(video.updated_at)}")
     if video.summary_model:
         fm.append(f"summary_model: {_yaml_quote(video.summary_model)}")
     lang = video.summary_language or video.source_language
@@ -148,6 +168,7 @@ def render_item_json(
     profile's feedback rows. `playlists` is a list of (id, title)."""
     doc: dict = {
         "id": video.id,
+        "source": SOURCE,
         "kind": video.kind.value,
         "url": video.url,
         "title": video.title,
@@ -156,6 +177,7 @@ def render_item_json(
         "summary_model": video.summary_model,
         "language": video.summary_language or video.source_language,
         "created_at": video.created_at.isoformat(),
+        "updated_at": _utc_iso(video.updated_at),
         "tags": list(tags),
         "playlists": [{"id": pid, "title": title} for pid, title in playlists],
         "summary": video.summary,
@@ -231,6 +253,7 @@ def build_export_zip(items: list[dict], *, fmt: str) -> bytes:
             zf.writestr(fname, content)
             manifest.append({
                 "id": video.id,
+                "source": SOURCE,
                 "title": video.title,
                 "url": video.url,
                 "file": fname,
