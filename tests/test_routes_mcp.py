@@ -226,3 +226,74 @@ async def test_tool_submit_url_forwards_overrides_to_jobs(db, config):
     assert job is not None
     assert job.llm_model_id == mid
     assert job.additional_prompt == "be terse"
+
+
+async def _seed_for_sync(db, count):
+    """`count` active videos with distinct, ascending updated_at values."""
+    from app.repos import videos as videos_repo
+    for i in range(count):
+        vid = f"1:sync{i}"
+        await videos_repo.upsert_metadata(
+            db, video_id=vid, url=f"https://youtu.be/{vid}",
+            title=f"Sync {i}", description="d",
+            thumbnail_path=None, duration_seconds=None,
+        )
+        await videos_repo.set_summary(db, vid, f"summary {i}", "model")
+        await db.execute(
+            "UPDATE videos SET updated_at=? WHERE id=?",
+            (f"2026-01-0{i + 1} 10:00:00", vid),
+        )
+    await db.commit()
+
+
+async def test_export_since_returns_okf_items(db):
+    from app.routes.mcp import _tool_export_since
+    from app.services.export import SOURCE
+    await _seed_for_sync(db, 2)
+    out = await _tool_export_since(db, limit=10)
+    assert out["has_more"] is False
+    assert len(out["items"]) == 2
+    first = out["items"][0]
+    assert first["type"] == "note"
+    assert first["source"] == SOURCE
+    assert "transcript" not in first
+
+
+async def test_export_since_paginates_with_cursor(db):
+    from app.routes.mcp import _tool_export_since
+    await _seed_for_sync(db, 5)
+    page1 = await _tool_export_since(db, limit=2)
+    assert [i["id"] for i in page1["items"]] == ["1:sync0", "1:sync1"]
+    assert page1["has_more"] is True
+    assert page1["next_cursor"]
+
+    page2 = await _tool_export_since(db, cursor=page1["next_cursor"], limit=2)
+    assert [i["id"] for i in page2["items"]] == ["1:sync2", "1:sync3"]
+    assert page2["has_more"] is True
+
+    page3 = await _tool_export_since(db, cursor=page2["next_cursor"], limit=2)
+    assert [i["id"] for i in page3["items"]] == ["1:sync4"]
+    assert page3["has_more"] is False
+    assert page3["next_cursor"] == ""
+
+
+async def test_export_since_clamps_an_oversized_limit(db):
+    from app.routes.mcp import MAX_PAGE, _tool_export_since
+    await _seed_for_sync(db, 3)
+    # An over-large request is served, not rejected.
+    out = await _tool_export_since(db, limit=10_000)
+    assert len(out["items"]) == 3
+    assert MAX_PAGE == 100
+
+
+async def test_export_since_honours_the_since_bound(db):
+    from app.routes.mcp import _tool_export_since
+    await _seed_for_sync(db, 3)
+    out = await _tool_export_since(db, since="2026-01-02T10:00:00Z", limit=10)
+    assert [i["id"] for i in out["items"]] == ["1:sync1", "1:sync2"]
+
+
+async def test_export_since_empty_library_is_not_an_error(db):
+    from app.routes.mcp import _tool_export_since
+    out = await _tool_export_since(db, limit=10)
+    assert out == {"items": [], "next_cursor": "", "has_more": False}
