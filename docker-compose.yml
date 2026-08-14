@@ -12,6 +12,22 @@ services:
     # override `command:`, keep those two flags or absolute URLs in
     # the HTML will come out as http:// and the browser will block
     # them as Mixed Content.
+    environment:
+      # The MCP server validates the Host header (DNS-rebinding
+      # protection). Behind a reverse proxy that rewrites Host, this
+      # rejects every request with "Invalid Host header" and the MCP
+      # surface — including export_since — becomes unreachable.
+      #
+      # Set here in `environment:` rather than in a .env file: compose
+      # does not read .env into the container's environment on its own.
+      #
+      # SECURITY: this is only safe once an API key is configured. The
+      # key then gates every request. Without a key the app deliberately
+      # keeps the check enabled (see app/routes/mcp.py) — a malicious
+      # website could otherwise DNS-rebind to this host and drive the
+      # open MCP surface from a victim's browser. Remove this line if
+      # you run without an API key.
+      YTS_MCP_DISABLE_HOST_CHECK: "1"
     ports:
       # Host port 8200 → container's uvicorn on 8000.
       # Direct access: http://<host>:8200
