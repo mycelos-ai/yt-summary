@@ -174,6 +174,66 @@ def test_render_item_json_carries_identity():
     assert doc["updated_at"] == "2026-06-10T12:00:00Z"
 
 
+# ------------------------------------------------------------ okf doc
+
+def test_render_item_okf_maps_the_okf_vocabulary():
+    from app.services.export import SOURCE, render_item_okf
+    v = _video()
+    doc = render_item_okf(
+        v, tags=["ai"], playlists=["AI"],
+        highlights=[{"text": "h", "reason": "r"}],
+    )
+    # OKF's own field names, so a consumer needs no translation table.
+    assert doc["type"] == "note"
+    assert doc["title"] == v.title
+    assert doc["description"] == v.description
+    assert doc["resource"] == v.url
+    assert doc["timestamp"] == "2026-06-10T12:00:00Z"
+    assert doc["tags"] == ["ai"]
+    # Identity.
+    assert doc["id"] == v.id
+    assert doc["source"] == SOURCE
+    # yt-summary metadata.
+    assert doc["kind"] == "youtube"
+    assert doc["language"] == "en"
+    assert doc["summary_model"] == "anthropic/claude-sonnet-4-6"
+    assert doc["playlists"] == ["AI"]
+    assert doc["duration_seconds"] == 3841
+    assert doc["highlights"] == [{"text": "h", "reason": "r"}]
+
+
+def test_render_item_okf_never_includes_the_transcript():
+    from app.services.export import render_item_okf
+    v = _video()
+    assert v.transcript, "fixture must have a transcript for this to mean anything"
+    doc = render_item_okf(v, tags=[], playlists=[])
+    assert "transcript" not in doc
+    assert v.transcript not in str(doc)
+
+
+def test_render_item_okf_content_has_rewritten_timestamp_links():
+    from app.services.export import render_item_okf
+    doc = render_item_okf(_video(), tags=[], playlists=[])
+    # Same treatment as the Markdown export: in-app links are useless
+    # outside the app.
+    assert "(#t=94)" not in doc["content"]
+    assert "youtube.com/watch?v=abc12345678&t=94s" in doc["content"]
+
+
+def test_render_item_okf_tolerates_missing_optional_fields():
+    from app.services.export import render_item_okf
+    v = _video(
+        summary=None, summary_model=None, duration_seconds=None,
+        source_language=None, summary_language=None,
+    )
+    doc = render_item_okf(v, tags=[], playlists=[])
+    assert doc["content"] == ""
+    assert doc["summary_model"] is None
+    assert doc["duration_seconds"] is None
+    assert doc["language"] is None
+    assert doc["highlights"] == []
+
+
 # ----------------------------------------------------------- bulk zip
 
 def test_build_export_zip_md_has_manifest_and_one_file_per_item():
