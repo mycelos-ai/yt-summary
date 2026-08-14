@@ -234,6 +234,40 @@ def test_render_item_okf_tolerates_missing_optional_fields():
     assert doc["highlights"] == []
 
 
+# ------------------------------------------------------ parse_highlights
+
+def test_parse_highlights_none_when_json_missing():
+    from app.services.export import parse_highlights
+    v = _video(highlights_json=None)
+    assert parse_highlights(v) is None
+
+
+def test_parse_highlights_none_when_json_empty_string():
+    from app.services.export import parse_highlights
+    v = _video(highlights_json="")
+    assert parse_highlights(v) is None
+
+
+def test_parse_highlights_returns_the_list():
+    from app.services.export import parse_highlights
+    v = _video(highlights_json='[{"text": "h", "rank": 5, "reason": "r"}]')
+    assert parse_highlights(v) == [{"text": "h", "rank": 5, "reason": "r"}]
+
+
+def test_parse_highlights_none_on_malformed_json():
+    from app.services.export import parse_highlights
+    v = _video(highlights_json="{not valid json")
+    assert parse_highlights(v) is None
+
+
+def test_parse_highlights_none_when_json_is_not_a_list():
+    from app.services.export import parse_highlights
+    v = _video(highlights_json='{"text": "h"}')
+    assert parse_highlights(v) is None
+    v2 = _video(highlights_json="42")
+    assert parse_highlights(v2) is None
+
+
 # ----------------------------------------------------------- bulk zip
 
 def test_build_export_zip_md_has_manifest_and_one_file_per_item():

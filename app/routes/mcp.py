@@ -257,7 +257,10 @@ async def _tool_export_since(
         pls = await playlists_repo.playlists_for_videos(db, [v.id])
         names = [title for _, title in pls.get(v.id, [])]
         items.append(
-            export_svc.render_item_okf(v, tags=tags, playlists=names)
+            export_svc.render_item_okf(
+                v, tags=tags, playlists=names,
+                highlights=export_svc.parse_highlights(v),
+            )
         )
 
     next_cursor = videos_repo.make_cursor(rows[-1]) if (rows and has_more) else ""

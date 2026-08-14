@@ -39,16 +39,6 @@ async def _api_user(
     return await authenticate(db, request)
 
 
-def _parse_highlights(video: Video) -> list[dict] | None:
-    if not video.highlights_json:
-        return None
-    try:
-        data = json.loads(video.highlights_json)
-    except (ValueError, TypeError):
-        return None
-    return data if isinstance(data, list) else None
-
-
 async def _gather_item(
     db: aiosqlite.Connection, video: Video, *, user_id: int,
     want_feedback: bool,
@@ -77,7 +67,7 @@ async def _gather_item(
         "tags": tags,
         "playlists": playlists,
         "feedback": feedback,
-        "highlights": _parse_highlights(video),
+        "highlights": export_svc.parse_highlights(video),
     }
 
 

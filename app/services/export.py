@@ -44,6 +44,20 @@ def _utc_iso(value: datetime) -> str:
     return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def parse_highlights(video: Video) -> list[dict] | None:
+    """Parse `video.highlights_json` into a list, or None if absent/invalid.
+
+    None on a missing/empty column, on malformed JSON, or when the parsed
+    value isn't a list — callers treat None the same as "no highlights"."""
+    if not video.highlights_json:
+        return None
+    try:
+        data = json.loads(video.highlights_json)
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, list) else None
+
+
 def _slug(text: str) -> str:
     """ASCII-fold, lowercase, collapse to dash-separated tokens."""
     folded = (
