@@ -217,6 +217,57 @@ async def _tool_ask_library(
     }
 
 
+# Hard ceiling on one sync page, regardless of what a caller asks for.
+# MCP responses go through the model's context; an unbounded page is a
+# denial-of-service on the host, not just a slow query.
+MAX_PAGE = 100
+
+
+async def _tool_export_since(
+    db: aiosqlite.Connection,
+    *,
+    since: str = "",
+    cursor: str = "",
+    limit: int = 50,
+    user_id: int = 1,
+) -> dict[str, Any]:
+    """One page of items changed at or after `since`, for incremental sync.
+
+    Delegates to repos.videos.list_updated_since + services.export.
+    render_item_okf. Fetches limit+1 rows so `has_more` needs no second
+    query.
+    """
+    from app.repos import playlists as playlists_repo
+    from app.repos import tags as tags_repo
+    from app.repos import videos as videos_repo
+    from app.services import export as export_svc
+
+    page = max(1, min(limit, MAX_PAGE))
+    rows = await videos_repo.list_updated_since(
+        db, user_id=user_id,
+        since=since or None, cursor=cursor or None,
+        limit=page + 1,
+    )
+    has_more = len(rows) > page
+    rows = rows[:page]
+
+    items: list[dict[str, Any]] = []
+    for v in rows:
+        tags = await tags_repo.tags_for_video(db, v.id)
+        pls = await playlists_repo.playlists_for_videos(db, [v.id])
+        names = [title for _, title in pls.get(v.id, [])]
+        items.append(
+            export_svc.render_item_okf(v, tags=tags, playlists=names)
+        )
+
+    next_cursor = videos_repo.make_cursor(rows[-1]) if (rows and has_more) else ""
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+    }
+
+
 def _api_key_is_configured(config) -> bool:
     """Synchronous, best-effort check for whether any user has an API key.
 
@@ -370,5 +421,31 @@ def build_mcp_server(app_state) -> FastMCP:
         items one by one.
         """
         return await _tool_ask_library(app_state.db, question)
+
+    @mcp.tool()
+    async def export_since(
+        since: str = "",
+        cursor: str = "",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Items created or updated since `since` (ISO 8601), for
+        incremental sync into another system.
+
+        `since` is interpreted as UTC: a UTC offset in the value (for
+        example '+02:00') is dropped, not converted.
+
+        Returns {items, next_cursor, has_more}. Each item carries its
+        `id` and `source` so a consumer can tell a re-export from a new
+        item, and `timestamp` (the item's last change) for change
+        detection.
+
+        Summaries and metadata only — no transcripts; use
+        ``get_transcript`` for those. Pass an empty `since` for a full
+        first sync, then call repeatedly with the returned
+        `next_cursor` until `has_more` is false.
+        """
+        return await _tool_export_since(
+            app_state.db, since=since, cursor=cursor, limit=limit,
+        )
 
     return mcp
