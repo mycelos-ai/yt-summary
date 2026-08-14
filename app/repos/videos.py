@@ -362,9 +362,25 @@ def _normalize_ts(value: str | None) -> str | None:
     """Coerce a caller-supplied timestamp to the stored string form.
 
     SQLite writes `datetime('now')` as '2026-08-13 17:37:05' — space
-    separator, naive UTC. Callers send ISO-8601, often with a 'T' and a
-    'Z'. These are compared as strings inside SQL, and ' ' < 'T', so an
-    un-normalized 'T' bound silently skips every row on that second.
+    separator, naive UTC, second resolution. Callers send ISO-8601 in
+    any of its legal shapes. These are compared as strings inside SQL,
+    and ' ' < 'T' < 'z', so an un-normalized bound silently skips every
+    row on the boundary second. We therefore reduce the input to bare
+    'YYYY-MM-DD HH:MM:SS':
+
+    - a trailing 'Z' or 'z' is dropped (RFC 3339 allows either case);
+    - a 'T' or 't' separator becomes a space;
+    - fractional seconds ('.123456') are dropped, since the column has
+      only second resolution;
+    - a trailing UTC offset ('+02:00', '-05:00') is dropped.
+
+    Limitation: an offset is *ignored*, not honoured. '10:00:00+02:00'
+    is treated as 10:00:00 UTC, not 08:00:00. Converting it would change
+    which rows a caller gets back, which is a design decision rather
+    than a normalization detail, so it stays out of this function.
+
+    Anything that does not match these shapes passes through untouched;
+    an unusable bound yields zero rows rather than an exception.
     Returns None for empty input, meaning "no lower bound".
     """
     if not value:
@@ -372,9 +388,24 @@ def _normalize_ts(value: str | None) -> str | None:
     cleaned = value.strip()
     if not cleaned:
         return None
-    if cleaned.endswith("Z"):
+    if cleaned[-1] in "Zz":
         cleaned = cleaned[:-1]
-    return cleaned.replace("T", " ", 1)
+    for sep in ("T", "t"):
+        if sep in cleaned:
+            cleaned = cleaned.replace(sep, " ", 1)
+            break
+    # Split date from time so the date's own hyphens are never mistaken
+    # for the sign of a UTC offset.
+    date_part, space, time_part = cleaned.partition(" ")
+    if not space:
+        return cleaned
+    for sign in ("+", "-"):
+        idx = time_part.find(sign)
+        if idx != -1:
+            time_part = time_part[:idx]
+            break
+    time_part = time_part.partition(".")[0]
+    return f"{date_part} {time_part}".strip()
 
 
 def _parse_cursor(cursor: str | None) -> tuple[str, str] | None:
