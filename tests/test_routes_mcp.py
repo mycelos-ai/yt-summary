@@ -297,3 +297,30 @@ async def test_export_since_empty_library_is_not_an_error(db):
     from app.routes.mcp import _tool_export_since
     out = await _tool_export_since(db, limit=10)
     assert out == {"items": [], "next_cursor": "", "has_more": False}
+
+
+async def test_export_since_includes_stored_highlights(db):
+    """A synced item with stored highlights must carry them, not [] —
+    the sync path shares the pure renderer with the REST export path
+    and must pass the parsed highlights through the same way."""
+    from app.routes.mcp import _tool_export_since
+    await _seed_for_sync(db, 1)
+    stored = [{"text": "a real highlight", "rank": 5, "reason": "r"}]
+    import json as _json
+    await db.execute(
+        "UPDATE videos SET highlights_json=? WHERE id=?",
+        (_json.dumps(stored), "1:sync0"),
+    )
+    await db.commit()
+
+    out = await _tool_export_since(db, limit=10)
+    assert out["items"][0]["highlights"] == stored
+
+
+async def test_export_since_item_without_highlights_yields_empty_list(db):
+    """The OKF contract says `highlights` is always a list — confirm the
+    no-highlights case really renders [] end to end, not None."""
+    from app.routes.mcp import _tool_export_since
+    await _seed_for_sync(db, 1)
+    out = await _tool_export_since(db, limit=10)
+    assert out["items"][0]["highlights"] == []
