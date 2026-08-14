@@ -189,6 +189,49 @@ def render_item_json(
     return doc
 
 
+def render_item_okf(
+    video: Video,
+    *,
+    tags: list[str],
+    playlists: list[str],
+    highlights: list[dict] | None = None,
+) -> dict:
+    """One sync item: OKF vocabulary + summary body, no transcript.
+
+    Field names follow OKF (`type`, `title`, `description`, `resource`,
+    `timestamp`, `tags`) so a consumer maps them without a translation
+    table. `timestamp` is `updated_at` — the same value the sync cursor
+    orders by.
+
+    Deliberately carries no transcript: it would bloat every MCP page
+    and blunt semantic search on the consumer side. The transcript stays
+    reachable through the `get_transcript` tool and the `resource` URL.
+    """
+    return {
+        # Identity: a consumer keys on (source, id).
+        "id": video.id,
+        "source": SOURCE,
+        # OKF vocabulary.
+        "type": "note",
+        "title": video.title,
+        "description": video.description,
+        "resource": video.url,
+        "timestamp": _utc_iso(video.updated_at),
+        "created": _utc_iso(video.created_at),
+        "tags": list(tags),
+        # yt-summary metadata.
+        "kind": video.kind.value,
+        "language": video.summary_language or video.source_language,
+        "summary_model": video.summary_model,
+        "playlists": list(playlists),
+        "duration_seconds": video.duration_seconds,
+        "highlights": highlights or [],
+        "content": rewrite_timestamp_links(
+            video.summary or "", youtube_id=video.youtube_id,
+        ),
+    }
+
+
 def _export_basename(video: Video, fmt: str) -> str:
     """Filename for an item inside a bulk export, with the right suffix."""
     name = export_filename(video)  # ends with .md
