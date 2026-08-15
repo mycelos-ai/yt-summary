@@ -306,7 +306,7 @@ def test_api_key_reveal_page_includes_curl_and_mcp_snippets(tmp_path, monkeypatc
 
     # 3. MCP config block — both Claude Desktop JSON and Claude Code CLI.
     assert "mcp-remote" in text
-    assert "/mcp/sse" in text
+    assert "/mcp" in text
     assert "claude mcp add" in text
     # Claude Desktop config path hint is shown.
     assert "claude_desktop_config.json" in text
@@ -314,7 +314,7 @@ def test_api_key_reveal_page_includes_curl_and_mcp_snippets(tmp_path, monkeypatc
     # The host the user is reaching us from must be in the URLs. The
     # TestClient defaults to `testserver`.
     assert "http://testserver/api/v1/health" in text
-    assert "http://testserver/mcp/sse" in text
+    assert "http://testserver/mcp" in text
 
     # And the back-to-settings button still goes home.
     assert 'href="/settings"' in text

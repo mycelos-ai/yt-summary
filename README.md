@@ -258,7 +258,7 @@ curl -X POST http://localhost:8200/api/v1/videos \
 
 ### MCP server
 
-Endpoint: `http://localhost:8200/mcp/sse`
+Endpoint: `http://localhost:8200/mcp` (stateless Streamable HTTP)
 
 For Claude Desktop:
 ```json
@@ -268,7 +268,7 @@ For Claude Desktop:
       "command": "npx",
       "args": [
         "-y", "mcp-remote",
-        "http://your-host:8200/mcp/sse",
+        "http://your-host:8200/mcp",
         "--header", "Authorization: Bearer yts_..."
       ]
     }
