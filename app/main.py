@@ -72,110 +72,130 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = None
     scheduler_task = worker_task = tts_worker_task = backfill_worker_task = None
     scheduler = worker = tts_worker = backfill_worker = None
-    try:
-        db = await connect(config)
-        await init_schema(db)
-        await jobs_repo.reset_orphaned_running(db)
-        from app.repos import speaker_jobs as speaker_jobs_repo
-        await speaker_jobs_repo.reset_orphaned_running(db)
-        n_reset = await tts_jobs_repo.reset_orphaned_active(db)
-        if n_reset:
-            logging.getLogger("yt_summary.boot").warning(
-                "Reset %d orphaned TTS job(s) to 'queued' after restart",
-                n_reset,
+    async with contextlib.AsyncExitStack() as stack:
+        # The MCP endpoint is a mounted sub-app, and Starlette does not
+        # run a mounted app's lifespan — so its StreamableHTTPSessionManager
+        # would never start and the first request would fail. Run it here
+        # instead, for the lifetime of this app.
+        #
+        # `run()` is single-use *per manager instance*, while an app may be
+        # started more than once — the test suite enters TestClient(app)
+        # twice on the same app object. Build a fresh manager for each
+        # startup and point the already-mounted ASGI handler at it, since
+        # that handler captured the previous one at construction time.
+        mcp_server = getattr(app.state, "mcp_server", None)
+        mcp_asgi = getattr(app.state, "mcp_asgi_app", None)
+        if mcp_server is not None:
+            mcp_server._session_manager = None
+            mcp_server.streamable_http_app()
+            manager = mcp_server.session_manager
+            if mcp_asgi is not None:
+                mcp_asgi.session_manager = manager
+            await stack.enter_async_context(manager.run())
+        try:
+            db = await connect(config)
+            await init_schema(db)
+            await jobs_repo.reset_orphaned_running(db)
+            from app.repos import speaker_jobs as speaker_jobs_repo
+            await speaker_jobs_repo.reset_orphaned_running(db)
+            n_reset = await tts_jobs_repo.reset_orphaned_active(db)
+            if n_reset:
+                logging.getLogger("yt_summary.boot").warning(
+                    "Reset %d orphaned TTS job(s) to 'queued' after restart",
+                    n_reset,
+                )
+
+            # Warn loudly if no API key is set — anyone on the LAN can call
+            # the API. Useful default for first run, but the user should
+            # generate one before exposing the box.
+            from app.repos import users as _users_repo
+            _user = await _users_repo.get_default_user(db)
+            if _user is None or _user.api_key_hash is None:
+                logging.getLogger("yt_summary.boot").warning(
+                    "No API key configured — /api/v1 and /mcp are open to "
+                    "anyone on the LAN. Generate one at /settings. "
+                    "(While no key is set, the MCP DNS-rebinding host-check "
+                    "stays enabled to limit drive-by access; it relaxes once "
+                    "a key exists.)"
+                )
+
+            worker = Worker(
+                db=db, config=config, process_video=process_video,
+                heartbeat=heartbeats,
             )
+            worker_task = asyncio.create_task(worker.run())
 
-        # Warn loudly if no API key is set — anyone on the LAN can call
-        # the API. Useful default for first run, but the user should
-        # generate one before exposing the box.
-        from app.repos import users as _users_repo
-        _user = await _users_repo.get_default_user(db)
-        if _user is None or _user.api_key_hash is None:
-            logging.getLogger("yt_summary.boot").warning(
-                "No API key configured — /api/v1 and /mcp/sse are open to "
-                "anyone on the LAN. Generate one at /settings. "
-                "(While no key is set, the MCP DNS-rebinding host-check "
-                "stays enabled to limit drive-by access; it relaxes once "
-                "a key exists.)"
+            async def _ensure_voice(language: str, voice: str, quality: str):
+                return await download_voice(
+                    config.tts_voices_dir, language, voice, quality, progress=None,
+                )
+
+            tts_worker = TtsWorker(
+                db=db,
+                config=config,
+                translate=translate,
+                render_chunks_to_mp3=render_chunks_to_mp3,
+                ensure_voice=_ensure_voice,
+                heartbeat=heartbeats,
             )
+            tts_worker_task = asyncio.create_task(tts_worker.run())
 
-        worker = Worker(
-            db=db, config=config, process_video=process_video,
-            heartbeat=heartbeats,
-        )
-        worker_task = asyncio.create_task(worker.run())
+            backfill_worker = SpeakerBackfillWorker(db=db, config=config)
+            backfill_worker_task = asyncio.create_task(backfill_worker.run())
+            app.state.backfill_worker = backfill_worker
 
-        async def _ensure_voice(language: str, voice: str, quality: str):
-            return await download_voice(
-                config.tts_voices_dir, language, voice, quality, progress=None,
+            scheduler = PlaylistScheduler(
+                db=db, config=config, sync_fn=sync_playlist,
+                mail_sync_fn=sync_mailbox, heartbeat=heartbeats,
             )
+            scheduler_task = asyncio.create_task(scheduler.run())
 
-        tts_worker = TtsWorker(
-            db=db,
-            config=config,
-            translate=translate,
-            render_chunks_to_mp3=render_chunks_to_mp3,
-            ensure_voice=_ensure_voice,
-            heartbeat=heartbeats,
-        )
-        tts_worker_task = asyncio.create_task(tts_worker.run())
+            digest_scheduler = DigestScheduler(db, config)
+            digest_scheduler_task = asyncio.create_task(digest_scheduler.run())
+            app.state.digest_scheduler = digest_scheduler
+            app.state.digest_scheduler_task = digest_scheduler_task
 
-        backfill_worker = SpeakerBackfillWorker(db=db, config=config)
-        backfill_worker_task = asyncio.create_task(backfill_worker.run())
-        app.state.backfill_worker = backfill_worker
-
-        scheduler = PlaylistScheduler(
-            db=db, config=config, sync_fn=sync_playlist,
-            mail_sync_fn=sync_mailbox, heartbeat=heartbeats,
-        )
-        scheduler_task = asyncio.create_task(scheduler.run())
-
-        digest_scheduler = DigestScheduler(db, config)
-        digest_scheduler_task = asyncio.create_task(digest_scheduler.run())
-        app.state.digest_scheduler = digest_scheduler
-        app.state.digest_scheduler_task = digest_scheduler_task
-
-        app.state.config = config
-        app.state.db = db
-        app.state.worker = worker
-        app.state.tts_worker = tts_worker
-        app.state.scheduler = scheduler
-        app.state.heartbeats = heartbeats
-        app.state.log_buffer = log_buffer
-        yield
-    finally:
-        if scheduler is not None:
-            scheduler.stop()
-        if worker is not None:
-            worker.stop()
-        if tts_worker is not None:
-            tts_worker.stop()
-        if backfill_worker is not None:
-            backfill_worker.stop()
-        digest_scheduler = getattr(app.state, "digest_scheduler", None)
-        digest_scheduler_task = getattr(
-            app.state, "digest_scheduler_task", None,
-        )
-        if digest_scheduler is not None:
-            digest_scheduler.stop()
-        if digest_scheduler_task is not None:
-            with contextlib.suppress(BaseException):
-                await digest_scheduler_task
-        if scheduler_task is not None:
-            await scheduler_task
-        if worker_task is not None:
-            await worker_task
-        if tts_worker_task is not None:
-            await tts_worker_task
-        if backfill_worker_task is not None:
-            await backfill_worker_task
-        if db is not None:
-            await db.close()
-        root_logger.removeHandler(log_buffer)
-        # Restore the original root level so test-suite isolation stays
-        # clean across many create_app() invocations.
-        if root_logger.level != original_root_level:
-            root_logger.setLevel(original_root_level)
+            app.state.config = config
+            app.state.db = db
+            app.state.worker = worker
+            app.state.tts_worker = tts_worker
+            app.state.scheduler = scheduler
+            app.state.heartbeats = heartbeats
+            app.state.log_buffer = log_buffer
+            yield
+        finally:
+            if scheduler is not None:
+                scheduler.stop()
+            if worker is not None:
+                worker.stop()
+            if tts_worker is not None:
+                tts_worker.stop()
+            if backfill_worker is not None:
+                backfill_worker.stop()
+            digest_scheduler = getattr(app.state, "digest_scheduler", None)
+            digest_scheduler_task = getattr(
+                app.state, "digest_scheduler_task", None,
+            )
+            if digest_scheduler is not None:
+                digest_scheduler.stop()
+            if digest_scheduler_task is not None:
+                with contextlib.suppress(BaseException):
+                    await digest_scheduler_task
+            if scheduler_task is not None:
+                await scheduler_task
+            if worker_task is not None:
+                await worker_task
+            if tts_worker_task is not None:
+                await tts_worker_task
+            if backfill_worker_task is not None:
+                await backfill_worker_task
+            if db is not None:
+                await db.close()
+            root_logger.removeHandler(log_buffer)
+            # Restore the original root level so test-suite isolation stays
+            # clean across many create_app() invocations.
+            if root_logger.level != original_root_level:
+                root_logger.setLevel(original_root_level)
 
 
 def get_db(request: Request) -> aiosqlite.Connection:
@@ -305,7 +325,25 @@ def create_app() -> FastAPI:
     app.include_router(podcast_router)
     from app.routes.mcp import build_mcp_server
     mcp_server = build_mcp_server(app.state)
-    app.mount("/mcp", mcp_server.sse_app())
+    # Stash it so `lifespan` can run the session manager: Starlette does
+    # NOT run the lifespan of a mounted sub-app, and streamable_http_app()
+    # wires its manager into exactly that. Without the lifespan hookup
+    # below, the endpoint dies on the first request.
+    app.state.mcp_server = mcp_server
+    mcp_app = mcp_server.streamable_http_app()
+    # The ASGI handler inside captures the session manager at construction,
+    # so `lifespan` needs a handle on it to re-point it at a fresh manager
+    # on every startup. Located by type rather than by index: the route
+    # list's shape is the library's business, not ours.
+    from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+    app.state.mcp_asgi_app = next(
+        (
+            sub for sub in (getattr(r, "app", None) for r in mcp_app.routes)
+            if isinstance(sub, StreamableHTTPASGIApp)
+        ),
+        None,
+    )
+    app.mount("/mcp", mcp_app)
     return app
 
 

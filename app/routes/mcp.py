@@ -1,7 +1,14 @@
-"""MCP server mounted at /mcp/sse.
+"""MCP server mounted at /mcp (stateless Streamable HTTP).
 
 Tools delegate to services/api.py. We expose a smaller surface than
 the REST API on purpose — Claude does best with a focused toolset.
+
+Transport is stateless: each request carries everything it needs, so
+there is no session to open, resume or expire. That is honest for this
+server — every tool is request/response over the DB, and `export_since`
+paginates through a cursor in its payload rather than server-side
+state. The session manager still has to run inside the FastAPI
+lifespan; see the mount in app/main.py for why.
 """
 
 import logging
@@ -325,7 +332,19 @@ def build_mcp_server(app_state) -> FastMCP:
         if disable_host_check
         else None
     )
-    mcp = FastMCP("yt-summary", transport_security=transport_security)
+    mcp = FastMCP(
+        "yt-summary",
+        transport_security=transport_security,
+        # Stateless: every request stands alone. No tool here holds a
+        # session, and export_since paginates via a cursor in the
+        # payload, so there is no server-side state worth keeping
+        # between calls. Set on the constructor because
+        # streamable_http_app() takes no arguments — it reads settings.
+        stateless_http=True,
+        # This app is mounted at /mcp, and FastMCP's own default path is
+        # also "/mcp"; without this the endpoint would be /mcp/mcp.
+        streamable_http_path="/",
+    )
 
     @mcp.tool()
     async def submit_url(
