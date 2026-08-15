@@ -17,7 +17,10 @@ dependencies = [
     "trafilatura>=2.0",
     "sentence-transformers>=3.0",
     "sqlite-vec>=0.1.6",
-    "mcp>=1.0",
+    # Pinned below 2.0: that major removed mcp.server.fastmcp entirely
+    # (FastMCP -> MCPServer), which app/routes/mcp.py is written against.
+    # Unpinning needs a migration, not a version bump.
+    "mcp>=1.0,<2",
     "piper-tts>=1.4,<2",
     "imap-tools>=1.5",
 ]
