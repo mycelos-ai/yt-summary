@@ -560,8 +560,14 @@ def test_home_section_headlines_are_clickable(tmp_path, monkeypatch):
 def test_home_video_card_shows_added_date(tmp_path, monkeypatch):
     """Each video card renders its library-added date via relative_time.
 
-    A freshly-added video (created_at = now) renders an "ago" string
-    inside a .video-card-date element."""
+    A freshly-added video (created_at = now) renders "just now" inside a
+    .video-card-date element.
+
+    Do not assert on "ago" here: that only appeared because the filter
+    compared a UTC timestamp against local time, so a brand-new row read
+    "2 hours ago" in Europe/Berlin and "just now" on a UTC CI runner —
+    the same code disagreeing with itself by timezone. See
+    test_template_filters.py for the filter's own coverage."""
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()
     with TestClient(app) as client:
@@ -579,4 +585,4 @@ def test_home_video_card_shows_added_date(tmp_path, monkeypatch):
         resp = client.get("/")
     assert resp.status_code == 200
     assert "video-card-date" in resp.text
-    assert "ago" in resp.text
+    assert "just now" in resp.text

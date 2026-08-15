@@ -1,7 +1,7 @@
 """Custom Jinja filters used across the templates."""
 
 import json as _json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,11 +55,17 @@ def relative_time(dt: datetime | None, *, now: datetime | None = None) -> str:
     Anything before today → ISO date (YYYY-MM-DD).
 
     The `now` parameter is for tests; production callers always omit it.
+
+    `dt` comes from the DB, where SQLite's `datetime('now')` writes naive
+    UTC — so the implicit `now` is UTC too. Using local time here made the
+    filter disagree with itself by the UTC offset: in Europe/Berlin a
+    just-added video read "2 hours ago", while on a UTC machine the same
+    row read "just now".
     """
     if dt is None:
         return ""
     if now is None:
-        now = datetime.now()
+        now = datetime.now(UTC).replace(tzinfo=None)
 
     # Different calendar day → fall back to date for stability
     if dt.date() != now.date():

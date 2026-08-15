@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.template_filters import format_duration, relative_time
 
@@ -33,6 +33,26 @@ def test_relative_time_yesterday_falls_back_to_date():
 
 def test_relative_time_none_returns_empty_string():
     assert relative_time(None) == ""
+
+
+def test_relative_time_default_now_is_utc_not_local():
+    """Stored timestamps are naive UTC (SQLite `datetime('now')`), so the
+    implicit `now` must be UTC too.
+
+    With `datetime.now()` (local time) this was wrong by the UTC offset:
+    in Europe/Berlin a video added seconds ago rendered as "2 hours ago",
+    and on a UTC runner the same row rendered "just now" — the same code
+    disagreeing with itself depending on where it ran.
+    """
+    just_stored = datetime.now(UTC).replace(tzinfo=None)
+    assert relative_time(just_stored) == "just now"
+
+
+def test_relative_time_default_now_matches_explicit_utc_now():
+    """The implicit and explicit forms must agree."""
+    stored = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
+    explicit = relative_time(stored, now=datetime.now(UTC).replace(tzinfo=None))
+    assert relative_time(stored) == explicit == "5 minutes ago"
 
 
 def test_format_duration_under_one_hour():
