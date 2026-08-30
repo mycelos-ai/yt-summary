@@ -108,16 +108,40 @@ async def fetch_metadata(url: str, cookies_path: Path | None) -> VideoMetadata:
     )
 
 
+# yt-dlp guesses thumbnail names (maxresdefault, qhddefault, ...) that are
+# never verified against the CDN and can 404; hqdefault exists for every
+# video, so it is the safe retry.
+_YTIMG_THUMB_RE = re.compile(
+    r"^https://i\.ytimg\.com/vi(?:_webp)?/([A-Za-z0-9_-]{11})/(?!hqdefault\.)[^/?]+"
+)
+
+
+def _thumbnail_candidates(url: str) -> list[str]:
+    m = _YTIMG_THUMB_RE.match(url)
+    if m:
+        return [url, f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg"]
+    return [url]
+
+
 async def download_thumbnail(url: str | None, target: Path) -> None:
+    """Fetch a thumbnail to `target`. HTTP/network failures are non-fatal:
+    thumbnails are cosmetic and one dead URL must not abort a playlist
+    sync or video import — the caller checks target.exists()."""
     if not url:
         return
-    await asyncio.to_thread(validate_public_http_url, url)
     async_target = anyio.Path(target)
     await async_target.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        await async_target.write_bytes(resp.content)
+        for candidate in _thumbnail_candidates(url):
+            await asyncio.to_thread(validate_public_http_url, candidate)
+            try:
+                resp = await client.get(candidate)
+                resp.raise_for_status()
+            except httpx.HTTPError as e:
+                log.warning("Thumbnail fetch failed for %s: %s", candidate, e)
+                continue
+            await async_target.write_bytes(resp.content)
+            return
 
 
 SubtitleSource = Literal["manual_subs", "auto_subs"]

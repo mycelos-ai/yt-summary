@@ -61,6 +61,43 @@ async def test_download_thumbnail_handles_missing_url(tmp_path):
     assert not target.exists()
 
 
+async def test_download_thumbnail_falls_back_to_hqdefault(tmp_path):
+    # yt-dlp guesses high-res thumbnail names that may not exist on the
+    # CDN (e.g. qhddefault); a 404 must fall back to hqdefault, which
+    # exists for every video.
+    from app.services.youtube import download_thumbnail
+    target = tmp_path / "thumb.jpg"
+    fake_jpeg = b"\xff\xd8\xff\xe0fakejpeg"
+    with respx.mock, patch(
+        "app.services.youtube.validate_public_http_url", return_value=None,
+    ):
+        respx.get("https://i.ytimg.com/vi/0mOXQ4_kY04/qhddefault.jpg").mock(
+            return_value=Response(404)
+        )
+        respx.get("https://i.ytimg.com/vi/0mOXQ4_kY04/hqdefault.jpg").mock(
+            return_value=Response(200, content=fake_jpeg)
+        )
+        await download_thumbnail(
+            "https://i.ytimg.com/vi/0mOXQ4_kY04/qhddefault.jpg", target
+        )
+    assert target.read_bytes() == fake_jpeg
+
+
+async def test_download_thumbnail_swallows_http_errors(tmp_path):
+    # A dead thumbnail is cosmetic — it must never abort the caller
+    # (one bad URL used to 500 an entire playlist refresh).
+    from app.services.youtube import download_thumbnail
+    target = tmp_path / "thumb.jpg"
+    with respx.mock, patch(
+        "app.services.youtube.validate_public_http_url", return_value=None,
+    ):
+        respx.get("https://img.example/gone.jpg").mock(
+            return_value=Response(404)
+        )
+        await download_thumbnail("https://img.example/gone.jpg", target)
+    assert not target.exists()
+
+
 async def test_download_thumbnail_rejects_private_target(tmp_path):
     from app.services.network_safety import UnsafeUrlError
     from app.services.youtube import download_thumbnail
