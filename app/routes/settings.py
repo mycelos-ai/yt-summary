@@ -524,7 +524,10 @@ async def llm_models_test(
 
 
 @router.post("/settings/test-whisper", response_class=HTMLResponse)
-async def test_whisper(db: aiosqlite.Connection = Depends(get_db)):
+async def test_whisper(
+    db: aiosqlite.Connection = Depends(get_db),
+    config: Config = Depends(get_config),
+):
     """Round-trip the bundled audio sample through whatever Whisper
     backend is configured. Local path uses faster-whisper, API path
     uses transcribe_via_api()."""
@@ -550,8 +553,11 @@ async def test_whisper(db: aiosqlite.Connection = Depends(get_db)):
             )
             backend = f"{base_url} ({model})"
         else:
+            # Same thread count as the pipeline so the test button
+            # shares the cached model instead of loading a second one.
             text = await asyncio.to_thread(
-                transcribe, WHISPER_TEST_SAMPLE, model
+                transcribe, WHISPER_TEST_SAMPLE, model,
+                cpu_threads=config.whisper_cpu_threads,
             )
             backend = f"local faster-whisper ({model})"
     except Exception as e:

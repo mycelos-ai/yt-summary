@@ -279,3 +279,31 @@ async def test_transcribe_via_api_raises_on_http_error(tmp_path):
             api_key="k",
             model_name="m",
         )
+
+
+def test_load_model_passes_cpu_threads():
+    """On a Pi the default (all cores) starves the event loop and the
+    rest of the box. The thread count must reach WhisperModel."""
+    from app.services import whisper as w
+    w._MODEL_CACHE.clear()
+    with patch("app.services.whisper.WhisperModel") as model:
+        model.return_value = MagicMock()
+        w._load_model("small", cpu_threads=2)
+        assert model.call_args.kwargs["cpu_threads"] == 2
+        # Different thread count → different cache entry.
+        w._load_model("small", cpu_threads=4)
+        assert model.call_count == 2
+
+
+def test_transcribe_forwards_cpu_threads(tmp_path):
+    from app.services.whisper import transcribe
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"")
+    info = MagicMock()
+    info.language = "en"
+    fake_model = MagicMock()
+    fake_model.transcribe.return_value = (iter([]), info)
+    with patch("app.services.whisper._load_model", return_value=fake_model) as load:
+        transcribe(fake_audio, model_name="base", cpu_threads=2)
+    assert load.call_args.args[0] == "base"
+    assert load.call_args.kwargs["cpu_threads"] == 2

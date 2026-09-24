@@ -28,3 +28,25 @@ def test_config_has_tts_voices_and_audio_dirs(tmp_path):
     cfg.ensure_dirs()
     assert cfg.tts_voices_dir.exists()
     assert cfg.tts_audio_dir.exists()
+
+
+def test_config_worker_limits_defaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("YTS_WHISPER_CPU_THREADS", raising=False)
+    monkeypatch.delenv("YTS_WHISPER_MAX_DURATION_S", raising=False)
+    monkeypatch.delenv("YTS_JOB_MAX_ATTEMPTS", raising=False)
+    cfg = Config.from_env()
+    assert cfg.whisper_cpu_threads == 2
+    assert cfg.whisper_max_duration_s == 1800
+    assert cfg.job_max_attempts == 3
+
+
+def test_config_worker_limits_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("YTS_WHISPER_CPU_THREADS", "4")
+    monkeypatch.setenv("YTS_WHISPER_MAX_DURATION_S", "0")
+    monkeypatch.setenv("YTS_JOB_MAX_ATTEMPTS", "5")
+    cfg = Config.from_env()
+    assert cfg.whisper_cpu_threads == 4
+    assert cfg.whisper_max_duration_s == 0
+    assert cfg.job_max_attempts == 5

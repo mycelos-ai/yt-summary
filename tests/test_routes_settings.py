@@ -440,11 +440,13 @@ def test_test_whisper_local_path(tmp_path, monkeypatch):
         patch(
             "app.routes.settings.transcribe",
             return_value="this is a test",
-        ),
+        ) as local_mock,
     ):
         resp = client.post("/settings/test-whisper")
     assert resp.status_code == 200
     assert "this is a test" in resp.text
+    # Same thread cap as the pipeline → shares the cached model.
+    assert local_mock.call_args.kwargs["cpu_threads"] == 2
 
 
 def test_test_whisper_api_path(tmp_path, monkeypatch):

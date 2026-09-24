@@ -85,7 +85,7 @@ async def test_obtain_transcript_calls_progress_callback_during_whisper(tmp_path
     async def progress(step: str) -> None:
         captured.append(step)
 
-    def fake_transcribe(audio_path, model_name, progress=None):
+    def fake_transcribe(audio_path, model_name, progress=None, cpu_threads=0):
         # Whisper would report segment-end / duration as it goes.
         if progress is not None:
             progress(30.0, 60.0)
@@ -209,3 +209,90 @@ async def test_obtain_transcript_api_path_deletes_audio_after(tmp_path):
             whisper_api_key="k",
         )
     assert not fake_audio.exists()
+
+
+async def test_obtain_transcript_refuses_local_whisper_over_max_duration(tmp_path):
+    """Local Whisper on a Pi can take hours on a long video and pin
+    every core. When the video is longer than the cap we fail fast
+    with a clear message — before the audio download even starts."""
+    import pytest
+
+    from app.services.transcript import TranscriptTooLongError, obtain_transcript
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock()) as dl,
+        patch("app.services.transcript.transcribe") as local_mock,
+        pytest.raises(TranscriptTooLongError) as exc,
+    ):
+        await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            duration_seconds=3600,
+            max_whisper_duration_s=1800,
+        )
+    assert "60 min" in str(exc.value)
+    assert "30 min" in str(exc.value)
+    dl.assert_not_called()
+    local_mock.assert_not_called()
+
+
+async def test_obtain_transcript_duration_cap_ignored_for_hosted_whisper(tmp_path):
+    """The cap protects the local CPU only. Groq / a Mac mini can
+    handle long audio, so a configured base_url bypasses it."""
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch(
+            "app.services.transcript.transcribe_via_api",
+            AsyncMock(return_value=("hosted", [], "en")),
+        ) as api_mock,
+    ):
+        text, _, _, _ = await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="whisper-large-v3",
+            whisper_base_url="https://api.groq.com/openai/v1",
+            duration_seconds=3600,
+            max_whisper_duration_s=1800,
+        )
+    assert text == "hosted"
+    api_mock.assert_called_once()
+
+
+async def test_obtain_transcript_cap_zero_or_unknown_duration_allows_local(tmp_path):
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"")
+    for duration, cap in ((3600, 0), (None, 1800), (1800, 1800)):
+        with (
+            patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+            patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+            patch(
+                "app.services.transcript.transcribe",
+                return_value=("ok", [], None),
+            ) as local_mock,
+        ):
+            text, _, _, _ = await obtain_transcript(
+                url="https://youtu.be/x",
+                video_id="x",
+                audio_dir=tmp_path,
+                cookies_path=None,
+                whisper_model="small",
+                duration_seconds=duration,
+                max_whisper_duration_s=cap,
+                whisper_cpu_threads=2,
+            )
+        assert text == "ok"
+        assert local_mock.call_args.kwargs["cpu_threads"] == 2
+        fake_audio.write_bytes(b"")

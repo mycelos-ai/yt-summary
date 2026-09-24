@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 from faster_whisper import WhisperModel
 
-_MODEL_CACHE: dict[str, WhisperModel] = {}
+_MODEL_CACHE: dict[tuple[str, int], WhisperModel] = {}
 
 # Type alias for the progress callback. Receives (current_seconds,
 # total_seconds) — current is the end timestamp of the latest segment
@@ -46,10 +46,19 @@ def _normalise_lang(raw: str | None) -> str | None:
     return None
 
 
-def _load_model(name: str) -> WhisperModel:
-    if name not in _MODEL_CACHE:
-        _MODEL_CACHE[name] = WhisperModel(name, device="cpu", compute_type="int8")
-    return _MODEL_CACHE[name]
+def _load_model(name: str, *, cpu_threads: int = 0) -> WhisperModel:
+    """Load (and cache) a CPU int8 model.
+
+    cpu_threads=0 is faster-whisper's default (use every core). On a
+    Pi that pins the whole box for the length of the video, so the
+    pipeline passes Config.whisper_cpu_threads (default 2).
+    """
+    key = (name, cpu_threads)
+    if key not in _MODEL_CACHE:
+        _MODEL_CACHE[key] = WhisperModel(
+            name, device="cpu", compute_type="int8", cpu_threads=cpu_threads
+        )
+    return _MODEL_CACHE[key]
 
 
 def transcribe(
@@ -57,6 +66,7 @@ def transcribe(
     model_name: str = "small",
     *,
     progress: ProgressFn | None = None,
+    cpu_threads: int = 0,
 ) -> tuple[str, list[tuple[float, str]], str | None]:
     """Run Whisper on `audio_path`.
 
@@ -72,7 +82,7 @@ def transcribe(
     with (segment_end_seconds, total_duration_seconds). Faster-whisper
     yields segments lazily, so this gives near-real-time progress.
     """
-    model = _load_model(model_name)
+    model = _load_model(model_name, cpu_threads=cpu_threads)
     segments, info = model.transcribe(
         str(audio_path), language=None, vad_filter=True
     )

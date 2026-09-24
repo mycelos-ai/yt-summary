@@ -14,6 +14,11 @@ from app.services.youtube import download_audio, fetch_subtitles
 _PROGRESS_MIN_INTERVAL_S = 3.0
 
 
+class TranscriptTooLongError(RuntimeError):
+    """Raised when a video has no subtitles and is longer than the
+    local-Whisper duration cap. Surfaces as the job's error message."""
+
+
 def _format_progress(current: float, total: float) -> str:
     def hms(seconds: float) -> str:
         s = int(seconds)
@@ -70,6 +75,9 @@ async def obtain_transcript(
     progress_cb: Callable[[str], Awaitable[None]] | None = None,
     whisper_base_url: str = "",
     whisper_api_key: str = "",
+    duration_seconds: int | None = None,
+    max_whisper_duration_s: int = 0,
+    whisper_cpu_threads: int = 0,
 ) -> tuple[str, list[tuple[float, str]], TranscriptSource, str | None]:
     """Obtain a transcript for `url`.
 
@@ -84,11 +92,31 @@ async def obtain_transcript(
     Tries YouTube subtitles first. Falls back to Whisper. If
     `whisper_base_url` is set, audio goes to a hosted endpoint
     instead of local faster-whisper.
+
+    Local Whisper only: when `max_whisper_duration_s` > 0 and the
+    video's known `duration_seconds` exceeds it, raise
+    TranscriptTooLongError before downloading any audio. A 1-hour
+    video pins a Pi5 for about an hour; this keeps the box usable.
+    `whisper_cpu_threads` is forwarded to faster-whisper (0 = all
+    cores).
     """
     subs = await fetch_subtitles(url, cookies_path=cookies_path)
     if subs is not None:
         text, segments, source, language = subs
         return text, segments, TranscriptSource(source), language
+
+    if (
+        not whisper_base_url
+        and max_whisper_duration_s > 0
+        and duration_seconds is not None
+        and duration_seconds > max_whisper_duration_s
+    ):
+        raise TranscriptTooLongError(
+            f"no subtitles and video is {duration_seconds // 60} min long; "
+            f"local Whisper is capped at {max_whisper_duration_s // 60} min "
+            "(YTS_WHISPER_MAX_DURATION_S). Configure a hosted Whisper "
+            "backend in Settings or raise the cap."
+        )
 
     audio_path = await download_audio(url, video_id, audio_dir, cookies_path=cookies_path)
     try:
@@ -105,7 +133,11 @@ async def obtain_transcript(
             loop = asyncio.get_running_loop()
             whisper_progress = _build_whisper_progress(progress_cb, loop)
             text, segments, language = await asyncio.to_thread(
-                transcribe, audio_path, whisper_model, progress=whisper_progress
+                transcribe,
+                audio_path,
+                whisper_model,
+                progress=whisper_progress,
+                cpu_threads=whisper_cpu_threads,
             )
     finally:
         if await asyncio.to_thread(audio_path.exists):

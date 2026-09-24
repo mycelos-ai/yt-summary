@@ -311,3 +311,67 @@ async def test_enqueue_with_overrides_persists_them(db: aiosqlite.Connection):
     assert job is not None
     assert job.llm_model_id == mid
     assert job.additional_prompt == "be terse"
+
+
+async def test_claim_next_increments_attempts(db: aiosqlite.Connection):
+    await _video(db)
+    job_id = await jobs_repo.enqueue(db, "v1")
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.attempts == 0
+    claimed = await jobs_repo.claim_next(db)
+    assert claimed is not None
+    assert claimed.attempts == 1
+
+
+async def test_reset_orphaned_running_fails_job_after_max_attempts(
+    db: aiosqlite.Connection,
+):
+    """A job that keeps getting interrupted (container OOM-killed or
+    rebooted mid-Whisper) must not be requeued forever. Once it has
+    been claimed `max_attempts` times it is marked failed on the next
+    startup instead of going back to pending."""
+    await _video(db)
+    job_id = await jobs_repo.enqueue(db, "v1")
+
+    # Attempt 1 + 2: interrupted, requeued.
+    for _ in range(2):
+        claimed = await jobs_repo.claim_next(db)
+        assert claimed is not None
+        n_failed = await jobs_repo.reset_orphaned_running(db, max_attempts=3)
+        assert n_failed == 0
+        job = await jobs_repo.get(db, job_id)
+        assert job is not None
+        assert job.state is JobState.PENDING
+
+    # Attempt 3: interrupted again → give up.
+    claimed = await jobs_repo.claim_next(db)
+    assert claimed is not None
+    assert claimed.attempts == 3
+    n_failed = await jobs_repo.reset_orphaned_running(db, max_attempts=3)
+    assert n_failed == 1
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.state is JobState.FAILED
+    assert job.error_message is not None
+    assert "3" in job.error_message
+    # Nothing left to claim.
+    assert await jobs_repo.claim_next(db) is None
+
+
+async def test_retry_resets_attempts(db: aiosqlite.Connection):
+    """A manual Retry from the diagnostics page is an explicit human
+    decision — it gets a fresh attempt budget."""
+    await _video(db)
+    job_id = await jobs_repo.enqueue(db, "v1")
+    for _ in range(3):
+        await jobs_repo.claim_next(db)
+        await jobs_repo.reset_orphaned_running(db, max_attempts=3)
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.state is JobState.FAILED
+    assert await jobs_repo.retry(db, job_id) == 1
+    job = await jobs_repo.get(db, job_id)
+    assert job is not None
+    assert job.state is JobState.PENDING
+    assert job.attempts == 0

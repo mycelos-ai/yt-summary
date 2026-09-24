@@ -158,6 +158,9 @@ async def process_video(
                 progress_cb=set_step,
                 whisper_base_url=settings.get("whisper_base_url", ""),
                 whisper_api_key=settings.get("whisper_api_key", ""),
+                duration_seconds=video.duration_seconds,
+                max_whisper_duration_s=config.whisper_max_duration_s,
+                whisper_cpu_threads=config.whisper_cpu_threads,
             )
             # Group raw cues into 8-second-gap paragraphs and JSON-
             # serialise — the detail page renders blocks with leading

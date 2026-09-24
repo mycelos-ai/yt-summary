@@ -95,7 +95,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             db = await connect(config)
             await init_schema(db)
-            await jobs_repo.reset_orphaned_running(db)
+            n_given_up = await jobs_repo.reset_orphaned_running(
+                db, max_attempts=config.job_max_attempts
+            )
+            if n_given_up:
+                logging.getLogger("yt_summary.boot").warning(
+                    "Marked %d summary job(s) failed: interrupted %d times "
+                    "in a row (YTS_JOB_MAX_ATTEMPTS)",
+                    n_given_up, config.job_max_attempts,
+                )
             from app.repos import speaker_jobs as speaker_jobs_repo
             await speaker_jobs_repo.reset_orphaned_running(db)
             n_reset = await tts_jobs_repo.reset_orphaned_active(db)

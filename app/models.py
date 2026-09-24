@@ -97,6 +97,11 @@ class Job:
     updated_at: datetime
     llm_model_id: int | None = None
     additional_prompt: str | None = None
+    # Times this job has been claimed by the worker. Bumped in
+    # claim_next; reset_orphaned_running gives up once it reaches
+    # the configured max so a job that keeps killing the container
+    # is not requeued forever.
+    attempts: int = 0
 
 
 @dataclass

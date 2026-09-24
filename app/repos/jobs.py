@@ -16,6 +16,7 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         updated_at=datetime.fromisoformat(row["updated_at"]),
         llm_model_id=row["llm_model_id"],
         additional_prompt=row["additional_prompt"],
+        attempts=row["attempts"],
     )
 
 
@@ -52,7 +53,7 @@ async def claim_next(db: aiosqlite.Connection) -> Job | None:
     cursor = await db.execute(
         """
         UPDATE jobs
-        SET state='running', updated_at=datetime('now')
+        SET state='running', attempts=attempts+1, updated_at=datetime('now')
         WHERE id = (
             SELECT id FROM jobs
             WHERE state='pending'
@@ -106,12 +107,36 @@ async def fail(db: aiosqlite.Connection, job_id: int, message: str) -> None:
     await db.commit()
 
 
-async def reset_orphaned_running(db: aiosqlite.Connection) -> None:
-    """Called at startup. Jobs left running across a restart go back to pending."""
+async def reset_orphaned_running(
+    db: aiosqlite.Connection, max_attempts: int = 3
+) -> int:
+    """Called at startup. Jobs left running across a restart go back
+    to pending — unless they have already been claimed `max_attempts`
+    times, in which case they are marked failed.
+
+    Without the cap a job that kills the container (Whisper on a Pi
+    running out of RAM, a watchdog reboot) is requeued on every boot
+    and takes the box down again. Returns the number of jobs that
+    were given up on. A manual Retry resets the counter.
+    """
+    cursor = await db.execute(
+        """
+        UPDATE jobs
+        SET state='failed',
+            error_message='interrupted ' || attempts || ' times (worker '
+                || 'crashed or container restarted mid-run); not requeued '
+                || 'automatically — retry manually from Diagnostics',
+            updated_at=datetime('now')
+        WHERE state='running' AND attempts >= ?
+        """,
+        (max_attempts,),
+    )
+    n_failed = cursor.rowcount or 0
     await db.execute(
         "UPDATE jobs SET state='pending', updated_at=datetime('now') WHERE state='running'"
     )
     await db.commit()
+    return n_failed
 
 
 async def counts(db: aiosqlite.Connection) -> dict[str, int]:
@@ -216,7 +241,8 @@ async def retry(db: aiosqlite.Connection, job_id: int) -> int:
     cursor = await db.execute(
         """
         UPDATE jobs
-        SET state='pending', error_message=NULL, updated_at=datetime('now')
+        SET state='pending', error_message=NULL, attempts=0,
+            updated_at=datetime('now')
         WHERE id=? AND state='failed'
         """,
         (job_id,),

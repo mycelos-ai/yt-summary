@@ -203,6 +203,26 @@ Set Whisper Base URL + (optionally) API key in Settings → Whisper card.
 Each is OpenAI-API-compatible, so the same code path drives all three
 hosted variants.
 
+### Keeping a Pi responsive during local Whisper
+
+Local `faster-whisper` uses every core by default and a long video can
+pin a Pi 5 for an hour — the UI stops answering and, if RAM runs out,
+the container gets killed and the same job is picked up again on the
+next start. Three environment variables (set them under `environment:`
+in `docker-compose.yml`) keep this in check:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `YTS_WHISPER_CPU_THREADS` | `2` | Threads for local Whisper. `0` = all cores. |
+| `YTS_WHISPER_MAX_DURATION_S` | `1800` | Videos without subtitles longer than this (seconds) fail with a clear message instead of running local Whisper. `0` = no cap. Hosted Whisper backends ignore it. |
+| `YTS_JOB_MAX_ATTEMPTS` | `3` | A job interrupted by a crash or restart is requeued at most this many times, then marked failed. Retry from Diagnostics resets the counter. |
+
+On top of that, give the container a CPU and memory ceiling so a runaway
+job cannot take the host down (`cpus: "2"` / `mem_limit: 2g` in the
+compose service; the memory limit needs the memory cgroup enabled on
+Raspberry Pi OS — add `cgroup_enable=memory cgroup_memory=1` to
+`/boot/firmware/cmdline.txt` and reboot).
+
 ## Audio (TTS)
 
 Generate an MP3 from any summary or transcript, in any of five

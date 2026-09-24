@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     llm_model_id      INTEGER REFERENCES llm_models(id) ON DELETE SET NULL,
-    additional_prompt TEXT
+    additional_prompt TEXT,
+    attempts          INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
 
@@ -933,6 +934,10 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
     if await _table_exists(conn, "jobs"):
         await _ensure_column(conn, "jobs", "llm_model_id", "INTEGER")
         await _ensure_column(conn, "jobs", "additional_prompt", "TEXT")
+        # Retry budget for jobs interrupted by a crash / restart.
+        await _ensure_column(
+            conn, "jobs", "attempts", "INTEGER NOT NULL DEFAULT 0"
+        )
 
     # Backfill from legacy settings keys, but only once: if any row
     # already exists in llm_models, the migration has already run
