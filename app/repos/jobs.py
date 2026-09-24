@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 
 import aiosqlite
@@ -258,6 +259,213 @@ async def delete(db: aiosqlite.Connection, job_id: int) -> int:
     cursor = await db.execute(
         "DELETE FROM jobs WHERE id=? AND state='failed'",
         (job_id,),
+    )
+    await db.commit()
+    return cursor.rowcount or 0
+
+
+# ── Per-profile view (the /processing page and home strip) ───────
+#
+# Every helper below proves ownership inside the query itself via
+# ``JOIN videos v ON v.id = j.video_id AND v.user_id = ?``. Routers
+# never pre-check ownership and then mutate; the mutating statement
+# carries the owner predicate so a stale read can't widen access.
+
+
+@dataclass(frozen=True)
+class QueueEntry:
+    """One of the caller's active jobs plus its place in the global
+    FIFO. ``position`` is 1-based across *all* profiles' active jobs
+    (running first, then pending in claim order), so a user can see
+    "you are #4" even when the three ahead belong to someone else.
+    """
+    job: Job
+    title: str
+    position: int
+
+
+# Ordering shared by the position window and the row listing. Running
+# first (there is at most one), then the exact order claim_next uses.
+_ACTIVE_ORDER = "(state = 'running') DESC, created_at ASC, id ASC"
+
+
+async def overview_for_user(
+    db: aiosqlite.Connection, user_id: int,
+) -> dict[str, int]:
+    """Counts for the home strip.
+
+    ``running`` / ``pending`` / ``failed`` are the caller's own jobs.
+    ``others_ahead`` is the number of *other* profiles' active jobs
+    that will be worked before the caller's first pending job — the
+    honest answer to "why hasn't mine started?" without exposing
+    their titles. 0 when the caller has nothing pending.
+    """
+    cursor = await db.execute(
+        """
+        WITH mine AS (
+            SELECT j.id, j.state, j.created_at
+            FROM jobs j
+            JOIN videos v ON v.id = j.video_id AND v.user_id = ?
+        ),
+        first_pending AS (
+            SELECT created_at, id FROM mine
+            WHERE state = 'pending'
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+        )
+        SELECT
+          (SELECT COUNT(*) FROM mine WHERE state = 'running') AS running,
+          (SELECT COUNT(*) FROM mine WHERE state = 'pending') AS pending,
+          (SELECT COUNT(*) FROM mine WHERE state = 'failed')  AS failed,
+          (
+            SELECT COUNT(*)
+            FROM jobs j
+            JOIN videos v ON v.id = j.video_id AND v.user_id != ?
+            CROSS JOIN first_pending fp
+            WHERE j.state = 'running'
+               OR (j.state = 'pending'
+                   AND (j.created_at, j.id) < (fp.created_at, fp.id))
+          ) AS others_ahead
+        """,
+        (user_id, user_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return {"running": 0, "pending": 0, "failed": 0, "others_ahead": 0}
+    return {
+        "running": row["running"] or 0,
+        "pending": row["pending"] or 0,
+        "failed": row["failed"] or 0,
+        "others_ahead": row["others_ahead"] or 0,
+    }
+
+
+async def list_active_for_user(
+    db: aiosqlite.Connection, user_id: int, limit: int = 50,
+) -> list[QueueEntry]:
+    """The caller's running + pending jobs with their global queue
+    position, in the order the worker will reach them."""
+    cursor = await db.execute(
+        f"""
+        WITH ranked AS (
+            SELECT *, ROW_NUMBER() OVER (ORDER BY {_ACTIVE_ORDER}) AS position
+            FROM jobs
+            WHERE state IN ('pending', 'running')
+        )
+        SELECT r.*, v.title AS video_title
+        FROM ranked r
+        JOIN videos v ON v.id = r.video_id AND v.user_id = ?
+        ORDER BY r.position ASC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    )
+    rows = await cursor.fetchall()
+    return [
+        QueueEntry(
+            job=_row_to_job(r),
+            title=r["video_title"] or r["video_id"],
+            position=r["position"],
+        )
+        for r in rows
+    ]
+
+
+async def list_failed_for_user(
+    db: aiosqlite.Connection, user_id: int, limit: int = 20,
+) -> list[tuple[Job, str, bool]]:
+    """Same shape as :func:`list_recent_failed`, scoped to one profile."""
+    cursor = await db.execute(
+        """
+        SELECT j.*,
+               v.title AS video_title,
+               (v.summary IS NOT NULL) AS video_done
+        FROM jobs j
+        JOIN videos v ON v.id = j.video_id AND v.user_id = ?
+        WHERE j.state = 'failed'
+        ORDER BY j.updated_at DESC, j.id DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    )
+    rows = await cursor.fetchall()
+    return [
+        (_row_to_job(r), r["video_title"] or r["video_id"], bool(r["video_done"]))
+        for r in rows
+    ]
+
+
+async def get_for_user(
+    db: aiosqlite.Connection, job_id: int, user_id: int,
+) -> Job | None:
+    """Read one job only if its video belongs to ``user_id``. Used by
+    routers to pick 404 vs 409 after an owner-scoped mutation touched
+    zero rows — never as a pre-check that gates the mutation."""
+    cursor = await db.execute(
+        """
+        SELECT j.* FROM jobs j
+        JOIN videos v ON v.id = j.video_id AND v.user_id = ?
+        WHERE j.id = ?
+        """,
+        (user_id, job_id),
+    )
+    row = await cursor.fetchone()
+    return _row_to_job(row) if row else None
+
+
+async def cancel_pending_for_user(
+    db: aiosqlite.Connection, job_id: int, *, user_id: int,
+) -> int:
+    """Drop one of the caller's *pending* jobs. Running jobs are not
+    cancellable (the pipeline has no cooperative abort point) and
+    return 0, as do foreign or missing ids.
+
+    Cancelling deletes the row rather than adding a 'cancelled' state:
+    the ``jobs.state`` CHECK constraint would need a table rebuild for
+    a new value, and a job-less video already renders as "no summary
+    yet" with a Summarize button.
+    """
+    cursor = await db.execute(
+        """
+        DELETE FROM jobs
+        WHERE id = ? AND state = 'pending'
+          AND video_id IN (SELECT id FROM videos WHERE user_id = ?)
+        """,
+        (job_id, user_id),
+    )
+    await db.commit()
+    return cursor.rowcount or 0
+
+
+async def retry_for_user(
+    db: aiosqlite.Connection, job_id: int, *, user_id: int,
+) -> int:
+    """Owner-scoped :func:`retry`. Same override-preserving semantics."""
+    cursor = await db.execute(
+        """
+        UPDATE jobs
+        SET state='pending', error_message=NULL, attempts=0,
+            updated_at=datetime('now')
+        WHERE id = ? AND state = 'failed'
+          AND video_id IN (SELECT id FROM videos WHERE user_id = ?)
+        """,
+        (job_id, user_id),
+    )
+    await db.commit()
+    return cursor.rowcount or 0
+
+
+async def dismiss_failed_for_user(
+    db: aiosqlite.Connection, job_id: int, *, user_id: int,
+) -> int:
+    """Owner-scoped :func:`delete` of a failed job row."""
+    cursor = await db.execute(
+        """
+        DELETE FROM jobs
+        WHERE id = ? AND state = 'failed'
+          AND video_id IN (SELECT id FROM videos WHERE user_id = ?)
+        """,
+        (job_id, user_id),
     )
     await db.commit()
     return cursor.rowcount or 0

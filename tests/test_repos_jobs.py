@@ -375,3 +375,173 @@ async def test_retry_resets_attempts(db: aiosqlite.Connection):
     assert job is not None
     assert job.state is JobState.PENDING
     assert job.attempts == 0
+
+
+# ── Per-profile processing view helpers ──────────────────────────
+
+
+async def _video_for(
+    db: aiosqlite.Connection, vid: str, user_id: int, title: str | None = None,
+) -> None:
+    await videos_repo.upsert_metadata(
+        db, video_id=vid, url="u", title=title or vid, description="",
+        thumbnail_path=None, duration_seconds=None, user_id=user_id,
+    )
+
+
+async def _second_user(db: aiosqlite.Connection) -> int:
+    from app.repos import users as users_repo
+
+    user = await users_repo.create(db, name="Other")
+    return user.id
+
+
+async def test_overview_for_user_counts_only_own_jobs(db: aiosqlite.Connection):
+    other = await _second_user(db)
+    await _video_for(db, "mine-1", 1)
+    await _video_for(db, "mine-2", 1)
+    await _video_for(db, "mine-3", 1)
+    await _video_for(db, "theirs-1", other)
+    await jobs_repo.enqueue(db, "mine-1")
+    await jobs_repo.enqueue(db, "theirs-1")
+    await jobs_repo.enqueue(db, "mine-2")
+    failed_id = await jobs_repo.enqueue(db, "mine-3")
+    await jobs_repo.fail(db, failed_id, "boom")
+    # mine-1 is claimed → running
+    assert (await jobs_repo.claim_next(db)) is not None
+
+    mine = await jobs_repo.overview_for_user(db, 1)
+    assert mine == {"running": 1, "pending": 1, "failed": 1, "others_ahead": 1}
+
+    theirs = await jobs_repo.overview_for_user(db, other)
+    # theirs-1 waits behind my running job only.
+    assert theirs == {"running": 0, "pending": 1, "failed": 0, "others_ahead": 1}
+
+
+async def test_overview_for_user_empty(db: aiosqlite.Connection):
+    assert await jobs_repo.overview_for_user(db, 1) == {
+        "running": 0, "pending": 0, "failed": 0, "others_ahead": 0,
+    }
+
+
+async def test_overview_others_ahead_ignores_jobs_behind_mine(
+    db: aiosqlite.Connection,
+):
+    other = await _second_user(db)
+    await _video_for(db, "mine-1", 1)
+    await _video_for(db, "theirs-1", other)
+    await jobs_repo.enqueue(db, "mine-1")
+    await jobs_repo.enqueue(db, "theirs-1")
+    mine = await jobs_repo.overview_for_user(db, 1)
+    assert mine["others_ahead"] == 0
+
+
+async def test_list_active_for_user_positions_are_global(
+    db: aiosqlite.Connection,
+):
+    other = await _second_user(db)
+    await _video_for(db, "theirs-1", other)
+    await _video_for(db, "mine-1", 1, title="First of mine")
+    await _video_for(db, "theirs-2", other)
+    await _video_for(db, "mine-2", 1, title="Second of mine")
+    await jobs_repo.enqueue(db, "theirs-1")
+    await jobs_repo.enqueue(db, "mine-1")
+    await jobs_repo.enqueue(db, "theirs-2")
+    await jobs_repo.enqueue(db, "mine-2")
+    assert (await jobs_repo.claim_next(db)) is not None  # theirs-1 running
+
+    entries = await jobs_repo.list_active_for_user(db, 1)
+    assert [(e.title, e.position, e.job.state) for e in entries] == [
+        ("First of mine", 2, JobState.PENDING),
+        ("Second of mine", 4, JobState.PENDING),
+    ]
+
+
+async def test_list_active_for_user_running_first(db: aiosqlite.Connection):
+    await _video_for(db, "a", 1)
+    await _video_for(db, "b", 1)
+    # Enqueue b before a, then retry-style: a is running although b is
+    # older. Running job must still be position 1.
+    await jobs_repo.enqueue(db, "b")
+    ja = await jobs_repo.enqueue(db, "a")
+    await db.execute("UPDATE jobs SET state='running' WHERE id=?", (ja,))
+    await db.commit()
+    entries = await jobs_repo.list_active_for_user(db, 1)
+    assert [(e.job.video_id, e.position) for e in entries] == [("a", 1), ("b", 2)]
+
+
+async def test_list_failed_for_user_scopes_and_flags_done(
+    db: aiosqlite.Connection,
+):
+    other = await _second_user(db)
+    await _video_for(db, "mine-1", 1)
+    await _video_for(db, "mine-2", 1)
+    await _video_for(db, "theirs-1", other)
+    j1 = await jobs_repo.enqueue(db, "mine-1")
+    j2 = await jobs_repo.enqueue(db, "mine-2")
+    j3 = await jobs_repo.enqueue(db, "theirs-1")
+    for j in (j1, j2, j3):
+        await jobs_repo.fail(db, j, "boom")
+    await videos_repo.set_summary(db, "mine-2", "done", "m")
+
+    rows = await jobs_repo.list_failed_for_user(db, 1)
+    assert sorted((job.video_id, video_done) for job, _t, video_done in rows) == [
+        ("mine-1", False), ("mine-2", True),
+    ]
+
+
+async def test_cancel_pending_for_user_deletes_own_pending_only(
+    db: aiosqlite.Connection,
+):
+    other = await _second_user(db)
+    await _video_for(db, "mine-1", 1)
+    await _video_for(db, "theirs-1", other)
+    mine = await jobs_repo.enqueue(db, "mine-1")
+    theirs = await jobs_repo.enqueue(db, "theirs-1")
+
+    assert await jobs_repo.cancel_pending_for_user(db, theirs, user_id=1) == 0
+    assert await jobs_repo.get(db, theirs) is not None
+
+    assert await jobs_repo.cancel_pending_for_user(db, mine, user_id=1) == 1
+    assert await jobs_repo.get(db, mine) is None
+
+
+async def test_cancel_pending_for_user_refuses_running(db: aiosqlite.Connection):
+    await _video_for(db, "mine-1", 1)
+    jid = await jobs_repo.enqueue(db, "mine-1")
+    assert (await jobs_repo.claim_next(db)) is not None
+    assert await jobs_repo.cancel_pending_for_user(db, jid, user_id=1) == 0
+    job = await jobs_repo.get(db, jid)
+    assert job is not None and job.state is JobState.RUNNING
+
+
+async def test_retry_and_dismiss_for_user_are_owner_scoped(
+    db: aiosqlite.Connection,
+):
+    other = await _second_user(db)
+    await _video_for(db, "mine-1", 1)
+    await _video_for(db, "theirs-1", other)
+    mine = await jobs_repo.enqueue(db, "mine-1")
+    theirs = await jobs_repo.enqueue(db, "theirs-1")
+    await jobs_repo.fail(db, mine, "boom")
+    await jobs_repo.fail(db, theirs, "boom")
+
+    assert await jobs_repo.retry_for_user(db, theirs, user_id=1) == 0
+    assert await jobs_repo.dismiss_failed_for_user(db, theirs, user_id=1) == 0
+
+    assert await jobs_repo.retry_for_user(db, mine, user_id=1) == 1
+    job = await jobs_repo.get(db, mine)
+    assert job is not None and job.state is JobState.PENDING
+
+    await jobs_repo.fail(db, mine, "boom again")
+    assert await jobs_repo.dismiss_failed_for_user(db, mine, user_id=1) == 1
+    assert await jobs_repo.get(db, mine) is None
+
+
+async def test_get_for_user_hides_foreign_jobs(db: aiosqlite.Connection):
+    other = await _second_user(db)
+    await _video_for(db, "theirs-1", other)
+    theirs = await jobs_repo.enqueue(db, "theirs-1")
+    assert await jobs_repo.get_for_user(db, theirs, user_id=1) is None
+    got = await jobs_repo.get_for_user(db, theirs, user_id=other)
+    assert got is not None and got.id == theirs
