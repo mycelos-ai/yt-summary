@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Processing — yt-summary{% endblock %}
+{% block content %}
+
+<header class="processing-page-header">
+  <div>
+    <h1>Processing</h1>
+    <p class="caption">
+      What the summary worker is doing with your videos. Updates on its own.
+    </p>
+  </div>
+  <a href="/settings/diagnostics" class="btn btn-secondary">Diagnostics</a>
+</header>
+
+{% include "_processing_body.html" %}
+
+{% endblock %}

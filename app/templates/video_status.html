@@ -7,9 +7,17 @@
     <span class="spinner" aria-hidden="true"></span>
     {{ job.step or 'running' }}{% if elapsed_s is not none %} · {{ elapsed_s }}s{% endif %}…
   </p>
-{% else %}
+{% elif job or awaiting_enqueue %}
+  {# Pending — or a brand-new row whose enqueue may still be in flight. #}
   <p class="status status-pending" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
     <span class="spinner" aria-hidden="true"></span>
     queued…
   </p>
+{% else %}
+  {# No job at all: cancelled from /processing, or a failed job was
+     dismissed. Static — no point polling for a job nobody queued. #}
+  <form class="status status-none" method="post" action="/v/{{ video.id }}/reindex">
+    <span>No summary yet</span>
+    <button type="submit" class="btn btn-link btn-small">Summarize</button>
+  </form>
 {% endif %}

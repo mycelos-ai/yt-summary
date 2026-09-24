@@ -1,0 +1,47 @@
+{# Compact "what is happening right now" strip for the home page.
+   Polls itself: fast while something runs or waits, slowly when
+   idle so a video added elsewhere still surfaces without a reload. #}
+{% set p = processing %}
+{% if p.is_active or p.overview.failed %}
+<section class="processing-strip"
+         hx-get="/processing/fragment?view=strip"
+         hx-trigger="every 3s"
+         hx-swap="outerHTML"
+         aria-live="polite">
+  <span class="processing-strip-main">
+    {% if p.running %}
+      {% set e = p.running[0] %}
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="processing-strip-text">
+        <a href="/v/{{ e.job.video_id }}" title="{{ e.title }}">{{ e.title }}</a>
+        <span class="processing-step">· {{ e.job.step or 'starting' }} · {{ ((p.now - e.job.updated_at).total_seconds()) | int }}s</span>
+      </span>
+    {% elif p.waiting %}
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="processing-strip-text">
+        Waiting for the worker
+        {% if p.overview.others_ahead %}
+          <span class="processing-step">· {{ p.overview.others_ahead }} from other profiles ahead</span>
+        {% endif %}
+      </span>
+    {% else %}
+      <span class="processing-strip-text">Nothing running</span>
+    {% endif %}
+  </span>
+  {% if p.waiting %}
+    <span class="processing-strip-count">
+      {{ p.waiting | length }} waiting
+      {%- if p.running and p.overview.others_ahead %} ({{ p.overview.others_ahead }} from other profiles ahead){% endif %}
+    </span>
+  {% endif %}
+  {% if p.overview.failed %}
+    <span class="processing-strip-count processing-failed">{{ p.overview.failed }} failed</span>
+  {% endif %}
+  <a href="/processing" class="processing-strip-link">Details →</a>
+</section>
+{% else %}
+<div class="processing-strip-idle" hidden
+     hx-get="/processing/fragment?view=strip"
+     hx-trigger="every 20s"
+     hx-swap="outerHTML"></div>
+{% endif %}

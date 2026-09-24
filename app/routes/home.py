@@ -13,6 +13,7 @@ from app.repos import settings as settings_repo
 from app.repos import tags as tags_repo
 from app.repos import users as users_repo
 from app.repos import videos as videos_repo
+from app.routes.processing import load_processing_context
 from app.services.embeddings import embed_text
 from app.template_filters import register_filters
 
@@ -132,11 +133,15 @@ async def home(
     archived_count = await videos_repo.count_archived(
         db, user_id=current_user_id,
     )
+    # Rendered inline so the strip is there on first paint; it then
+    # polls /processing/fragment on its own.
+    processing = await load_processing_context(db, current_user_id)
 
     return templates.TemplateResponse(
         request,
         "home.html",
         {
+            "processing": processing,
             "videos": videos,
             "q": q,
             "active_tag": tag,

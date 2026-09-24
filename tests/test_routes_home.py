@@ -586,3 +586,57 @@ def test_home_video_card_shows_added_date(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "video-card-date" in resp.text
     assert "just now" in resp.text
+
+
+# ── Processing strip ─────────────────────────────────────────────
+
+
+def test_home_processing_strip_hidden_when_idle(tmp_path, monkeypatch):
+    """With nothing queued the strip renders as an invisible poller,
+    never as a visible section."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/")
+    assert resp.status_code == 200
+    assert "processing-strip-idle" in resp.text
+    assert 'class="processing-strip"' not in resp.text
+
+
+def test_home_processing_strip_shows_own_pending_job(tmp_path, monkeypatch):
+    from app.repos import jobs as jobs_repo
+    from app.repos import users as users_repo
+    from app.worker import Worker
+
+    # Keep the pending job pending: the real worker would claim it.
+    async def _idle(self) -> None:
+        await self._stopped.wait()
+    monkeypatch.setattr(Worker, "run", _idle)
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        async def setup():
+            db = app.state.db
+            other = await users_repo.create(db, name="Other")
+            await videos_repo.upsert_metadata(
+                db, video_id="theirs", url="u", title="ForeignTitle",
+                description="", thumbnail_path=None, duration_seconds=None,
+                user_id=other.id,
+            )
+            await videos_repo.upsert_metadata(
+                db, video_id="mine", url="u", title="MineTitle",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            await jobs_repo.enqueue(db, "theirs")
+            await jobs_repo.enqueue(db, "mine")
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/")
+    assert resp.status_code == 200
+    text = resp.text
+    assert 'class="processing-strip"' in text
+    assert "1 waiting" in text
+    assert "1 from other profiles ahead" in text
+    assert 'href="/processing"' in text
+    # The strip never leaks another profile's titles.
+    assert "ForeignTitle" not in text.split('id="video-list"')[0]

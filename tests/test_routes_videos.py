@@ -123,6 +123,58 @@ def test_status_done_summary_ready(tmp_path, monkeypatch):
     assert "every 2s" not in resp.text
 
 
+def test_status_without_job_offers_summarize(tmp_path, monkeypatch):
+    """A video with no job at all (cancelled from /processing, or its
+    failed job dismissed) must not poll forever as 'queued…'. It shows
+    a static 'no summary' line with a Summarize button instead."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            # Old enough to be outside the enqueue grace window.
+            await app.state.db.execute(
+                "UPDATE videos SET created_at = datetime('now', '-10 minutes') "
+                "WHERE id = 'v1'"
+            )
+            await app.state.db.commit()
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1/status")
+    assert resp.status_code == 200
+    assert "no summary yet" in resp.text.lower()
+    assert 'action="/v/v1/reindex"' in resp.text
+    assert "every 2s" not in resp.text
+
+
+def test_status_without_job_keeps_polling_briefly_after_creation(
+    tmp_path, monkeypatch,
+):
+    """Right after a video row is inserted the enqueue may not have
+    landed yet (playlist sync inserts, then enqueues). A brand-new
+    job-less video keeps showing 'queued…' and polling."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1/status")
+    assert "queued" in resp.text.lower()
+    assert "every 2s" in resp.text
+
+
 def test_video_detail_renders(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

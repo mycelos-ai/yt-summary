@@ -331,6 +331,8 @@ def create_app() -> FastAPI:
     app.include_router(ask_router)
     from app.routes.podcast import router as podcast_router
     app.include_router(podcast_router)
+    from app.routes.processing import router as processing_router
+    app.include_router(processing_router)
     from app.routes.mcp import build_mcp_server
     mcp_server = build_mcp_server(app.state)
     # Stash it so `lifespan` can run the session manager: Starlette does

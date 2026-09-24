@@ -1,0 +1,114 @@
+{# Body of /processing. Self-polling so counts, steps and buttons stay
+   live; every action button swaps this same element. #}
+{% set p = processing %}
+<div id="processing-body"
+     hx-get="/processing/fragment?view=page"
+     hx-trigger="every {{ '3s' if p.is_active else '15s' }}"
+     hx-swap="outerHTML">
+
+  {% if not p.running and not p.waiting and not p.failed %}
+    <p class="empty processing-empty">
+      Nothing in progress. Videos you add show up here while they are
+      transcribed and summarized.
+    </p>
+  {% endif %}
+
+  {% if p.running %}
+  <section class="processing-section">
+    <h2 class="section-title">Running</h2>
+    {% for e in p.running %}
+      <article class="processing-row">
+        <span class="spinner" aria-hidden="true"></span>
+        <div class="processing-row-body">
+          <h3><a href="/v/{{ e.job.video_id }}">{{ e.title }}</a></h3>
+          <p class="processing-row-meta">
+            {{ e.job.step or 'starting' }}
+            <span class="dot">·</span>
+            {{ ((p.now - e.job.updated_at).total_seconds()) | int }}s in this step
+            {% if e.job.attempts > 1 %}
+              <span class="dot">·</span> attempt {{ e.job.attempts }}
+            {% endif %}
+          </p>
+        </div>
+      </article>
+    {% endfor %}
+    <p class="caption processing-note">
+      A running job cannot be cancelled; the pipeline has no safe stop point.
+      It will finish or fail on its own.
+    </p>
+  </section>
+  {% endif %}
+
+  {% if p.waiting %}
+  <section class="processing-section">
+    <h2 class="section-title">Waiting ({{ p.waiting | length }})</h2>
+    {% if p.overview.others_ahead %}
+      <p class="caption processing-note">
+        {{ p.overview.others_ahead }} from other profiles ahead in the shared
+        queue. One worker handles every profile in the order videos were added.
+      </p>
+    {% endif %}
+    {% for e in p.waiting %}
+      <article class="processing-row">
+        <span class="processing-pos" aria-label="Position in queue">#{{ e.position }} in line</span>
+        <div class="processing-row-body">
+          <h3><a href="/v/{{ e.job.video_id }}">{{ e.title }}</a></h3>
+          <p class="processing-row-meta">added {{ e.job.created_at | relative_time }}</p>
+        </div>
+        <div class="processing-row-actions">
+          <form method="post" action="/processing/jobs/{{ e.job.id }}/cancel"
+                hx-post="/processing/jobs/{{ e.job.id }}/cancel"
+                hx-target="#processing-body" hx-swap="outerHTML">
+            <button type="submit" class="btn btn-secondary btn-small"
+                    title="Remove from the queue. The video stays in your library without a summary.">
+              Cancel
+            </button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if p.failed %}
+  <section class="processing-section">
+    <h2 class="section-title">Failed ({{ p.failed | length }})</h2>
+    {% for job, title, video_done in p.failed %}
+      <article class="processing-row processing-row-failed">
+        <span class="processing-fail-mark" aria-hidden="true">⚠</span>
+        <div class="processing-row-body">
+          <h3>
+            <a href="/v/{{ job.video_id }}">{{ title }}</a>
+            {% if video_done %}
+              <span class="diagnostics-done-pill"
+                    title="A later run produced a summary for this video. This failure is stale.">
+                already summarized
+              </span>
+            {% endif %}
+          </h3>
+          <p class="processing-row-meta">{{ job.updated_at | relative_time }}</p>
+          <p class="processing-error">{{ (job.error_message or 'failed')[:300] }}</p>
+        </div>
+        <div class="processing-row-actions">
+          <form method="post" action="/processing/jobs/{{ job.id }}/retry"
+                hx-post="/processing/jobs/{{ job.id }}/retry"
+                hx-target="#processing-body" hx-swap="outerHTML">
+            <button type="submit" class="btn btn-secondary btn-small"
+                    {% if video_done %}disabled title="This video already has a summary."{% else %}title="Put this video back in the queue."{% endif %}>
+              Retry
+            </button>
+          </form>
+          <form method="post" action="/processing/jobs/{{ job.id }}/dismiss"
+                hx-post="/processing/jobs/{{ job.id }}/dismiss"
+                hx-target="#processing-body" hx-swap="outerHTML">
+            <button type="submit" class="btn btn-link btn-small"
+                    title="Remove this failure from the list. The video is untouched.">
+              Dismiss
+            </button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>

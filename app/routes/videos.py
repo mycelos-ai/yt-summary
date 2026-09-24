@@ -389,9 +389,25 @@ async def video_status(
             "video": video,
             "job": job,
             "elapsed_s": _elapsed_seconds(job),
+            "awaiting_enqueue": job is None and _is_brand_new(video),
             "current_user": current_user,
         },
     )
+
+
+# A job-less video younger than this still renders as "queued…" and
+# keeps polling: playlist sync and POST /videos insert the row first
+# and enqueue right after, so a status poll can land in between.
+# Older job-less videos are the cancelled / dismissed case and get a
+# static "No summary yet · Summarize" instead of polling forever.
+_ENQUEUE_GRACE_SECONDS = 60
+
+
+def _is_brand_new(video) -> bool:
+    from datetime import UTC, datetime
+
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    return (now_utc - video.created_at).total_seconds() < _ENQUEUE_GRACE_SECONDS
 
 
 @router.get("/v/{video_id}/summary-fragment", response_class=HTMLResponse)
