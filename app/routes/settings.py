@@ -82,6 +82,13 @@ _TTS_VOICE_LANGS: tuple[str, ...] = tuple(
     code for code, _ in _TTS_VOICE_LANGUAGES
 )
 
+# Section ids of the settings page (sidebar entries, URL anchors).
+SETTINGS_SECTIONS: frozenset[str] = frozenset({
+    "summaries", "audio", "models", "transcription", "playlists",
+    "youtube", "api", "podcast", "images", "bookmarklet", "export",
+    "diagnostics",
+})
+
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
@@ -89,6 +96,7 @@ async def settings_page(
     applied: str | None = None,
     onboarding: str | None = None,
     edit: int | None = None,
+    saved: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
     current_user=Depends(get_current_user),
@@ -116,9 +124,11 @@ async def settings_page(
             pass
     scheduled_playlists = await playlists_repo.list_for_user(db, 1)
     has_whisper_key = bool(settings.get("whisper_api_key"))
+    # Stored secrets never enter the render context; the page only
+    # needs to know whether one is set.
+    secret_keys = ("whisper_api_key", "pexels_api_key", "youtube_api_key")
     safe_settings = {
-        k: v for k, v in settings.items()
-        if k not in ("whisper_api_key",)
+        k: v for k, v in settings.items() if k not in secret_keys
     }
     # API keys live on user_id=1 (the seeded admin) regardless of which
     # profile is active — they're a household credential, not a per-
@@ -190,6 +200,12 @@ async def settings_page(
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
             "has_whisper_key": has_whisper_key,
+            "has_pexels_key": bool(settings.get("pexels_api_key")),
+            "has_youtube_key": bool(settings.get("youtube_api_key")),
+            "saved": saved == "1",
+            "default_model": next(
+                (m for m in llm_models if m.is_default), None
+            ),
             "has_cookies": has_cookies,
             "api_key_prefix": user.api_key_prefix if user else None,
             "api_key_created_at": user.api_key_created_at if user else None,
@@ -234,12 +250,33 @@ async def save_settings(
     default_tts_length_scale: str = Form(""),
     pexels_api_key: str = Form(""),
     youtube_api_key: str = Form(""),
+    clear_pexels_api_key: str = Form(""),
+    clear_youtube_api_key: str = Form(""),
+    whisper_backend: str = Form(""),
+    whisper_model_local: str = Form(""),
+    whisper_model_proxy: str = Form(""),
+    whisper_model_hosted: str = Form(""),
+    section: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     # LiteLLM and httpx clients append paths to base; a trailing "/"
     # would produce "//audio/transcriptions" or "//api/chat" which some
     # providers reject with 405.
     whisper_base_url = whisper_base_url.strip().rstrip("/")
+    # The settings page picks one backend and renders one model field
+    # per backend (all three stay in the form while hidden). Map that
+    # choice onto the stored keys; without whisper_backend the legacy
+    # single-field payload applies unchanged.
+    if whisper_backend == "local":
+        whisper_via_litellm = ""
+        whisper_base_url = ""
+        whisper_model = whisper_model_local
+    elif whisper_backend == "proxy":
+        whisper_via_litellm = "1"
+        whisper_model = whisper_model_proxy or "stt"
+    elif whisper_backend == "hosted":
+        whisper_via_litellm = ""
+        whisper_model = whisper_model_hosted
     via_litellm = whisper_via_litellm == "1"
     whisper_model = whisper_model.strip()
     if via_litellm and whisper_model in ("", "small"):
@@ -262,8 +299,6 @@ async def save_settings(
         ("default_tts_voice_fr", default_tts_voice_fr.strip()),
         ("default_tts_voice_es", default_tts_voice_es.strip()),
         ("default_tts_quality", default_tts_quality.strip()),
-        ("pexels_api_key", pexels_api_key.strip()),
-        ("youtube_api_key", youtube_api_key.strip()),
     ):
         if value:
             await settings_repo.set(db, key, value)
@@ -291,6 +326,16 @@ async def save_settings(
         await settings_repo.delete(db, "default_tts_length_scale")
     if whisper_api_key:
         await settings_repo.set(db, "whisper_api_key", whisper_api_key)
+    # Third-party keys are write-only on the page (never rendered back),
+    # so a blank field keeps the stored key; removal is explicit.
+    for key, value, clear in (
+        ("pexels_api_key", pexels_api_key.strip(), clear_pexels_api_key),
+        ("youtube_api_key", youtube_api_key.strip(), clear_youtube_api_key),
+    ):
+        if value:
+            await settings_repo.set(db, key, value)
+        elif clear == "1":
+            await settings_repo.delete(db, key)
     # Keep the playlist-interval setting unambiguous: as soon as the
     # user saves the minutes-based form, drop the legacy hours setting
     # so the scheduler has a single source of truth.
@@ -310,7 +355,10 @@ async def save_settings(
             await settings_repo.delete(db, "playlist_refresh_interval_hours")
         except ValueError:
             pass
-    return RedirectResponse("/settings", status_code=303)
+    # Return to the section the user saved from. Only known section
+    # ids reach the Location header.
+    anchor = f"#{section}" if section in SETTINGS_SECTIONS else ""
+    return RedirectResponse(f"/settings?saved=1{anchor}", status_code=303)
 
 
 @router.get(
@@ -470,7 +518,7 @@ async def llm_models_insert(
         make_default=make_default,
     )
     return RedirectResponse(
-        f"/settings?added={new_id}", status_code=303,
+        f"/settings?added={new_id}#models", status_code=303,
     )
 
 
@@ -503,7 +551,7 @@ async def llm_models_update(
         api_key=effective_key,
         base_url=base_url.strip().rstrip("/"),
     )
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#models", status_code=303)
 
 
 @router.post("/settings/llm-models/{model_id}/default")
@@ -515,7 +563,7 @@ async def llm_models_set_default(
         await llm_models_repo.set_default(db, model_id)
     except ValueError:
         raise HTTPException(404) from None
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#models", status_code=303)
 
 
 @router.post("/settings/llm-models/{model_id}/delete")
@@ -528,7 +576,7 @@ async def llm_models_delete(
     except ValueError as e:
         # ValueError → trying to delete the default row.
         raise HTTPException(409, str(e)) from None
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#models", status_code=303)
 
 
 @router.post("/settings/llm-models/{model_id}/test", response_class=HTMLResponse)
@@ -676,18 +724,18 @@ async def save_curl(
 ):
     cookies = extract_cookies(curl)
     if not cookies:
-        return RedirectResponse("/settings", status_code=303)
+        return RedirectResponse("/settings#youtube", status_code=303)
     await asyncio.to_thread(
         write_netscape_cookies, cookies, domain=".youtube.com", target=config.cookies_path
     )
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#youtube", status_code=303)
 
 
 @router.get("/settings/youtube-curl/clear")
 async def clear_curl(config: Config = Depends(get_config)):
     if await asyncio.to_thread(config.cookies_path.exists):
         await asyncio.to_thread(config.cookies_path.unlink)
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#youtube", status_code=303)
 
 
 @router.post("/settings/api-key/generate", response_class=HTMLResponse)
@@ -727,7 +775,7 @@ async def revoke_api_key_route(
     db: aiosqlite.Connection = Depends(get_db),
 ):
     await users_repo.clear_api_key(db, user_id=1)
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#api", status_code=303)
 
 
 @router.post("/settings/podcast/enable")
@@ -738,7 +786,7 @@ async def enable_podcast_route(
     """Generate (or regenerate) the active profile's podcast-feed token.
     Regenerating invalidates the old feed URL."""
     await users_repo.set_podcast_token(db, user_id)
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#podcast", status_code=303)
 
 
 @router.post("/settings/podcast/disable")
@@ -747,7 +795,7 @@ async def disable_podcast_route(
     user_id: int = Depends(get_current_user_id),
 ):
     await users_repo.clear_podcast_token(db, user_id)
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings#podcast", status_code=303)
 
 
 @router.get("/settings/diagnostics", response_class=HTMLResponse)

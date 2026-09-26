@@ -1,830 +1,1210 @@
 {% extends "base.html" %}
 {% block title %}Settings — yt-summary{% endblock %}
-{% block content %}
-<div class="settings-page">
-  <h1>Settings</h1>
-  <p class="settings-intro">
-    All providers and credentials live here. Hit <strong>Save</strong> at the
-    bottom of the form to persist the model / URL fields. Test buttons next to
-    each backend round-trip a real request so you can spot misconfigurations
-    before kicking off a job.
-  </p>
 
-  {% if onboarding_done %}
-    <p class="settings-flash">
-      {{ icon('check-circle') }} Setup complete. You can change any of this anytime — providers,
-      profile, prompt, all live on this page or under your profile menu.
-    </p>
-  {% endif %}
+{# ── Macros ─────────────────────────────────────────────────────── #}
 
-  {% if applied_preset %}
-    <p class="settings-flash">
-      ✓ Applied <strong>{{ applied_preset.name }}</strong> preset. Review the
-      cards below — settings are saved already.
-    </p>
-  {% endif %}
+{% macro nav_item(id, label, icon_name, keywords, dot=None) -%}
+  <li x-show="matches('{{ label|lower }} {{ keywords }}')">
+    <a href="#{{ id }}" class="st-nav-item"
+       x-on:click.prevent="go('{{ id }}')"
+       x-bind:aria-current="pane === '{{ id }}' ? 'page' : null">
+      {{ icon(icon_name, 16) }}
+      <span class="st-nav-label">{{ label }}</span>
+      {% if dot %}<span class="st-dot st-dot-{{ dot }}"></span>{% endif %}
+    </a>
+  </li>
+{%- endmacro %}
 
-  <!-- ── Configured models ──────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('cpu', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>Configured models</h2>
-        <p class="settings-card-sub">
-          Pick which model handles the default summary, chat, and any
-          background job. Add more so you can switch on a per-resummary
-          basis from the video page.
-        </p>
+{# Write-only secret: the stored value never reaches the page. Blank
+   keeps the stored key; "Remove" posts clear_<name>=1. #}
+{% macro secret_field(name, has_key, placeholder) -%}
+  <div class="st-secret-field" x-data="{ edit: false, clear: false }"
+       x-on:st-reset.window="edit = false; clear = false">
+    {% if has_key %}
+      <div class="st-secret" x-show="!edit && !clear">
+        <span class="st-secret-value">•••••••• saved</span>
+        <button type="button" class="st-btn"
+                x-on:click="edit = true; $nextTick(() => $refs.input.focus())">Replace</button>
+        <button type="button" class="st-btn st-btn-danger"
+                x-on:click="clear = true; dirty = true">Remove</button>
       </div>
-    </header>
-
-    {% if llm_models %}
-      <ul class="llm-model-list">
-        {% for m in llm_models %}
-          <li class="llm-model-row {% if m.is_default %}is-default{% endif %}">
-            <div class="llm-model-row-label">
-              <strong>{{ m.label }}</strong>
-              {% if m.is_default %}
-                <span class="llm-model-badge">Default ✓</span>
-              {% endif %}
-              <div class="llm-model-row-meta">
-                <code>{{ m.model }}</code>
-                {% if m.base_url %} · <code>{{ m.base_url }}</code>{% endif %}
-              </div>
-            </div>
-            <div class="llm-model-row-actions">
-              <button type="button" class="btn btn-secondary"
-                      hx-post="/settings/llm-models/{{ m.id }}/test"
-                      hx-target="#llm-test-{{ m.id }}"
-                      hx-swap="innerHTML"
-                      hx-disabled-elt="this">Test</button>
-              <a class="btn btn-secondary"
-                 href="/settings?edit={{ m.id }}#quick-setup">Edit</a>
-              {% if m.is_default %}
-                <button type="button" class="btn btn-secondary" disabled
-                        title="Make another model default first">Delete</button>
-              {% else %}
-                <form method="post"
-                      action="/settings/llm-models/{{ m.id }}/delete"
-                      onsubmit="return confirm('Delete {{ m.label|e }}?');"
-                      style="display:inline">
-                  <button type="submit" class="btn btn-secondary">Delete</button>
-                </form>
-                <form method="post"
-                      action="/settings/llm-models/{{ m.id }}/default"
-                      style="display:inline">
-                  <button type="submit" class="btn btn-secondary">Make default</button>
-                </form>
-              {% endif %}
-            </div>
-            <div id="llm-test-{{ m.id }}" class="settings-test-result"></div>
-          </li>
-        {% endfor %}
-      </ul>
+      <p class="st-secret-note" x-show="clear" x-cloak>
+        The key is removed when you save.
+        <button type="button" class="st-link" x-on:click="clear = false">Undo</button>
+      </p>
+      <input type="password" name="{{ name }}" x-ref="input" x-show="edit" x-cloak
+             autocomplete="off" placeholder="New key">
+      <input type="hidden" name="clear_{{ name }}" x-bind:value="clear ? '1' : ''">
     {% else %}
-      <p class="settings-card-sub">
-        No models configured yet. Pick a provider in
-        <a href="#quick-setup">Quick setup</a> below.
+      <input type="password" name="{{ name }}" autocomplete="off"
+             placeholder="{{ placeholder }}">
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% block content %}
+{% set wb = 'proxy' if settings.get('whisper_via_litellm') == '1'
+            else ('hosted' if settings.get('whisper_base_url') else 'local') %}
+{% set whisper_model = settings.get('whisper_model', '') %}
+{% set provider_names = {} %}
+{% for p in presets %}{% set _ = provider_names.update({p.id: p.name}) %}{% endfor %}
+{% set page_init = {
+    'provider': edit_model.provider_id if edit_model else current_provider_id,
+    'label': edit_model.label if edit_model else '',
+    'names': provider_names,
+    'edit': edit_model is not none,
+    'saved': saved,
+} %}
+
+<div class="st-page" x-data='settingsPage({{ page_init|tojson }})'
+     x-on:keydown.window="onKey($event)">
+
+  <aside class="st-aside">
+    <label class="st-search">
+      {{ icon('search', 15) }}
+      <input type="text" x-model="query" x-ref="search"
+             placeholder="Search settings" aria-label="Search settings">
+      <kbd>/</kbd>
+    </label>
+    <nav class="st-nav" aria-label="Settings sections">
+      <div class="st-nav-group">
+        <h4>Content</h4>
+        <ul>
+          {{ nav_item('summaries', 'Summaries', 'news', 'summary language prompt output') }}
+          {{ nav_item('audio', 'Audio', 'volume', 'tts voice speed quality listen cache') }}
+        </ul>
+      </div>
+      <div class="st-nav-group">
+        <h4>AI</h4>
+        <ul>
+          {{ nav_item('models', 'Language models', 'cpu', 'llm provider default api key ollama litellm proxy',
+                      None if default_model else 'err') }}
+          {{ nav_item('transcription', 'Transcription', 'mic', 'whisper speech text stt',
+                      'err' if wb == 'proxy' and not litellm_env_base else None) }}
+        </ul>
+      </div>
+      <div class="st-nav-group">
+        <h4>Sources</h4>
+        <ul>
+          {{ nav_item('playlists', 'Playlists', 'list', 'refresh interval import scheduler') }}
+          {{ nav_item('youtube', 'YouTube access', 'youtube', 'cookies data api key yt-dlp age') }}
+        </ul>
+      </div>
+      <div class="st-nav-group">
+        <h4>Connections</h4>
+        <ul>
+          {{ nav_item('api', 'API & MCP', 'key', 'rest token mcp',
+                      None if api_key_prefix else 'warn') }}
+          {{ nav_item('podcast', 'Podcast feed', 'broadcast', 'rss audio') }}
+          {{ nav_item('images', 'Stock images', 'image', 'pexels photo thumbnail') }}
+          {{ nav_item('bookmarklet', 'Bookmarklet', 'bookmark', 'browser save') }}
+        </ul>
+      </div>
+      <div class="st-nav-group">
+        <h4>Data &amp; system</h4>
+        <ul>
+          {{ nav_item('export', 'Export', 'download', 'zip markdown json obsidian') }}
+          {{ nav_item('diagnostics', 'Diagnostics', 'flask', 'worker queue log') }}
+        </ul>
+      </div>
+    </nav>
+  </aside>
+
+  <div class="st-main">
+    {% if onboarding_done %}
+      <p class="st-callout st-callout-ok">
+        {{ icon('check-circle', 16) }}
+        <span>Setup complete. You can change all of this here at any time.</span>
       </p>
     {% endif %}
-  </section>
+    {% if applied_preset %}
+      <p class="st-callout st-callout-ok">
+        {{ icon('check-circle', 16) }}
+        <span>✓ Applied the <strong>{{ applied_preset.name }}</strong> preset. The settings are saved.</span>
+      </p>
+    {% endif %}
 
-  <!-- ── Quick setup wizard (add / edit a configured model) ──── -->
-  <section class="settings-card settings-quicksetup"
-           id="quick-setup"
-           x-data="{ provider: '{{ edit_model.provider_id if edit_model else current_provider_id }}', showAll: {} }">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('bolt', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>{{ 'Edit ' + edit_model.label if edit_model else 'Add model' }}</h2>
-        <p class="settings-card-sub">
-          {% if edit_model %}
-            Update the model below and click Save changes. Provider switching
-            is allowed but rare — usually you edit the api_key, model id, or
-            base URL within the same provider.
-          {% else %}
-            Pick a provider to fill in sensible defaults for LLM in one go.
-            Whisper has its own card further down. The new model lands in
-            the Configured models card above.
-          {% endif %}
-        </p>
-      </div>
-    </header>
+    <form method="post" action="/settings" id="st-form" x-ref="form"
+          x-on:input="markDirty($event)" x-on:change="markDirty($event)">
+      <input type="hidden" name="section" x-bind:value="pane">
 
-    <form method="post"
-          action="{{ '/settings/llm-models/' ~ edit_model.id if edit_model else '/settings/llm-models' }}"
-          class="quicksetup-form">
-
-      <label class="settings-field">
-        <span class="settings-label">Label</span>
-        <input name="label" required
-               value="{{ edit_model.label if edit_model else '' }}"
-               placeholder="e.g. Claude Sonnet 4.6">
-      </label>
-      <input type="hidden" name="provider_id" x-bind:value="provider">
-      <div class="quicksetup-grid">
-        {% for p in presets %}
-          <label class="quicksetup-option"
-                 :class="provider === '{{ p.id }}' && 'is-selected'">
-            <input type="radio" name="provider" value="{{ p.id }}"
-                   x-model="provider" required>
-            <span class="quicksetup-option-name">
-              {{ p.name }}
-              {% if p.id == current_provider_id %}
-                <span class="quicksetup-option-current" title="Currently active">●</span>
-              {% endif %}
-            </span>
-            <span class="quicksetup-option-tags">
-              {% if p.litellm_provider %}<span class="quicksetup-tag">LLM</span>{% endif %}
-              {% if p.whisper_base_url %}<span class="quicksetup-tag">Whisper</span>{% endif %}
-            </span>
-          </label>
-        {% endfor %}
-      </div>
-
-      {% for p in presets %}
-        <div class="quicksetup-detail" x-show="provider === '{{ p.id }}'" x-cloak>
-          {% if p.notes %}
-            <p class="quicksetup-note">{{ p.notes }}</p>
-          {% endif %}
-          {% if p.requires_api_key %}
-            <label class="settings-field">
-              <span class="settings-label">
-                {{ p.name }} API Key
-                {% if p.api_key_url %}
-                  <a href="{{ p.api_key_url }}" target="_blank" rel="noopener"
-                     class="settings-hint-inline">— get a key</a>
-                {% endif %}
-              </span>
-              <input type="password"
-                     name="api_key"
-                     id="{{ p.id }}-api-key"
-                     x-bind:disabled="provider !== '{{ p.id }}'"
-                     placeholder="leave blank to keep existing key">
-            </label>
-          {% endif %}
-          {% if p.id == 'ollama' %}
-            {# Ollama needs a real server URL — Docker default is rarely
-               right — and the model list is the user's actual pulled
-               tags, queried via /api/tags. #}
-            <label class="settings-field">
-              <span class="settings-label">Ollama server URL</span>
-              <input type="text"
-                     name="llm_base_url"
-                     x-bind:disabled="provider !== '{{ p.id }}'"
-                     value="{{ edit_model.base_url if edit_model else settings.get('llm_base_url', p.default_llm_base_url) }}"
-                     placeholder="http://192.168.0.27:11434"
-                     id="ollama-base-url">
-              <small>Use the LAN IP, not <code>*.local</code> — Python's
-                resolver doesn't always handle mDNS hostnames.</small>
-            </label>
-            <div class="settings-test-row">
-              <button type="button" class="btn btn-secondary"
-                      hx-get="/settings/quick-setup/ollama-models"
-                      hx-include="#ollama-base-url"
-                      hx-target="#ollama-models-result"
-                      hx-swap="innerHTML"
-                      hx-disabled-elt="this">
-                Load models from server
+      <!-- ── Summaries ─────────────────────────────────────────── -->
+      <section class="st-pane" id="pane-summaries" x-show="pane === 'summaries'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Summaries</h1>
+          <p>Defaults for every new summary. You can pick another model for a single re-summary on the video page.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row">
+            <div class="st-row-text">
+              <label for="summary_language">Output language</label>
+              <p>"Auto" writes the summary in the language of the transcript.</p>
+            </div>
+            <div class="st-row-control">
+              <select name="summary_language" id="summary_language">
+                {% set langs = [
+                    ('auto', 'Auto (match transcript)'),
+                    ('de', 'German'), ('en', 'English'), ('fr', 'French'),
+                    ('es', 'Spanish'), ('it', 'Italian'), ('nl', 'Dutch'),
+                    ('pt', 'Portuguese'),
+                ] %}
+                {% set current_lang = settings.get('summary_language', 'auto') %}
+                {% for code, label in langs %}
+                  <option value="{{ code }}" {% if current_lang == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">Default model</span>
+              <p>Writes summaries and answers in chat.</p>
+            </div>
+            <div class="st-row-control">
+              <button type="button" class="st-btn" x-on:click="go('models')">
+                {{ default_model.label if default_model else 'No model yet' }} ›
               </button>
             </div>
-            <div id="ollama-models-result"></div>
-          {% elif p.id == 'litellm' %}
-            {# The proxy serves whatever aliases its config defines, so
-               the list comes from /v1/models. Blank URL / key fall back
-               to LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. #}
-            <label class="settings-field">
-              <span class="settings-label">Proxy URL</span>
-              <input type="text"
-                     name="llm_base_url"
-                     x-bind:disabled="provider !== '{{ p.id }}'"
-                     value="{{ edit_model.base_url if edit_model and edit_model.provider_id == 'litellm' else '' }}"
-                     placeholder="{{ litellm_env_base or 'https://llm.example.com' }}"
-                     id="litellm-base-url">
-              {% if litellm_env_base %}
-                <small>Blank uses <code>{{ litellm_env_base }}</code> from
-                  LITELLM_PROXY_API_BASE{% if litellm_env_key_set %} and the key
-                  from LITELLM_PROXY_API_KEY{% endif %}.</small>
-              {% endif %}
-            </label>
-            <div class="settings-test-row">
-              <button type="button" class="btn btn-secondary"
-                      hx-get="/settings/quick-setup/litellm-models"
-                      hx-include="#litellm-base-url, #litellm-api-key"
-                      hx-target="#litellm-models-result"
-                      hx-swap="innerHTML"
-                      hx-disabled-elt="this">
-                Load models from proxy
-              </button>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">Summarizer prompt</span>
+              <p>Each profile has its own prompt. You edit it on the profile page.</p>
             </div>
-            <div id="litellm-models-result">
-              <label class="settings-field">
-                <span class="settings-label">LLM model (proxy alias)</span>
-                <input type="text" name="llm_model"
-                       x-bind:disabled="provider !== '{{ p.id }}'"
-                       value="{{ edit_model.model if edit_model and edit_model.provider_id == 'litellm' else '' }}"
-                       placeholder="e.g. pro">
-              </label>
+            <div class="st-row-control">
+              <a class="st-btn" href="/profiles/{{ current_user.id }}/edit">Edit prompt {{ icon('external', 13) }}</a>
             </div>
-          {% else %}
-            {# Cloud providers: pre-render the dropdown with LiteLLM's
-               known model list, default selected. User can pick any
-               other model the provider exposes without typing. #}
-            {% set chat_models = preset_chat_models.get(p.id, []) %}
-            {% set chat_models_full = preset_chat_models_full.get(p.id, []) %}
-            {% if chat_models %}
-              <label class="settings-field">
-                <span class="settings-label">
-                  LLM model
-                  {% if chat_models_full and chat_models_full|length > chat_models|length %}
-                    <button type="button" class="link-button settings-show-all"
-                            x-on:click="showAll['{{ p.id }}'] = !showAll['{{ p.id }}']"
-                            x-text="showAll['{{ p.id }}'] ? 'Show curated' : 'Show all'">
-                      Show all
-                    </button>
-                  {% endif %}
-                </span>
-                {# Two parallel <select>s — only one is rendered into the
-                   form on submit, the other gets `name=""` so it's ignored.
-                   Simpler than rebuilding the option list at runtime. #}
-                <select name="llm_model"
-                        x-bind:name="showAll['{{ p.id }}'] ? '' : 'llm_model'"
-                        x-bind:disabled="provider !== '{{ p.id }}'"
-                        x-show="!showAll['{{ p.id }}']">
-                  {% for m in chat_models %}
-                    {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
-                    {# Pre-select the saved llm_model when this provider
-                       is the active one; otherwise fall back to the
-                       provider's curated default so switching providers
-                       in the wizard lands on something sensible. #}
-                    {% set is_active = current_provider_id == p.id %}
-                    {% if edit_model %}
-                      {% set selected_value = edit_model.model %}
-                    {% else %}
-                      {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
-                    {% endif %}
-                    <option value="{{ option_value }}"
-                            {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
-                      {{ m }}
-                    </option>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Audio ─────────────────────────────────────────────── -->
+      <section class="st-pane" id="pane-audio" x-show="pane === 'audio'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Audio</h1>
+          <p>Defaults for the Listen dialog. The app downloads a voice the first time you use it.</p>
+        </header>
+
+        <div class="st-group">
+          <h2>Playback</h2>
+          <div class="st-panel">
+            <div class="st-row">
+              <div class="st-row-text">
+                <label for="default_tts_language">Default language</label>
+                <p>"Auto" uses the source language of the video when it is known.</p>
+              </div>
+              <div class="st-row-control">
+                <select name="default_tts_language" id="default_tts_language">
+                  {% for code, label in tts_languages %}
+                    <option value="{{ code }}" {% if settings.get('default_tts_language', 'auto') == code %}selected{% endif %}>{{ label }}</option>
                   {% endfor %}
                 </select>
-                {% if chat_models_full and chat_models_full|length > chat_models|length %}
-                  <select x-bind:name="showAll['{{ p.id }}'] ? 'llm_model' : ''"
-                          x-bind:disabled="provider !== '{{ p.id }}'"
-                          x-show="showAll['{{ p.id }}']" x-cloak>
-                    {% for m in chat_models_full %}
-                      {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
-                      {% set is_active = current_provider_id == p.id %}
-                      {% if edit_model %}
-                        {% set selected_value = edit_model.model %}
-                      {% else %}
-                        {% set selected_value = settings.get('llm_model', '') if is_active else p.default_llm %}
-                      {% endif %}
-                      <option value="{{ option_value }}"
-                              {% if option_value == selected_value or m == selected_value %}selected{% endif %}>
-                        {{ m }}
-                      </option>
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Quality</span>
+                <p>Higher quality uses a bigger model and renders slower. The dialog falls back to the closest quality a voice has.</p>
+              </div>
+              <div class="st-row-control">
+                {% set current_quality = settings.get('default_tts_quality', 'medium') %}
+                <div class="st-seg" role="radiogroup" aria-label="Quality">
+                  {% for value, label in [('low', 'Low'), ('medium', 'Medium'), ('high', 'High')] %}
+                    <input type="radio" name="default_tts_quality" id="tts-q-{{ value }}" value="{{ value }}"
+                           {% if current_quality == value %}checked{% endif %}>
+                    <label for="tts-q-{{ value }}">{{ label }}</label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-text">
+                <label for="default_tts_length_scale">Speech speed</label>
+                <p>1.00 is the voice default. Higher is slower. German voices often sound rushed: try 1.15 to 1.25.</p>
+              </div>
+              <div class="st-row-control">
+                {% set speed = settings.get('default_tts_length_scale', '1.00') %}
+                <div class="st-range" x-data
+                     x-on:st-reset.window="$nextTick(() => $refs.out.textContent = Number($refs.range.value).toFixed(2))">
+                  <input type="range" name="default_tts_length_scale" id="default_tts_length_scale"
+                         min="0.5" max="2.0" step="0.05" value="{{ speed }}" x-ref="range"
+                         x-on:input="$refs.out.textContent = Number($event.target.value).toFixed(2)">
+                  <output x-ref="out" for="default_tts_length_scale">{{ speed }}</output>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="st-group">
+          <h2>Voices</h2>
+          {% set lang_labels = dict(tts_languages) %}
+          <div class="st-panel">
+            {% for lang in tts_voice_langs %}
+              <div class="st-row">
+                <div class="st-row-text">
+                  <label for="default_tts_voice_{{ lang }}">{{ lang_labels.get(lang, lang) }}</label>
+                </div>
+                <div class="st-row-control">
+                  <select name="default_tts_voice_{{ lang }}" id="default_tts_voice_{{ lang }}">
+                    <option value="">First available voice</option>
+                    {% for v in voices_by_language[lang] %}
+                      <option value="{{ v.id }}" {% if settings.get('default_tts_voice_' ~ lang) == v.id %}selected{% endif %}>{{ v.display_name }}</option>
                     {% endfor %}
                   </select>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="st-group">
+          <h2>Storage</h2>
+          <div class="st-panel">
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Voice cache</span>
+                <p>{{ voice_cache_summary.count }} voice{% if voice_cache_summary.count != 1 %}s{% endif %} installed · {{ voice_cache_summary.size_mb }} MB on disk.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Language models ───────────────────────────────────── -->
+      <section class="st-pane" id="pane-models" x-show="pane === 'models'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Language models</h1>
+          <p>The default model writes summaries and answers in chat. Add more models to pick another one for a single re-summary.</p>
+        </header>
+        <div class="st-group">
+          <div class="st-group-head">
+            <h2>Configured models</h2>
+            <button type="button" class="st-btn st-btn-primary" x-on:click="openDrawer()">
+              {{ icon('plus', 14) }} Add model
+            </button>
+          </div>
+          <div class="st-panel">
+            {% if llm_models %}
+              {% for m in llm_models %}
+                <div class="st-model" x-data="{ menu: false, del: false }">
+                  <span class="st-badge-code">{{ (m.provider_id or '?')[:2]|upper }}</span>
+                  <div class="st-model-text">
+                    <div class="st-model-name">
+                      {{ m.label }}
+                      {% if m.is_default %}<span class="st-pill st-pill-ok">Default</span>{% endif %}
+                    </div>
+                    <div class="st-model-meta">
+                      <code>{{ m.model }}</code>{% if m.base_url %} · <code>{{ m.base_url }}</code>{% endif %}
+                    </div>
+                  </div>
+                  <div class="st-model-actions">
+                    <button type="button" class="st-btn"
+                            hx-post="/settings/llm-models/{{ m.id }}/test"
+                            hx-target="#llm-test-{{ m.id }}"
+                            hx-swap="innerHTML"
+                            hx-disabled-elt="this">Test</button>
+                    <div class="st-menu-wrap" x-on:click.outside="menu = false">
+                      <button type="button" class="st-btn st-btn-ghost st-btn-icon"
+                              x-on:click="menu = !menu" aria-haspopup="menu"
+                              x-bind:aria-expanded="menu"
+                              aria-label="More actions for {{ m.label }}">{{ icon('dots', 16) }}</button>
+                      <div class="st-menu" role="menu" x-show="menu" x-cloak x-transition.opacity>
+                        <a role="menuitem" href="/settings?edit={{ m.id }}#models">Edit</a>
+                        {% if m.is_default %}
+                          <button type="button" role="menuitem" disabled>Make default</button>
+                          <hr>
+                          <button type="button" role="menuitem" disabled
+                                  title="Make another model the default first">Delete</button>
+                        {% else %}
+                          <button type="submit" role="menuitem" form="st-action"
+                                  formaction="/settings/llm-models/{{ m.id }}/default">Make default</button>
+                          <hr>
+                          <button type="button" role="menuitem" class="st-danger"
+                                  x-on:click="menu = false; del = true">Delete</button>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                  {% if not m.is_default %}
+                    <div class="st-confirm" x-show="del" x-cloak>
+                      <span>Delete {{ m.label }}?</span>
+                      <button type="button" class="st-btn" x-on:click="del = false">Cancel</button>
+                      <button type="submit" class="st-btn st-btn-danger-solid" form="st-action"
+                              formaction="/settings/llm-models/{{ m.id }}/delete">Delete</button>
+                    </div>
+                  {% endif %}
+                  <div id="llm-test-{{ m.id }}" class="st-result"></div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="st-empty">
+                <p>No models configured yet.</p>
+                <a class="st-btn st-btn-primary" href="#quick-setup"
+                   x-on:click.prevent="openDrawer()">{{ icon('plus', 14) }} Add your first model</a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        {% if litellm_env_base %}
+          <p class="st-callout">
+            {{ icon('plug', 16) }}
+            <span>Proxy models go through your LiteLLM proxy at <code>{{ litellm_env_base }}</code>. The proxy manages the provider keys.</span>
+          </p>
+        {% endif %}
+      </section>
+
+      <!-- ── Transcription ─────────────────────────────────────── -->
+      <section class="st-pane" id="pane-transcription" x-show="pane === 'transcription'" x-cloak
+               x-data="{ wb: '{{ wb }}' }"
+               x-on:st-reset.window="$nextTick(() => wb = $el.querySelector('[name=whisper_backend]:checked').value)">
+        <header class="st-pane-head">
+          <h1>Transcription</h1>
+          <p>The app transcribes the audio when a video has no usable YouTube subtitles.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row st-row-stack">
+            <div class="st-row-text"><span class="st-row-title">Where does transcription run?</span></div>
+            <div class="st-tiles">
+              {% for value, code, title, sub in [
+                  ('local', 'PI', 'On this device', 'faster-whisper. Slow on long videos.'),
+                  ('proxy', 'LL', 'LiteLLM proxy', 'Uses a proxy alias. Recommended.'),
+                  ('hosted', '↗', 'Other endpoint', 'Groq, OpenAI or your own server.'),
+              ] %}
+                <div class="st-tile">
+                  <input type="radio" name="whisper_backend" id="wb-{{ value }}" value="{{ value }}"
+                         x-model="wb" {% if wb == value %}checked{% endif %}>
+                  <label for="wb-{{ value }}">
+                    <span class="st-badge-code">{{ code }}</span>
+                    <span>{{ title }}<small>{{ sub }}</small></span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="st-row" x-show="wb === 'local'" x-cloak>
+            <div class="st-row-text">
+              <label for="whisper_model_local">Model size</label>
+              <p>Bigger models are more accurate and slower.</p>
+            </div>
+            <div class="st-row-control">
+              {% set local_models = ['tiny', 'base', 'small', 'medium', 'large-v3'] %}
+              {% set local_current = whisper_model if wb == 'local' and whisper_model else 'small' %}
+              <select name="whisper_model_local" id="whisper_model_local">
+                {% if local_current not in local_models %}
+                  <option value="{{ local_current }}" selected>{{ local_current }}</option>
                 {% endif %}
-                <small>Curated list of current flagships. Click "Show all"
-                  for the full LiteLLM model map (legacy + preview entries
-                  included).</small>
+                {% for name in local_models %}
+                  <option value="{{ name }}" {% if name == local_current %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="st-row" x-show="wb === 'proxy'" x-cloak>
+            <div class="st-row-text">
+              <label for="whisper_model_proxy">Proxy alias</label>
+              <p>
+                Sends audio to <code>{{ litellm_env_base or 'LITELLM_PROXY_API_BASE' }}/v1/audio/transcriptions</code>
+                with the key from LITELLM_PROXY_API_KEY.
+              </p>
+            </div>
+            <div class="st-row-control">
+              <input type="text" name="whisper_model_proxy" id="whisper_model_proxy"
+                     value="{{ whisper_model if wb == 'proxy' and whisper_model else 'stt' }}">
+            </div>
+          </div>
+          {% if not litellm_env_base %}
+            <div class="st-row" x-show="wb === 'proxy'" x-cloak>
+              <p class="st-callout st-callout-err">
+                {{ icon('alert', 16) }}
+                <span>LITELLM_PROXY_API_BASE is not set. Transcription fails until you set it in the container environment.</span>
+              </p>
+            </div>
+          {% endif %}
+
+          <div class="st-row" x-show="wb === 'hosted'" x-cloak>
+            <div class="st-row-text">
+              <label for="whisper_base_url">Endpoint URL</label>
+              <p>An OpenAI-compatible root, for example <code>https://api.groq.com/openai/v1</code>.</p>
+            </div>
+            <div class="st-row-control">
+              <input type="text" name="whisper_base_url" id="whisper_base_url"
+                     value="{{ settings.get('whisper_base_url', '') }}"
+                     placeholder="https://api.groq.com/openai/v1">
+            </div>
+          </div>
+          <div class="st-row" x-show="wb === 'hosted'" x-cloak>
+            <div class="st-row-text">
+              <label for="whisper_model_hosted">Model name</label>
+              <p>The name the server expects: <code>whisper-large-v3</code> for Groq, <code>whisper-1</code> for OpenAI.</p>
+            </div>
+            <div class="st-row-control">
+              <input type="text" name="whisper_model_hosted" id="whisper_model_hosted"
+                     value="{{ whisper_model if wb == 'hosted' else '' }}"
+                     placeholder="whisper-large-v3">
+            </div>
+          </div>
+          <div class="st-row" x-show="wb === 'hosted'" x-cloak>
+            <div class="st-row-text">
+              <label for="whisper_api_key">API key</label>
+              <p>Leave empty for local servers without authentication.</p>
+            </div>
+            <div class="st-row-control">
+              <input type="password" name="whisper_api_key" id="whisper_api_key" autocomplete="off"
+                     placeholder="{% if has_whisper_key %}Saved. Leave blank to keep it.{% else %}Not set{% endif %}">
+            </div>
+          </div>
+
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">Test</span>
+              <p>Sends a 3-second audio sample through the saved backend. Save your changes first.</p>
+            </div>
+            <div class="st-row-control">
+              <button type="button" class="st-btn"
+                      hx-post="/settings/test-whisper" hx-target="#whisper-test-result"
+                      hx-swap="innerHTML" hx-disabled-elt="this">Run test</button>
+            </div>
+            <div id="whisper-test-result" class="st-result"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Playlists ─────────────────────────────────────────── -->
+      <section class="st-pane" id="pane-playlists" x-show="pane === 'playlists'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Playlists</h1>
+          <p>How often the app checks your saved playlists for new videos.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row">
+            <div class="st-row-text">
+              <label for="playlist_refresh_interval_minutes">Check for new videos</label>
+              <p>Checks more often than every hour can cause YouTube rate limits.</p>
+            </div>
+            <div class="st-row-control">
+              {% set interval = settings.get('playlist_refresh_interval_minutes', '60') %}
+              {% set intervals = [
+                  ('15', 'Every 15 minutes'), ('30', 'Every 30 minutes'),
+                  ('60', 'Every hour'), ('180', 'Every 3 hours'),
+                  ('360', 'Every 6 hours'), ('720', 'Every 12 hours'),
+                  ('1440', 'Once a day'), ('10080', 'Once a week'),
+              ] %}
+              <select name="playlist_refresh_interval_minutes" id="playlist_refresh_interval_minutes">
+                {% if interval not in intervals | map('first') | list %}
+                  <option value="{{ interval }}" selected>Every {{ interval }} minutes</option>
+                {% endif %}
+                {% for value, label in intervals %}
+                  <option value="{{ value }}" {% if interval == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <label for="playlist_initial_import_limit">Videos on first import</label>
+              <p>The newest videos the app queues when you add a playlist or click "Load older". 0 imports all videos.</p>
+            </div>
+            <div class="st-row-control">
+              <input type="number" name="playlist_initial_import_limit" id="playlist_initial_import_limit"
+                     class="st-input-narrow" min="0" max="500"
+                     value="{{ settings.get('playlist_initial_import_limit', '20') }}">
+            </div>
+          </div>
+        </div>
+
+        <div class="st-group">
+          <div class="st-group-head">
+            <h2>Status</h2>
+            <span class="st-muted">
+              Last scheduler tick:
+              {% if scheduler_last_tick_at %}<code>{{ scheduler_last_tick_at }}</code>{% else %}none{% endif %}
+            </span>
+          </div>
+          <div class="st-panel">
+            {% if not scheduler_last_tick_at %}
+              <p class="st-empty-line">No tick recorded yet. The scheduler runs after one full interval, not at startup.</p>
+            {% endif %}
+            {% if scheduled_playlists %}
+              <div class="st-table-wrap">
+                <table class="st-table">
+                  <thead><tr><th>Playlist</th><th>Last check</th></tr></thead>
+                  <tbody>
+                    {% for pl in scheduled_playlists %}
+                      <tr>
+                        <td>{{ pl.title or pl.id }}</td>
+                        <td>
+                          {% if pl.last_refreshed_at %}
+                            <time datetime="{{ pl.last_refreshed_at.isoformat(timespec='seconds') }}">{{ pl.last_refreshed_at.strftime('%Y-%m-%d %H:%M') }}</time>
+                          {% else %}
+                            <span class="st-pill">Never</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <!-- ── YouTube access ────────────────────────────────────── -->
+      <section class="st-pane" id="pane-youtube" x-show="pane === 'youtube'" x-cloak>
+        <header class="st-pane-head">
+          <h1>YouTube access</h1>
+          <p>Optional. These settings let the app open more videos and index long playlists completely.</p>
+        </header>
+
+        <div class="st-group">
+          <div class="st-group-head">
+            <h2>Cookies</h2>
+            {% if has_cookies %}
+              <span class="st-pill st-pill-ok">Set</span>
+            {% else %}
+              <span class="st-pill">Not set</span>
+            {% endif %}
+          </div>
+          <div class="st-panel">
+            <div class="st-row st-row-stack">
+              <div class="st-row-text">
+                <label for="curl">Paste cookies</label>
+                <p>Cookies let yt-dlp open age-restricted, member-only and region-locked videos.
+                  In the browser DevTools, right-click a youtube.com request and pick "Copy as cURL".
+                  A Netscape <code>cookies.txt</code> file also works.</p>
+              </div>
+              <textarea name="curl" id="curl" rows="5" form="st-cookies"
+                        placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'&#10;&#10;— or —&#10;&#10;# Netscape HTTP Cookie File"></textarea>
+              <div class="st-actions">
+                {% if has_cookies %}
+                  <a class="st-btn st-btn-danger" href="/settings/youtube-curl/clear">Remove cookies</a>
+                {% endif %}
+                <button type="submit" class="st-btn st-btn-primary" form="st-cookies">Save cookies</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="st-group">
+          <div class="st-group-head">
+            <h2>YouTube Data API</h2>
+            {% if has_youtube_key %}<span class="st-pill st-pill-ok">Connected</span>{% else %}<span class="st-pill">Not set</span>{% endif %}
+          </div>
+          <div class="st-panel">
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">API key</span>
+                <p>With a key, the app indexes all videos of a playlist in order. Without a key, yt-dlp can miss videos.
+                  Create a key at <code>console.cloud.google.com</code> and enable "YouTube Data API v3".</p>
+              </div>
+              <div class="st-row-control">
+                {{ secret_field('youtube_api_key', has_youtube_key, 'Paste your YouTube Data API key') }}
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Test</span>
+                <p>Sends one small request with the saved key.</p>
+              </div>
+              <div class="st-row-control">
+                <button type="button" class="st-btn"
+                        hx-post="/settings/test-youtube" hx-target="#youtube-test-result"
+                        hx-swap="innerHTML" hx-disabled-elt="this">Run test</button>
+              </div>
+              <div id="youtube-test-result" class="st-result"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── API & MCP ─────────────────────────────────────────── -->
+      <section class="st-pane" id="pane-api" x-show="pane === 'api'" x-cloak>
+        <header class="st-pane-head">
+          <h1>API &amp; MCP</h1>
+          <p>One key protects the REST API at <code>/api/v1</code> and the MCP server at <code>/mcp</code>.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">API key</span>
+              {% if api_key_prefix %}
+                <p>{% if api_key_created_at %}Created {{ api_key_created_at.strftime('%Y-%m-%d') }}. {% endif %}The app shows the full key only once.</p>
+              {% else %}
+                <p>No key set. Every device on the LAN can call the API.</p>
+              {% endif %}
+            </div>
+            <div class="st-row-control">
+              {% if api_key_prefix %}
+                <span class="st-pill st-pill-ok">Active</span>
+                <code class="st-code-box">{{ api_key_prefix }}...</code>
+              {% else %}
+                <button type="submit" class="st-btn st-btn-primary" form="st-action"
+                        formaction="/settings/api-key/generate">Generate API key</button>
+              {% endif %}
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">REST API</span>
+              <p><a href="/docs" target="_blank" rel="noopener">OpenAPI docs</a></p>
+            </div>
+            <div class="st-row-control">
+              <code class="st-code-box">{{ base_url }}/api/v1/</code>
+              <button type="button" class="st-btn st-btn-ghost st-btn-icon" aria-label="Copy REST API URL"
+                      x-on:click="copy('{{ base_url }}/api/v1/')">{{ icon('copy', 15) }}</button>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">MCP server</span>
+              <p>Add this URL to Claude or another MCP client.</p>
+            </div>
+            <div class="st-row-control">
+              <code class="st-code-box">{{ base_url }}/mcp</code>
+              <button type="button" class="st-btn st-btn-ghost st-btn-icon" aria-label="Copy MCP URL"
+                      x-on:click="copy('{{ base_url }}/mcp')">{{ icon('copy', 15) }}</button>
+            </div>
+          </div>
+        </div>
+
+        {% if api_key_prefix %}
+          <div class="st-group">
+            <h2>Danger zone</h2>
+            <div class="st-panel st-panel-danger">
+              <div class="st-row" x-data="{ ask: false }">
+                <div class="st-row-text">
+                  <span class="st-row-title">Regenerate key</span>
+                  <p>Creates a new key. Tools with the old key stop working.</p>
+                </div>
+                <div class="st-row-control">
+                  <button type="button" class="st-btn" x-show="!ask" x-on:click="ask = true">Regenerate</button>
+                  <div class="st-confirm-inline" x-show="ask" x-cloak>
+                    <button type="button" class="st-btn" x-on:click="ask = false">Cancel</button>
+                    <button type="submit" class="st-btn st-btn-danger-solid" form="st-action"
+                            formaction="/settings/api-key/generate">Regenerate</button>
+                  </div>
+                </div>
+              </div>
+              <div class="st-row" x-data="{ ask: false }">
+                <div class="st-row-text">
+                  <span class="st-row-title">Revoke key</span>
+                  <p>Without a key, every device on the LAN can call the API.</p>
+                </div>
+                <div class="st-row-control">
+                  <button type="button" class="st-btn st-btn-danger" x-show="!ask" x-on:click="ask = true">Revoke</button>
+                  <div class="st-confirm-inline" x-show="ask" x-cloak>
+                    <button type="button" class="st-btn" x-on:click="ask = false">Cancel</button>
+                    <button type="submit" class="st-btn st-btn-danger-solid" form="st-action"
+                            formaction="/settings/api-key/revoke">Revoke</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+      </section>
+
+      <!-- ── Podcast feed ──────────────────────────────────────── -->
+      <section class="st-pane" id="pane-podcast" x-show="pane === 'podcast'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Podcast feed</h1>
+          <p>A private feed of your audio summaries (the Listen outputs). Subscribe in any podcast app and listen on the go.</p>
+        </header>
+        <div class="st-panel">
+          {% if current_user and current_user.podcast_token %}
+            {% set feed_url = base_url ~ '/podcast/' ~ current_user.podcast_token ~ '/feed.xml' %}
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Feed</span>
+                <p>The feed is on for this profile.</p>
+              </div>
+              <div class="st-row-control">
+                <span class="st-pill st-pill-ok">On</span>
+                <button type="submit" class="st-btn" form="st-action"
+                        formaction="/settings/podcast/disable">Turn off</button>
+              </div>
+            </div>
+            <div class="st-row st-row-stack">
+              <div class="st-row-text">
+                <label for="feed-url">Feed URL</label>
+                <p>Everyone with this URL can listen. Keep it private.</p>
+              </div>
+              <div class="st-copy-field">
+                <input type="text" id="feed-url" readonly value="{{ feed_url }}" x-on:click="$el.select()">
+                <button type="button" class="st-btn" x-on:click="copy('{{ feed_url }}')">{{ icon('copy', 14) }} Copy</button>
+              </div>
+            </div>
+            <div class="st-row" x-data="{ ask: false }">
+              <div class="st-row-text">
+                <span class="st-row-title">New URL</span>
+                <p>The old URL stops working. You then subscribe again in your podcast app.</p>
+              </div>
+              <div class="st-row-control">
+                <button type="button" class="st-btn" x-show="!ask" x-on:click="ask = true">Create new URL</button>
+                <div class="st-confirm-inline" x-show="ask" x-cloak>
+                  <button type="button" class="st-btn" x-on:click="ask = false">Cancel</button>
+                  <button type="submit" class="st-btn st-btn-danger-solid" form="st-action"
+                          formaction="/settings/podcast/enable">Create</button>
+                </div>
+              </div>
+            </div>
+          {% else %}
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Feed</span>
+                <p>The app creates a secret feed URL for this profile.</p>
+              </div>
+              <div class="st-row-control">
+                <button type="submit" class="st-btn st-btn-primary" form="st-action"
+                        formaction="/settings/podcast/enable">Turn on feed</button>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- ── Stock images ──────────────────────────────────────── -->
+      <section class="st-pane" id="pane-images" x-show="pane === 'images'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Stock images</h1>
+          <p>Optional. With a Pexels key, newsletter and web summaries without their own image get a matching photo.</p>
+        </header>
+        <div class="st-group">
+          <div class="st-group-head">
+            <h2>Pexels</h2>
+            {% if has_pexels_key %}<span class="st-pill st-pill-ok">Connected</span>{% else %}<span class="st-pill">Not set</span>{% endif %}
+          </div>
+          <div class="st-panel">
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">API key</span>
+                <p>Get a free key at <code>pexels.com/api</code>.</p>
+              </div>
+              <div class="st-row-control">
+                {{ secret_field('pexels_api_key', has_pexels_key, 'Paste your Pexels key') }}
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-text">
+                <span class="st-row-title">Test</span>
+                <p>Sends one small search request with the saved key.</p>
+              </div>
+              <div class="st-row-control">
+                <button type="button" class="st-btn"
+                        hx-post="/settings/test-pexels" hx-target="#pexels-test-result"
+                        hx-swap="innerHTML" hx-disabled-elt="this">Run test</button>
+              </div>
+              <div id="pexels-test-result" class="st-result"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Bookmarklet ───────────────────────────────────────── -->
+      <section class="st-pane" id="pane-bookmarklet" x-show="pane === 'bookmarklet'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Bookmarklet</h1>
+          <p>Save any YouTube video or article with one click from your bookmarks bar.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row st-row-stack">
+            <div class="st-row-text">
+              <span class="st-row-title">Drag this button to your bookmarks bar</span>
+              <p>The button does nothing on this page. It works only from the bookmarks bar.</p>
+            </div>
+            {# The app origin is baked in at render time (proxy-aware base_url)
+               so HTTPS/reverse-proxy setups get the right host. #}
+            <div>
+              <a class="st-bookmarklet"
+                 href="javascript:window.open('{{ base_url }}/submit?url='+encodeURIComponent(location.href),'_blank','noopener,width=480,height=360')"
+                 x-on:click.prevent="flash('Drag the button to your bookmarks bar')">
+                {{ icon('plus', 14) }} Save to yt-summary
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Export ────────────────────────────────────────────── -->
+      <section class="st-pane" id="pane-export" x-show="pane === 'export'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Export</h1>
+          <p>Download this profile's library as a ZIP: one Markdown or JSON file per item, plus a <code>manifest.json</code>. Works with Obsidian.</p>
+        </header>
+        <div class="st-panel">
+          <div class="st-row">
+            <div class="st-row-text"><span class="st-row-title">Format</span></div>
+            <div class="st-row-control">
+              <div class="st-seg" role="radiogroup" aria-label="Format">
+                <input type="radio" name="format" id="ex-md" value="md" form="st-export" checked><label for="ex-md">Markdown</label>
+                <input type="radio" name="format" id="ex-json" value="json" form="st-export"><label for="ex-json">JSON</label>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text"><span class="st-row-title">Content</span></div>
+            <div class="st-row-control">
+              <div class="st-seg" role="radiogroup" aria-label="Content">
+                {% for value, label in [('', 'All'), ('youtube', 'YouTube'), ('web', 'Articles'), ('email', 'Newsletters')] %}
+                  <input type="radio" name="kind" id="ex-kind-{{ value or 'all' }}" value="{{ value }}" form="st-export"
+                         {% if not value %}checked{% endif %}>
+                  <label for="ex-kind-{{ value or 'all' }}">{{ label }}</label>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <label for="ex-tag">Tag</label>
+              <p>Optional. The exact tag name.</p>
+            </div>
+            <div class="st-row-control">
+              <input type="text" name="tag" id="ex-tag" form="st-export" placeholder="e.g. investing">
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-text">
+              <span class="st-row-title">Period</span>
+              <p>Optional.</p>
+            </div>
+            <div class="st-row-control st-date-range">
+              <input type="date" name="since" form="st-export" aria-label="From">
+              <span>–</span>
+              <input type="date" name="until" form="st-export" aria-label="Until">
+            </div>
+          </div>
+        </div>
+        <div class="st-actions">
+          <button type="submit" class="st-btn st-btn-primary" form="st-export">{{ icon('download', 14) }} Download ZIP</button>
+        </div>
+      </section>
+
+      <!-- ── Diagnostics ───────────────────────────────────────── -->
+      <section class="st-pane" id="pane-diagnostics" x-show="pane === 'diagnostics'" x-cloak>
+        <header class="st-pane-head">
+          <h1>Diagnostics</h1>
+          <p>Worker status, queue and log. Look here when videos stay in the queue for a long time or audio rendering stops.</p>
+        </header>
+        <div>
+          <a class="st-btn" href="/settings/diagnostics">Open diagnostics ›</a>
+        </div>
+      </section>
+
+      <div class="st-savebar" x-show="dirty" x-cloak x-transition role="status">
+        <span>Unsaved changes</span>
+        <button type="button" class="st-btn st-btn-ghost" x-on:click="discard()">Discard</button>
+        <button type="submit" class="st-btn st-btn-save">Save</button>
+      </div>
+    </form>
+  </div>
+
+  {# Standalone forms. Controls elsewhere on the page attach to them
+     with form="…" (and formaction for per-row actions), so they never
+     post the main settings form. #}
+  <form method="post" id="st-action" hidden></form>
+  <form method="post" action="/settings/youtube-curl" id="st-cookies" hidden></form>
+  <form method="get" action="/export.zip" id="st-export" hidden></form>
+
+  <!-- ── Add / edit model drawer ─────────────────────────────── -->
+  <div class="st-scrim" x-show="drawer" x-cloak x-transition.opacity x-on:click="closeDrawer()"></div>
+  <div class="st-drawer" id="quick-setup" role="dialog" aria-modal="true" aria-labelledby="st-drawer-title"
+       x-show="drawer" x-cloak
+       x-transition:enter-start="st-drawer-out" x-transition:leave-end="st-drawer-out">
+    <form method="post"
+          action="{{ '/settings/llm-models/' ~ edit_model.id if edit_model else '/settings/llm-models' }}"
+          class="st-drawer-form">
+      <div class="st-drawer-head">
+        <div>
+          <h3 id="st-drawer-title">{{ 'Edit ' ~ edit_model.label if edit_model else 'Add model' }}</h3>
+          {% if not edit_model %}
+            <div class="st-steps">
+              <span x-bind:class="step === 1 && 'is-current'">1 Provider</span>
+              <span aria-hidden="true">›</span>
+              <span x-bind:class="step === 2 && 'is-current'">2 Details</span>
+            </div>
+          {% endif %}
+        </div>
+        <button type="button" class="st-btn st-btn-ghost st-btn-icon" aria-label="Close"
+                x-on:click="closeDrawer()">{{ icon('x', 18) }}</button>
+      </div>
+
+      <input type="hidden" name="provider_id" x-bind:value="provider">
+
+      <div class="st-drawer-body" x-show="step === 1">
+        <div class="st-tiles st-tiles-2">
+          {% for p in presets %}
+            <div class="st-tile">
+              <input type="radio" name="provider" id="qs-{{ p.id }}" value="{{ p.id }}" x-model="provider">
+              <label for="qs-{{ p.id }}">
+                <span class="st-badge-code">{{ p.name[:2]|upper }}</span>
+                <span>
+                  {{ p.name }}
+                  {% if p.id == current_provider_id %}<span class="st-current" title="Currently active">●</span>{% endif %}
+                  <small>
+                    {% if p.litellm_provider %}LLM{% endif %}{% if p.litellm_provider and p.whisper_base_url %} · {% endif %}{% if p.whisper_base_url %}Whisper{% endif %}
+                  </small>
+                </span>
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="st-drawer-body" x-show="step === 2" x-cloak>
+        {% for p in presets %}
+          <div class="st-drawer-detail" x-show="provider === '{{ p.id }}'" x-cloak>
+            {% if p.notes %}
+              <p class="st-callout">{{ icon('bolt', 16) }}<span>{{ p.notes }}</span></p>
+            {% endif %}
+            {% if p.requires_api_key %}
+              <label class="st-field">
+                <span>
+                  {{ p.name }} API key
+                  {% if p.api_key_url %}
+                    <a href="{{ p.api_key_url }}" target="_blank" rel="noopener" class="st-field-link">Get a key</a>
+                  {% endif %}
+                </span>
+                <input type="password" name="api_key" id="{{ p.id }}-api-key" autocomplete="off"
+                       x-bind:disabled="provider !== '{{ p.id }}'"
+                       placeholder="{% if edit_model and edit_model.has_key %}Saved. Leave blank to keep it.{% elif edit_model %}Leave blank to keep the current key.{% else %}Paste your API key{% endif %}">
               </label>
             {% endif %}
-          {% endif %}
-          {% if p.default_llm %}
-            <p class="quicksetup-summary">
-              Will set:
-              <code>{{ p.default_llm }}</code>
-              {% if p.whisper_base_url %}
-                · whisper at <code>{{ p.whisper_base_url }}</code>
+
+            {% if p.id == 'ollama' %}
+              {# Ollama needs a real server URL — Docker default is rarely
+                 right — and the model list is the user's actual pulled
+                 tags, queried via /api/tags. #}
+              <label class="st-field">
+                <span>Ollama server URL</span>
+                <input type="text" name="llm_base_url" id="ollama-base-url"
+                       x-bind:disabled="provider !== '{{ p.id }}'"
+                       value="{{ edit_model.base_url if edit_model else settings.get('llm_base_url', p.default_llm_base_url) }}"
+                       placeholder="http://192.168.0.27:11434">
+                <small>Use the LAN IP, not a <code>*.local</code> name. Python does not always resolve mDNS names.</small>
+              </label>
+              <div>
+                <button type="button" class="st-btn"
+                        hx-get="/settings/quick-setup/ollama-models"
+                        hx-include="#ollama-base-url"
+                        hx-target="#ollama-models-result"
+                        hx-swap="innerHTML"
+                        hx-disabled-elt="this">Load models from server</button>
+              </div>
+              <div id="ollama-models-result" class="st-fragment"></div>
+            {% elif p.id == 'litellm' %}
+              {# The proxy serves whatever aliases its config defines, so
+                 the list comes from /v1/models. Blank URL / key fall back
+                 to LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. #}
+              <label class="st-field">
+                <span>Proxy URL</span>
+                <input type="text" name="llm_base_url" id="litellm-base-url"
+                       x-bind:disabled="provider !== '{{ p.id }}'"
+                       value="{{ edit_model.base_url if edit_model and edit_model.provider_id == 'litellm' else '' }}"
+                       placeholder="{{ litellm_env_base or 'https://llm.example.com' }}">
+                {% if litellm_env_base %}
+                  <small>Blank uses <code>{{ litellm_env_base }}</code> from
+                    LITELLM_PROXY_API_BASE{% if litellm_env_key_set %} and the key
+                    from LITELLM_PROXY_API_KEY{% endif %}.</small>
+                {% endif %}
+              </label>
+              <div>
+                <button type="button" class="st-btn"
+                        hx-get="/settings/quick-setup/litellm-models"
+                        hx-include="#litellm-base-url, #litellm-api-key"
+                        hx-target="#litellm-models-result"
+                        hx-swap="innerHTML"
+                        hx-disabled-elt="this">Load models from proxy</button>
+              </div>
+              <div id="litellm-models-result" class="st-fragment">
+                <label class="st-field">
+                  <span>Model (proxy alias)</span>
+                  <input type="text" name="llm_model"
+                         x-bind:disabled="provider !== '{{ p.id }}'"
+                         value="{{ edit_model.model if edit_model and edit_model.provider_id == 'litellm' else '' }}"
+                         placeholder="e.g. pro">
+                </label>
+              </div>
+            {% else %}
+              {# Cloud providers: pre-render the dropdown with LiteLLM's
+                 known model list, default selected. #}
+              {% set chat_models = preset_chat_models.get(p.id, []) %}
+              {% set chat_models_full = preset_chat_models_full.get(p.id, []) %}
+              {% set has_full = chat_models_full and chat_models_full|length > chat_models|length %}
+              {% if edit_model %}
+                {% set selected_value = edit_model.model %}
+              {% else %}
+                {% set selected_value = settings.get('llm_model', '') if current_provider_id == p.id else p.default_llm %}
               {% endif %}
-            </p>
-          {% endif %}
-        </div>
-      {% endfor %}
-
-      <div class="settings-test-row">
-        <button type="submit" class="btn btn-primary"
-                x-bind:disabled="!provider">
-          {{ 'Save changes' if edit_model else 'Add model' }}
-        </button>
-      </div>
-    </form>
-  </section>
-
-  <form method="post" action="/settings" class="settings-form">
-
-    <!-- ── Summary output ──────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/summary.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Summary output</h2>
-          <p class="settings-card-sub">Per-video defaults applied when the LLM produces a summary.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Summary language</span>
-        <select name="summary_language">
-          {% set langs = [
-              ('auto', 'Auto (match transcript)'),
-              ('de', 'German'),
-              ('en', 'English'),
-              ('fr', 'French'),
-              ('es', 'Spanish'),
-              ('it', 'Italian'),
-              ('nl', 'Dutch'),
-              ('pt', 'Portuguese'),
-          ] %}
-          {% set current_lang = settings.get('summary_language', 'auto') %}
-          {% for code, label in langs %}
-            <option value="{{ code }}" {% if current_lang == code %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <small>Output language. "Auto" mirrors whatever language the transcript is in.</small>
-      </label>
-
-      <p class="settings-field-note">
-        Need to tweak how summaries are written? Each profile has its
-        own summarizer prompt — fully editable on the
-        <a href="/profiles/{{ current_user.id }}/edit">profile page</a>.
-      </p>
-    </section>
-
-    <!-- ── Advanced manual config (Whisper) ──
-         Quick Setup above already configures both in one go for the
-         supported providers. The card in this collapsible block is
-         for power users with custom Whisper setups (self-hosted,
-         exotic backend, mixed providers). Closed by default — most
-         users will never touch it. -->
-    <details class="settings-advanced">
-      <summary class="settings-advanced-summary">
-        <span class="settings-advanced-icon" aria-hidden="true">{{ icon('gear', 20) }}</span>
-        <span>
-          <strong>Advanced — Whisper manual config</strong>
-          <span class="settings-advanced-hint">
-            Override Whisper settings individually. LLM models are managed
-            in the Configured models card above.
-          </span>
-        </span>
-      </summary>
-
-    <!-- ── Whisper ─────────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/whisper.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Whisper (speech-to-text)</h2>
-          <p class="settings-card-sub">Used when a video has no usable YouTube subtitles. Local by default; switch to a hosted endpoint to offload from the Pi.</p>
-        </div>
-      </header>
-
-      <label class="settings-field settings-check">
-        <input type="checkbox" name="whisper_via_litellm" value="1"
-               {% if settings.get('whisper_via_litellm') == '1' %}checked{% endif %}>
-        <span class="settings-label">Use the LiteLLM proxy</span>
-        <small>Sends audio to <code>{{ (litellm_env_base or 'LITELLM_PROXY_API_BASE') }}/v1/audio/transcriptions</code>
-          with the key from LITELLM_PROXY_API_KEY. Base URL and API key below are
-          ignored; the model is the proxy alias (default <code>stt</code>).
-          {% if not litellm_env_base %}<strong>LITELLM_PROXY_API_BASE is not set</strong> —
-          transcription fails until it is.{% endif %}</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Whisper Model</span>
-        <input name="whisper_model" value="{{ settings.get('whisper_model', 'small') }}"
-               placeholder="small / base / large-v3 / whisper-large-v3 / …">
-        <small>Local default: <code>small</code>. With Whisper Base URL set, this is the model name the remote server expects (e.g. <code>whisper-large-v3</code> for Groq, <code>whisper-1</code> for OpenAI, <code>Systran/faster-whisper-large-v3</code> for self-hosted).</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Whisper Base URL <span class="settings-hint-inline">— optional, hosted Whisper backend</span></span>
-        <input name="whisper_base_url" value="{{ settings.get('whisper_base_url', '') }}"
-               placeholder="https://api.groq.com/openai/v1">
-        <small>Empty = run faster-whisper locally inside the container. Set to an OpenAI-compatible <code>/audio/transcriptions</code> root: Groq <code>https://api.groq.com/openai/v1</code>, OpenAI <code>https://api.openai.com/v1</code>, or your own server.</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Whisper API Key</span>
-        <input name="whisper_api_key" type="password"
-               placeholder="{% if has_whisper_key %}(set, leave blank to keep){% else %}leave blank for local servers without auth{% endif %}">
-      </label>
-
-      <div class="settings-test-row">
-        <button type="button" class="btn btn-secondary"
-                hx-post="/settings/test-whisper" hx-target="#whisper-test-result" hx-swap="innerHTML"
-                hx-disabled-elt="this">
-          Test Whisper
-        </button>
-        <div id="whisper-test-result" class="settings-test-result"></div>
-      </div>
-      <p class="settings-test-hint">Sends a 3-second audio sample (<code>app/static/samples/whisper_test.m4a</code>) through the configured backend.</p>
-    </section>
-
-    </details>
-    <!-- ── /Advanced manual config ─────────────────────────────── -->
-
-    <!-- ── Playlists ───────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">
-          <img src="{{ url_for('static', path='icons/playlists.png') }}?v={{ asset_version() }}" alt="">
-        </span>
-        <div class="settings-card-head-text">
-          <h2>Playlists</h2>
-          <p class="settings-card-sub">How the scheduler tracks and imports YouTube playlists.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Refresh interval (minutes)</span>
-        <input name="playlist_refresh_interval_minutes" type="number" min="15" max="10080" step="5"
-               value="{{ settings.get('playlist_refresh_interval_minutes', '60') }}">
-        <small>How often the scheduler re-checks every saved playlist for new videos. Default 60. Minimum 15 — going lower risks YouTube rate-limiting and an annoyed Pi.</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Initial import limit</span>
-        <input name="playlist_initial_import_limit" type="number" min="0" max="500"
-               value="{{ settings.get('playlist_initial_import_limit', '20') }}">
-        <small>Number of newest videos to enqueue when a playlist is first added, or when "Load older" is clicked. Set to 0 to import all entries on first add (the Pi will be busy for a while).</small>
-      </label>
-
-      <div class="settings-field">
-        <span class="settings-label">Last scheduler tick</span>
-        {% if scheduler_last_tick_at %}
-          <p class="settings-card-sub">
-            <code>{{ scheduler_last_tick_at }}</code>
-          </p>
-        {% else %}
-          <p class="settings-card-sub">No tick recorded yet — the scheduler runs after one full interval, not on startup.</p>
-        {% endif %}
-        {% if scheduled_playlists %}
-          <small>Per-playlist last refresh:</small>
-          <table class="playlist-refresh-table">
-            <thead>
-              <tr>
-                <th>Playlist</th>
-                <th>Last refreshed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for pl in scheduled_playlists %}
-                <tr>
-                  <td>{{ pl.title or pl.id }}</td>
-                  <td>
-                    {% if pl.last_refreshed_at %}
-                      {{ pl.last_refreshed_at.isoformat(timespec='seconds') }}
-                    {% else %}
-                      <em>never</em>
+              {% if chat_models %}
+                <label class="st-field">
+                  <span>
+                    Model
+                    {% if has_full %}
+                      <button type="button" class="st-link st-field-link"
+                              x-on:click="showAll['{{ p.id }}'] = !showAll['{{ p.id }}']"
+                              x-text="showAll['{{ p.id }}'] ? 'Show current models' : 'Show all models'">Show all models</button>
                     {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                  </span>
+                  {# Two parallel <select>s — only one carries the name on
+                     submit, the other gets name="" so it's ignored. #}
+                  <select name="llm_model"
+                          x-bind:name="showAll['{{ p.id }}'] ? '' : 'llm_model'"
+                          x-bind:disabled="provider !== '{{ p.id }}'"
+                          x-show="!showAll['{{ p.id }}']">
+                    {% for m in chat_models %}
+                      {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
+                      <option value="{{ option_value }}"
+                              {% if option_value == selected_value or m == selected_value %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                  </select>
+                  {% if has_full %}
+                    <select x-bind:name="showAll['{{ p.id }}'] ? 'llm_model' : ''"
+                            x-bind:disabled="provider !== '{{ p.id }}'"
+                            x-show="showAll['{{ p.id }}']" x-cloak>
+                      {% for m in chat_models_full %}
+                        {% set option_value = m if '/' in m else (p.litellm_provider + '/' + m) %}
+                        <option value="{{ option_value }}"
+                                {% if option_value == selected_value or m == selected_value %}selected{% endif %}>{{ m }}</option>
+                      {% endfor %}
+                    </select>
+                  {% endif %}
+                  <small>Current flagship models. "Show all models" adds older and preview models.</small>
+                </label>
+              {% endif %}
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        <label class="st-field">
+          <span>Name in the app</span>
+          <input name="label" required x-model="label" placeholder="e.g. Claude Sonnet">
+          <small>You see this name in the model picker on the video page.</small>
+        </label>
+      </div>
+
+      <div class="st-drawer-foot">
+        {% if edit_model %}
+          <button type="button" class="st-btn st-btn-ghost" x-on:click="closeDrawer()">Cancel</button>
+          <button type="submit" class="st-btn st-btn-primary">Save changes</button>
+        {% else %}
+          <button type="button" class="st-btn st-btn-ghost"
+                  x-on:click="step === 1 ? closeDrawer() : step = 1"
+                  x-text="step === 1 ? 'Cancel' : 'Back'">Cancel</button>
+          <button type="button" class="st-btn st-btn-primary" x-show="step === 1"
+                  x-bind:disabled="!provider" x-on:click="nextStep()">Next</button>
+          <button type="submit" class="st-btn st-btn-primary" x-show="step === 2" x-cloak>Add model</button>
         {% endif %}
       </div>
-    </section>
-    <!-- ── /Playlists ──────────────────────────────────────────── -->
-
-    <!-- ── Audio (TTS) ─────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <span class="settings-card-icon" aria-hidden="true">{{ icon('volume', 26) }}</span>
-        <div class="settings-card-head-text">
-          <h2>Audio (TTS)</h2>
-          <p class="settings-card-sub">Defaults for the "Listen" modal. Voices are downloaded on demand the first time you render in that voice + quality.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Default language</span>
-        <select name="default_tts_language">
-          {% for code, label in tts_languages %}
-            <option value="{{ code }}" {% if settings.get('default_tts_language', 'auto') == code %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <small>Picked in the Listen dialog by default. "Auto" uses the video's source language when known.</small>
-      </label>
-
-      {% for lang in tts_voice_langs %}
-        <label class="settings-field">
-          <span class="settings-label">
-            {% if lang == 'de' %}Voice for German
-            {% elif lang == 'en_US' %}Voice for US English
-            {% elif lang == 'en_GB' %}Voice for UK English
-            {% elif lang == 'fr' %}Voice for French
-            {% elif lang == 'es' %}Voice for Spanish
-            {% else %}Voice for {{ lang }}{% endif %}
-          </span>
-          <select name="default_tts_voice_{{ lang }}">
-            <option value="">(first available)</option>
-            {% for v in voices_by_language[lang] %}
-              <option value="{{ v.id }}" {% if settings.get('default_tts_voice_' ~ lang) == v.id %}selected{% endif %}>{{ v.display_name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      {% endfor %}
-
-      <label class="settings-field">
-        <span class="settings-label">Default quality</span>
-        <select name="default_tts_quality">
-          {% set current_quality = settings.get('default_tts_quality', 'medium') %}
-          <option value="low" {% if current_quality == 'low' %}selected{% endif %}>Low — fastest, smallest</option>
-          <option value="medium" {% if current_quality == 'medium' %}selected{% endif %}>Medium — balanced</option>
-          <option value="high" {% if current_quality == 'high' %}selected{% endif %}>High — best quality, biggest model</option>
-        </select>
-        <small>The Listen dialog falls back to the closest available quality if the chosen voice doesn't ship at this tier.</small>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Speech speed</span>
-        <input name="default_tts_length_scale" type="number" min="0.5" max="2.0" step="0.05"
-               value="{{ settings.get('default_tts_length_scale', '1.00') }}">
-        <small>1.0 = default. Lower = faster, higher = slower. The German voices in particular tend to feel rushed — try 1.15–1.25. Range 0.5–2.0.</small>
-      </label>
-
-      <div class="settings-field">
-        <span class="settings-label">Voice cache</span>
-        <p class="settings-card-sub">
-          {{ voice_cache_summary.count }} voice{% if voice_cache_summary.count != 1 %}s{% endif %} installed · {{ voice_cache_summary.size_mb }} MB
-        </p>
-      </div>
-    </section>
-    <!-- ── /Audio (TTS) ────────────────────────────────────────── -->
-
-    <!-- ── Integrations ─────────────────────────────────────────── -->
-    <section class="settings-card">
-      <header class="settings-card-head">
-        <div class="settings-card-head-text">
-          <h2>Integrations</h2>
-          <p class="settings-card-sub">Optional third-party API keys.</p>
-        </div>
-      </header>
-
-      <label class="settings-field">
-        <span class="settings-label">Pexels API Key <span class="settings-hint-inline">— optional, stock photos for email/web thumbnails</span></span>
-        <input name="pexels_api_key" value="{{ settings.get('pexels_api_key', '') }}"
-               placeholder="Your Pexels API key">
-        <small>Get a free key at <code>pexels.com/api</code>. When set, email summaries (and web articles without their own image) get a fitting stock photo instead of a placeholder icon.</small>
-      </label>
-      <div class="settings-test-row">
-        <button type="button" class="btn btn-secondary"
-                hx-post="/settings/test-pexels" hx-target="#pexels-test-result" hx-swap="innerHTML"
-                hx-disabled-elt="this">
-          Test Pexels
-        </button>
-        <div id="pexels-test-result" class="settings-test-result"></div>
-      </div>
-      <p class="settings-test-hint">Tests the saved key with a tiny Pexels search request.</p>
-
-      <label class="settings-field">
-        <span class="settings-label">YouTube Data API Key <span class="settings-hint-inline">— optional, full playlist indexing</span></span>
-        <input name="youtube_api_key" value="{{ settings.get('youtube_api_key', '') }}"
-               placeholder="Your YouTube Data API v3 key">
-        <small>Create a key at <code>console.cloud.google.com</code> and enable "YouTube Data API v3". When set, playlists are indexed via the official API (all videos, in order) instead of yt-dlp.</small>
-      </label>
-      <div class="settings-test-row">
-        <button type="button" class="btn btn-secondary"
-                hx-post="/settings/test-youtube" hx-target="#youtube-test-result" hx-swap="innerHTML"
-                hx-disabled-elt="this">
-          Test YouTube
-        </button>
-        <div id="youtube-test-result" class="settings-test-result"></div>
-      </div>
-      <p class="settings-test-hint">Tests the saved key with a tiny YouTube Data API request.</p>
-    </section>
-    <!-- ── /Integrations ─────────────────────────────────────────── -->
-
-    <div class="settings-save-row">
-      <button type="submit" class="btn btn-primary">Save</button>
-    </div>
-  </form>
-
-  <!-- ── YouTube cookies ───────────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">
-        <img src="{{ url_for('static', path='icons/cookies.png') }}?v={{ asset_version() }}" alt="">
-      </span>
-      <div class="settings-card-head-text">
-        <h2>YouTube cookies</h2>
-        <p class="settings-card-sub">Optional. Lets yt-dlp see age-gated, member-only, or geo-restricted videos.</p>
-      </div>
-    </header>
-
-    <p class="cookies-state">
-      {% if has_cookies %}
-        ✓ cookies set &middot; <a href="/settings/youtube-curl/clear">clear</a>
-      {% else %}
-        no cookies set
-      {% endif %}
-    </p>
-
-    <form method="post" action="/settings/youtube-curl" class="settings-form">
-      <label class="settings-field">
-        <span class="settings-label">Paste curl from DevTools — or a cookies.txt file</span>
-        <small>Either: Network tab → right-click a youtube.com request → "Copy as cURL". Or: paste the contents of a Netscape-format <code>cookies.txt</code> exported by a browser extension.</small>
-        <textarea name="curl" rows="6"
-                  placeholder="curl 'https://www.youtube.com/...' -H 'cookie: ...'&#10;&#10;— or —&#10;&#10;# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1789999999&#9;SID&#9;..."></textarea>
-      </label>
-      <div class="settings-save-row">
-        <button type="submit" class="btn btn-primary">Save cookies</button>
-      </div>
     </form>
-  </section>
+  </div>
 
-  <!-- ── API access ───────────────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">
-        <img src="{{ url_for('static', path='icons/api.png') }}?v={{ asset_version() }}" alt="">
-      </span>
-      <div class="settings-card-head-text">
-        <h2>API access</h2>
-        <p class="settings-card-sub">A single API key gates both the REST API at <code>/api/v1</code> and the MCP server at <code>/mcp</code>.</p>
-      </div>
-    </header>
-
-    {% if api_key_prefix %}
-      <p>
-        <strong>Status:</strong> ● Active &mdash;
-        <code>{{ api_key_prefix }}...</code>
-        {% if api_key_created_at %}
-          <span class="settings-muted">created {{ api_key_created_at.strftime('%Y-%m-%d') }}</span>
-        {% endif %}
-      </p>
-      <div class="settings-test-row">
-        <form method="post" action="/settings/api-key/generate" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Regenerate</button>
-        </form>
-        <form method="post" action="/settings/api-key/revoke" style="display:inline"
-              onsubmit="return confirm('Revoke the current API key? Any tools using it will stop working.')">
-          <button type="submit" class="btn btn-secondary">Revoke</button>
-        </form>
-      </div>
-    {% else %}
-      <p>
-        <strong>Status:</strong> ⚠ No API key — anyone on the LAN can call the API.
-      </p>
-      <form method="post" action="/settings/api-key/generate" style="display:inline">
-        <button type="submit" class="btn btn-primary">Generate API Key</button>
-      </form>
-    {% endif %}
-
-    <ul class="settings-endpoint-list">
-      <li>REST API: <code>/api/v1/</code> &middot; <a href="/docs" target="_blank">OpenAPI docs</a></li>
-      <li>MCP server: <code>/mcp</code></li>
-    </ul>
-  </section>
-
-  <!-- ── Podcast feed ──────────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('mic', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>Podcast feed</h2>
-        <p class="settings-card-sub">
-          Turn your audio renderings (the {{ icon('headphones', 12) }} “Listen” outputs) into a
-          private podcast feed — subscribe in any podcast app to play
-          your summaries on the go.
-        </p>
-      </div>
-    </header>
-
-    {% if current_user and current_user.podcast_token %}
-      <label class="settings-field">
-        <span class="settings-label">Feed URL</span>
-        <input type="text" readonly
-               value="{{ base_url }}/podcast/{{ current_user.podcast_token }}/feed.xml"
-               onclick="this.select()">
-        <small>
-          ⚠ Anyone with this URL can listen to your renderings. Keep it
-          private; regenerate to revoke the old one.
-        </small>
-      </label>
-      <div class="settings-field-row">
-        <form method="post" action="/settings/podcast/enable" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Regenerate URL</button>
-        </form>
-        <form method="post" action="/settings/podcast/disable" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Disable feed</button>
-        </form>
-      </div>
-    {% else %}
-      <form method="post" action="/settings/podcast/enable">
-        <button type="submit" class="btn btn-accent">Enable podcast feed</button>
-      </form>
-    {% endif %}
-  </section>
-
-  <!-- ── Export ────────────────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('download', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>Export</h2>
-        <p class="settings-card-sub">
-          Download this profile's library as a ZIP — one
-          Obsidian-friendly Markdown (or JSON) file per item, plus a
-          <code>manifest.json</code>. Leave the filters empty to export
-          everything.
-        </p>
-      </div>
-    </header>
-
-    <form method="get" action="/export.zip" class="settings-form">
-      <label class="settings-field">
-        <span class="settings-label">Format</span>
-        <select name="format">
-          <option value="md">Markdown (.md)</option>
-          <option value="json">JSON (.json)</option>
-        </select>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Kind</span>
-        <select name="kind">
-          <option value="">All</option>
-          <option value="youtube">YouTube</option>
-          <option value="web">Web articles</option>
-          <option value="email">Newsletters</option>
-        </select>
-      </label>
-
-      <label class="settings-field">
-        <span class="settings-label">Tag (optional)</span>
-        <input type="text" name="tag" placeholder="exact tag name">
-      </label>
-
-      <div class="settings-field-row">
-        <label class="settings-field">
-          <span class="settings-label">Since</span>
-          <input type="date" name="since">
-        </label>
-        <label class="settings-field">
-          <span class="settings-label">Until</span>
-          <input type="date" name="until">
-        </label>
-      </div>
-
-      <button type="submit" class="btn btn-accent">Download ZIP</button>
-    </form>
-  </section>
-
-  <!-- ── Browser bookmarklet ───────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('bookmark', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>Browser bookmarklet</h2>
-        <p class="settings-card-sub">
-          Drag the link below to your bookmarks bar. One click on any
-          YouTube video or article page opens a small confirmation window
-          to save it to your queue.
-        </p>
-      </div>
-    </header>
-
-    {# The app origin is baked in at render time (proxy-aware base_url)
-       so HTTPS/reverse-proxy setups get the right host. The href is a
-       javascript: bookmarklet; the | e filter keeps the embedded origin
-       from breaking out of the attribute. #}
-    <p>
-      <a class="btn btn-accent"
-         href="javascript:window.open('{{ base_url }}/submit?url='+encodeURIComponent(location.href),'_blank','noopener,width=480,height=360')"
-         onclick="event.preventDefault(); alert('Drag this button to your bookmarks bar — clicking it here does nothing.');">
-        ⊕ Save to yt-summary
-      </a>
-    </p>
-    <p class="settings-card-sub">
-      Clicking it here won't do anything — bookmarklets only run from the
-      bookmarks bar.
-    </p>
-  </section>
-
-  <!-- ── Diagnostics link ──────────────────────────────────── -->
-  <section class="settings-card">
-    <header class="settings-card-head">
-      <span class="settings-card-icon" aria-hidden="true">{{ icon('flask', 26) }}</span>
-      <div class="settings-card-head-text">
-        <h2>Diagnose</h2>
-        <p class="settings-card-sub">
-          Worker-Status, Queue-Inhalt, Log-Tail — nützlich, wenn
-          Videos lang queued bleiben oder die TTS nicht weiterkommt.
-        </p>
-      </div>
-    </header>
-    <p><a href="/settings/diagnostics">→ Zur Diagnose-Seite</a></p>
-  </section>
+  <div class="st-toast" x-show="toast" x-cloak x-transition role="status">
+    {{ icon('check-circle', 15) }} <span x-text="toast"></span>
+  </div>
 </div>
+
+<script>
+  function settingsPage(init) {
+    const SECTIONS = ['summaries', 'audio', 'models', 'transcription', 'playlists',
+      'youtube', 'api', 'podcast', 'images', 'bookmarklet', 'export', 'diagnostics'];
+    return {
+      pane: 'models',
+      query: '',
+      dirty: false,
+      drawer: false,
+      step: 1,
+      provider: init.provider,
+      label: init.label,
+      showAll: {},
+      toast: '',
+      init() {
+        const hash = location.hash.slice(1);
+        if (SECTIONS.includes(hash)) this.pane = hash;
+        if (init.edit) {
+          this.pane = 'models';
+          this.step = 2;
+          this.drawer = true;
+        } else if (hash === 'quick-setup') {
+          this.pane = 'models';
+          this.openDrawer();
+        }
+        if (init.saved) {
+          this.flash('Settings saved');
+          history.replaceState(null, '', '/settings#' + this.pane);
+        }
+        this.revealNavItem();
+        window.addEventListener('hashchange', () => {
+          const h = location.hash.slice(1);
+          if (SECTIONS.includes(h)) this.pane = h;
+        });
+        window.addEventListener('beforeunload', (e) => {
+          if (this.dirty && !this.submitting) e.preventDefault();
+        });
+        this.$refs.form.addEventListener('submit', () => { this.submitting = true; });
+      },
+      go(id) {
+        this.pane = id;
+        history.replaceState(null, '', '/settings#' + id);
+        window.scrollTo({ top: 0 });
+        this.revealNavItem();
+      },
+      revealNavItem() {
+        // On phones the nav is a horizontal chip row; keep the
+        // current chip visible.
+        this.$nextTick(() => {
+          const item = this.$root.querySelector('.st-nav-item[aria-current="page"]');
+          if (item && window.innerWidth <= 860) item.scrollIntoView({ inline: 'center', block: 'nearest' });
+        });
+      },
+      matches(text) {
+        const q = this.query.trim().toLowerCase();
+        return !q || text.includes(q);
+      },
+      onKey(e) {
+        const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        if (e.key === '/' && !typing) { e.preventDefault(); this.$refs.search.focus(); }
+        if (e.key === 'Escape') {
+          if (this.drawer) this.closeDrawer();
+          else if (document.activeElement === this.$refs.search) { this.query = ''; this.$refs.search.blur(); }
+        }
+      },
+      markDirty(e) {
+        // Controls attached to the standalone forms bubble through
+        // this form's DOM too; only count its own fields.
+        if (e.target.form === this.$refs.form) this.dirty = true;
+      },
+      discard() {
+        this.$refs.form.reset();
+        this.dirty = false;
+        window.dispatchEvent(new CustomEvent('st-reset'));
+      },
+      openDrawer() {
+        this.step = 1;
+        this.drawer = true;
+      },
+      closeDrawer() {
+        // The edit form is rendered server-side for one model; leave
+        // edit mode through a plain navigation.
+        if (init.edit) { location.href = '/settings#models'; return; }
+        this.drawer = false;
+      },
+      nextStep() {
+        if (!this.label) this.label = init.names[this.provider] || '';
+        this.step = 2;
+      },
+      copy(text) {
+        const done = () => this.flash('Copied');
+        try { navigator.clipboard.writeText(text).then(done, () => {}); } catch (err) {}
+      },
+      flash(msg) {
+        this.toast = msg;
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => { this.toast = ''; }, 2500);
+      },
+    };
+  }
+</script>
 {% endblock %}

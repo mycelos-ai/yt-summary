@@ -133,6 +133,40 @@ _ICONS: dict[str, str] = {
         '<path d="M12 4v11M7.5 11.5L12 16l4.5-4.5"/>'
         '<path d="M4.5 19.5h15"/>'
     ),
+    "key": (
+        '<circle cx="8" cy="15" r="4"/>'
+        '<path d="M11 12l9-9M17 6l3 3"/>'
+    ),
+    "image": (
+        '<rect x="3" y="4" width="18" height="16" rx="2"/>'
+        '<circle cx="9" cy="10" r="1.8"/>'
+        '<path d="M21 16l-5-5-9 9"/>'
+    ),
+    "youtube": (
+        '<rect x="2.5" y="5.5" width="19" height="13" rx="3.5"/>'
+        '<path d="M10 9.5v5l4.5-2.5z"/>'
+    ),
+    "copy": (
+        '<rect x="8" y="8" width="12" height="12" rx="2"/>'
+        '<path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'
+    ),
+    "dots": (
+        '<path d="M5 12h.01M12 12h.01M19 12h.01"/>'
+    ),
+    "plus": (
+        '<path d="M12 5v14M5 12h14"/>'
+    ),
+    "x": (
+        '<path d="M6 6l12 12M18 6L6 18"/>'
+    ),
+    "alert": (
+        '<path d="M12 3.5L2.5 20h19z"/>'
+        '<path d="M12 10v4.5M12 17.5h.01"/>'
+    ),
+    "external": (
+        '<path d="M14 4h6v6M20 4l-9 9"/>'
+        '<path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'
+    ),
 }
 
 

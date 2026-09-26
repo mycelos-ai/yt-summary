@@ -87,7 +87,7 @@ def test_settings_renders_bookmarklet_with_request_origin(tmp_path, monkeypatch)
     with TestClient(app, base_url="https://yts.example.com") as client:
         resp = client.get("/settings")
     assert resp.status_code == 200
-    assert "Browser bookmarklet" in resp.text
+    assert "Bookmarklet" in resp.text
     # Origin baked in (from the request), targets /submit, uses
     # encodeURIComponent over location.href.
     assert "https://yts.example.com/submit?url=" in resp.text

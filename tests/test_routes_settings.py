@@ -516,7 +516,7 @@ def test_settings_page_renders_quick_setup_card(tmp_path, monkeypatch):
         resp = client.get("/settings")
     assert resp.status_code == 200
     text = resp.text
-    assert "Quick setup" in text
+    assert "Add model" in text
     for provider_label in (
         "OpenAI", "Anthropic", "Google Gemini",
         "Groq", "Ollama", "OpenRouter",
@@ -692,7 +692,7 @@ def test_settings_form_renders_tts_card(tmp_path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         resp = client.get("/settings")
-    assert "Audio (TTS)" in resp.text
+    assert 'id="pane-audio"' in resp.text
     assert "default_tts_language" in resp.text
     assert "default_tts_quality" in resp.text
     # Per-language voice fields (Option A: per-language voice defaults).
@@ -1106,7 +1106,7 @@ def test_settings_renders_configured_models_card_with_rows(
         # The non-default row's base_url surfaces in the meta line.
         assert "192.168.0.5" in body
         # Default badge is present for the default row.
-        assert "Default ✓" in body
+        assert "Default</span>" in body
 
 
 def test_settings_renders_empty_state_when_no_models(tmp_path, monkeypatch):
@@ -1135,7 +1135,12 @@ def test_pexels_api_key_saved_and_cleared(tmp_path, monkeypatch):
             return await settings_repo.get(app.state.db, "pexels_api_key")
         assert asyncio.get_event_loop().run_until_complete(get_key()) == "PKEY"
 
+        # A blank field keeps the stored key: the page never renders it.
         client.post("/settings", data={"pexels_api_key": ""},
+                    follow_redirects=False)
+        assert asyncio.get_event_loop().run_until_complete(get_key()) == "PKEY"
+
+        client.post("/settings", data={"clear_pexels_api_key": "1"},
                     follow_redirects=False)
         assert asyncio.get_event_loop().run_until_complete(get_key()) is None
 
@@ -1153,12 +1158,16 @@ def test_save_youtube_api_key_roundtrips(tmp_path, monkeypatch):
             return await settings_repo.get(app.state.db, "youtube_api_key")
         assert asyncio.get_event_loop().run_until_complete(get_key()) == "YTKEY"
 
-        # Verify it also renders on the settings page.
+        # The page shows that a key is set, never the key itself.
         page = client.get("/settings")
-        assert "YTKEY" in page.text
+        assert "YTKEY" not in page.text
+        assert "saved" in page.text
 
-        # Clearing the field removes the key.
+        # A blank field keeps the key; the explicit clear flag removes it.
         client.post("/settings", data={"youtube_api_key": ""},
+                    follow_redirects=False)
+        assert asyncio.get_event_loop().run_until_complete(get_key()) == "YTKEY"
+        client.post("/settings", data={"clear_youtube_api_key": "1"},
                     follow_redirects=False)
         assert asyncio.get_event_loop().run_until_complete(get_key()) is None
 
@@ -1375,3 +1384,76 @@ def test_save_settings_whisper_via_litellm_defaults_model(tmp_path, monkeypatch)
             settings_repo.get_all(app.state.db)
         )
         assert "whisper_via_litellm" not in stored
+
+
+def _settings(app):
+    import asyncio
+
+    async def get_all():
+        from app.repos import settings as settings_repo
+        return await settings_repo.get_all(app.state.db)
+    return asyncio.get_event_loop().run_until_complete(get_all())
+
+
+def test_save_settings_whisper_backend_local_clears_remote(tmp_path, monkeypatch):
+    """The backend picker posts one model field per backend; "local"
+    must drop a stored hosted URL so faster-whisper runs again."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings", data={
+            "whisper_backend": "hosted",
+            "whisper_base_url": "https://api.groq.com/openai/v1/",
+            "whisper_model_hosted": "whisper-large-v3",
+            "whisper_model_local": "small",
+        }, follow_redirects=False)
+        s = _settings(app)
+        assert s["whisper_base_url"] == "https://api.groq.com/openai/v1"
+        assert s["whisper_model"] == "whisper-large-v3"
+
+        client.post("/settings", data={
+            "whisper_backend": "local",
+            "whisper_base_url": "https://api.groq.com/openai/v1",
+            "whisper_model_local": "medium",
+            "whisper_model_hosted": "whisper-large-v3",
+        }, follow_redirects=False)
+        s = _settings(app)
+        assert "whisper_base_url" not in s
+        assert s["whisper_model"] == "medium"
+        assert "whisper_via_litellm" not in s
+
+
+def test_save_settings_whisper_backend_proxy(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings", data={
+            "whisper_backend": "proxy",
+            "whisper_model_proxy": "",
+            "whisper_model_local": "small",
+        }, follow_redirects=False)
+        s = _settings(app)
+        assert s["whisper_via_litellm"] == "1"
+        assert s["whisper_model"] == "stt"
+
+
+def test_save_settings_redirects_to_known_section_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        ok = client.post("/settings", data={"section": "audio"},
+                         follow_redirects=False)
+        bad = client.post("/settings", data={"section": "x\r\nSet-Cookie"},
+                          follow_redirects=False)
+    assert ok.headers["location"] == "/settings?saved=1#audio"
+    assert bad.headers["location"] == "/settings?saved=1"
+
+
+def test_settings_page_keeps_third_party_keys_out_of_html(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings", data={"pexels_api_key": "PEXELS-SECRET-1"},
+                    follow_redirects=False)
+        page = client.get("/settings")
+    assert "PEXELS-SECRET-1" not in page.text
