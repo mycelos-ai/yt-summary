@@ -185,6 +185,24 @@ a real dropdown of pulled models, split into chat and embedding lists.
 Mix-and-match works: pick Anthropic for the LLM, then go to the
 Embedding card and configure Ollama or OpenAI for embeddings.
 
+### Your own LiteLLM proxy
+
+Settings → Add model → **LiteLLM Proxy** routes through a
+[LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) you run
+yourself. "Load models from proxy" reads the aliases from its
+`/v1/models`; the context window of each alias comes from the proxy's
+`/model/info`, so `pro`-style aliases get their real limit instead of
+the 8000-token fallback. It sits next to the other profiles — switch
+the default or pick a profile per job as usual.
+
+Leave URL and key blank to keep the secret out of the database: the
+LiteLLM SDK then reads `LITELLM_PROXY_API_BASE` / `LITELLM_PROXY_API_KEY`
+from the container environment. `docker-compose.yml` fills them from
+`LITELLM_HOST` / `LITELLM_SECRET` in `.env`.
+
+The proxy can also serve Whisper: put `<proxy>/v1` and the STT alias
+into the Whisper card.
+
 ## Whisper backends
 
 A 1-hour video on a Pi5 with `small` Whisper takes ~1 hour to transcribe.

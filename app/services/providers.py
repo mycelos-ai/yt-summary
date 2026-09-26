@@ -9,6 +9,7 @@ LiteLLM's static cost map, which we filter down to chat / embedding
 modes and sort with the curated default first.
 """
 
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -125,7 +126,63 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
             "openrouter/ prefix."
         ),
     ),
+    "litellm": ProviderPreset(
+        id="litellm",
+        name="LiteLLM Proxy",
+        litellm_provider="litellm_proxy",
+        # No sensible default: the proxy serves whatever aliases its
+        # config defines. The model list is loaded from /v1/models.
+        default_llm="",
+        notes=(
+            "Your own LiteLLM proxy (OpenAI-compatible). Leave URL and "
+            "key blank to use LITELLM_PROXY_API_BASE / "
+            "LITELLM_PROXY_API_KEY from the container environment — "
+            "the key then never lands in the database."
+        ),
+    ),
 }
+
+LITELLM_PREFIX = "litellm_proxy/"
+
+
+def litellm_proxy_credentials(base_url: str | None, api_key: str | None) -> tuple[str, str]:
+    """Resolve proxy URL and key the same way the LiteLLM SDK does for
+    `litellm_proxy/` models: explicit values win, else the env vars
+    LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. The URL comes back
+    without a trailing slash or `/v1` suffix."""
+    base = (base_url or "").strip() or os.environ.get("LITELLM_PROXY_API_BASE", "").strip()
+    key = (api_key or "").strip() or os.environ.get("LITELLM_PROXY_API_KEY", "").strip()
+    base = base.rstrip("/")
+    base = base.removesuffix("/v1")
+    return base, key
+
+
+async def fetch_litellm_models(base_url: str, api_key: str) -> list[str]:
+    """List the model aliases a LiteLLM proxy serves, as
+    `litellm_proxy/<alias>` ids, sorted.
+
+    Raises ValueError when no proxy URL is configured, httpx.HTTPError
+    on non-2xx or unreachable.
+    """
+    base, key = litellm_proxy_credentials(base_url, api_key)
+    if not base:
+        raise ValueError("no proxy URL given and LITELLM_PROXY_API_BASE is not set")
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        resp = await client.get(f"{base}/v1/models", headers=headers)
+        resp.raise_for_status()
+        body = resp.json()
+    ids = [m.get("id", "") for m in body.get("data", []) if m.get("id")]
+    return sorted(f"{LITELLM_PREFIX}{i}" for i in ids)
+
+
+def with_litellm_prefix(model: str) -> str:
+    """Accept a bare proxy alias (`pro`) and return `litellm_proxy/pro`,
+    which is what the LiteLLM SDK needs to route through the proxy."""
+    model = model.strip()
+    if not model or model.startswith(LITELLM_PREFIX):
+        return model
+    return f"{LITELLM_PREFIX}{model}"
 
 
 # Curated chat-model lists per provider. The Quick Setup wizard shows
@@ -188,7 +245,8 @@ CURATED_CHAT_MODELS: dict[str, list[str]] = {
         "openrouter/x-ai/grok-4.3",
         "openrouter/qwen/qwen3.7-max",
     ],
-    # Ollama is dynamic (hits the user's server) — no curation here.
+    # Ollama and LiteLLM are dynamic (hit the user's server) — no
+    # curation here.
 }
 
 

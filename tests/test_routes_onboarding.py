@@ -211,10 +211,13 @@ def test_provider_step_shows_default_model_per_provider(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.get("/onboarding/provider")
     assert resp.status_code == 200
-    # The label appears at least once per preset (six total).
-    assert resp.text.count("Default LLM model") >= len(PROVIDER_PRESETS)
+    # The LiteLLM proxy is set up from Settings only (needs a URL and
+    # a model list from the proxy), so the wizard shows the other six.
+    wizard_presets = [p for p in PROVIDER_PRESETS.values() if p.id != "litellm"]
+    assert resp.text.count("Default LLM model") >= len(wizard_presets)
+    assert "LiteLLM Proxy" not in resp.text
     # And the actual default model id for each provider is present.
-    for preset in PROVIDER_PRESETS.values():
+    for preset in wizard_presets:
         assert preset.default_llm in resp.text
 
 

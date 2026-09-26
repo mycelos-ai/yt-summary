@@ -214,3 +214,58 @@ async def test_old_ollama_parses_num_ctx_from_parameters_string():
             "ollama_chat/old-model", "http://x"
         )
     assert ctx == 16384
+
+
+async def test_litellm_proxy_context_from_model_info(monkeypatch):
+    """Proxy aliases like `pro` are unknown to every public catalogue;
+    without asking the proxy they would fall back to 8000 tokens."""
+    import respx
+    from httpx import Response
+
+    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
+    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    payload = {
+        "data": [
+            {"model_name": "cheap", "model_info": {"max_input_tokens": 32000}},
+            {"model_name": "pro", "model_info": {"max_input_tokens": 200000}},
+        ]
+    }
+    with respx.mock as mock:
+        route = mock.get("https://llm.example.com/model/info").mock(
+            return_value=Response(200, json=payload)
+        )
+        ctx = await model_info.get_context_window(
+            "litellm_proxy/pro", "https://llm.example.com", api_key="sk-virtual"
+        )
+    assert ctx == 200000
+    assert route.calls.last.request.headers["authorization"] == "Bearer sk-virtual"
+
+
+async def test_litellm_proxy_context_uses_env_and_strips_v1(monkeypatch):
+    import respx
+    from httpx import Response
+
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://env.example.com/v1")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    payload = {"data": [{"model_name": "fast", "model_info": {"max_tokens": 64000}}]}
+    with respx.mock as mock:
+        mock.get("https://env.example.com/model/info").mock(
+            return_value=Response(200, json=payload)
+        )
+        ctx = await model_info.get_context_window("litellm_proxy/fast", None)
+    assert ctx == 64000
+
+
+async def test_litellm_proxy_context_unreachable_falls_back(monkeypatch):
+    import httpx
+    import respx
+
+    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    with respx.mock as mock:
+        mock.get("https://llm.example.com/model/info").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
+        ctx = await model_info.get_context_window(
+            "litellm_proxy/pro", "https://llm.example.com"
+        )
+    assert ctx == model_info.DEFAULT_CONTEXT

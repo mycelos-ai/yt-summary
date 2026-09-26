@@ -135,7 +135,7 @@
               {% endif %}
             </span>
             <span class="quicksetup-option-tags">
-              {% if p.default_llm %}<span class="quicksetup-tag">LLM</span>{% endif %}
+              {% if p.litellm_provider %}<span class="quicksetup-tag">LLM</span>{% endif %}
               {% if p.whisper_base_url %}<span class="quicksetup-tag">Whisper</span>{% endif %}
             </span>
           </label>
@@ -158,6 +158,7 @@
               </span>
               <input type="password"
                      name="api_key"
+                     id="{{ p.id }}-api-key"
                      x-bind:disabled="provider !== '{{ p.id }}'"
                      placeholder="leave blank to keep existing key">
             </label>
@@ -188,6 +189,43 @@
               </button>
             </div>
             <div id="ollama-models-result"></div>
+          {% elif p.id == 'litellm' %}
+            {# The proxy serves whatever aliases its config defines, so
+               the list comes from /v1/models. Blank URL / key fall back
+               to LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. #}
+            <label class="settings-field">
+              <span class="settings-label">Proxy URL</span>
+              <input type="text"
+                     name="llm_base_url"
+                     x-bind:disabled="provider !== '{{ p.id }}'"
+                     value="{{ edit_model.base_url if edit_model and edit_model.provider_id == 'litellm' else '' }}"
+                     placeholder="{{ litellm_env_base or 'https://llm.example.com' }}"
+                     id="litellm-base-url">
+              {% if litellm_env_base %}
+                <small>Blank uses <code>{{ litellm_env_base }}</code> from
+                  LITELLM_PROXY_API_BASE{% if litellm_env_key_set %} and the key
+                  from LITELLM_PROXY_API_KEY{% endif %}.</small>
+              {% endif %}
+            </label>
+            <div class="settings-test-row">
+              <button type="button" class="btn btn-secondary"
+                      hx-get="/settings/quick-setup/litellm-models"
+                      hx-include="#litellm-base-url, #litellm-api-key"
+                      hx-target="#litellm-models-result"
+                      hx-swap="innerHTML"
+                      hx-disabled-elt="this">
+                Load models from proxy
+              </button>
+            </div>
+            <div id="litellm-models-result">
+              <label class="settings-field">
+                <span class="settings-label">LLM model (proxy alias)</span>
+                <input type="text" name="llm_model"
+                       x-bind:disabled="provider !== '{{ p.id }}'"
+                       value="{{ edit_model.model if edit_model and edit_model.provider_id == 'litellm' else '' }}"
+                       placeholder="e.g. pro">
+              </label>
+            </div>
           {% else %}
             {# Cloud providers: pre-render the dropdown with LiteLLM's
                known model list, default selected. User can pick any
@@ -256,13 +294,15 @@
               </label>
             {% endif %}
           {% endif %}
-          <p class="quicksetup-summary">
-            Will set:
-            <code>{{ p.default_llm }}</code>
-            {% if p.whisper_base_url %}
-              · whisper at <code>{{ p.whisper_base_url }}</code>
-            {% endif %}
-          </p>
+          {% if p.default_llm %}
+            <p class="quicksetup-summary">
+              Will set:
+              <code>{{ p.default_llm }}</code>
+              {% if p.whisper_base_url %}
+                · whisper at <code>{{ p.whisper_base_url }}</code>
+              {% endif %}
+            </p>
+          {% endif %}
         </div>
       {% endfor %}
 

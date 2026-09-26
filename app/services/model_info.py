@@ -145,12 +145,46 @@ async def _from_openrouter(model: str) -> int | None:
     return ctx if isinstance(ctx, int) and ctx > 0 else None
 
 
-async def get_context_window(model: str, base_url: str | None) -> int:
+async def _from_litellm_proxy(model: str, base_url: str | None, api_key: str) -> int | None:
+    """Resolve a `litellm_proxy/<alias>` model via the proxy's
+    /model/info. Aliases like `pro` exist in no public catalogue, so
+    without this they would fall back to DEFAULT_CONTEXT."""
+    from app.services.providers import litellm_proxy_credentials
+
+    base, key = litellm_proxy_credentials(base_url, api_key)
+    if not base:
+        return None
+    alias = _strip_provider(model)
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+            r = await client.get(f"{base}/model/info", headers=headers)
+            r.raise_for_status()
+            body = r.json()
+    except Exception as e:
+        log.warning("LiteLLM proxy /model/info failed: %s: %s", type(e).__name__, e)
+        return None
+    for entry in body.get("data") or []:
+        if entry.get("model_name") != alias:
+            continue
+        info = entry.get("model_info") or {}
+        for field in ("max_input_tokens", "max_tokens"):
+            value = info.get(field)
+            if isinstance(value, int) and value > 0:
+                return value
+    return None
+
+
+async def get_context_window(
+    model: str, base_url: str | None, *, api_key: str = ""
+) -> int:
     """Return the model's context window in tokens.
 
     Order of resolution:
     1. Cached value from a previous lookup in this process.
     2. For ollama / ollama_chat: Ollama's /api/show output.
+       For litellm_proxy/*: the proxy's /model/info (api_key or
+       LITELLM_PROXY_API_KEY authenticates).
     3. For openrouter/*: OpenRouter's /api/v1/models catalogue.
     4. LiteLLM's built-in catalogue.
     5. DEFAULT_CONTEXT (8000).
@@ -166,6 +200,13 @@ async def get_context_window(model: str, base_url: str | None) -> int:
             log.info("Context for %s via Ollama: %d tokens", model, ollama_value)
             _CACHE[cache_key] = ollama_value
             return ollama_value
+
+    if model.startswith("litellm_proxy/"):
+        proxy_value = await _from_litellm_proxy(model, base_url, api_key)
+        if proxy_value:
+            log.info("Context for %s via LiteLLM proxy: %d tokens", model, proxy_value)
+            _CACHE[cache_key] = proxy_value
+            return proxy_value
 
     openrouter_value = await _from_openrouter(model)
     if openrouter_value:

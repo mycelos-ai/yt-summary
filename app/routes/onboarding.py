@@ -86,7 +86,9 @@ async def provider_form(
             "current_user": current_user,
             "step": 2,
             "total_steps": 4,
-            "presets": list(PROVIDER_PRESETS.values()),
+            # The LiteLLM proxy needs a URL + model list step the
+            # wizard doesn't have; it is set up from Settings instead.
+            "presets": [p for p in PROVIDER_PRESETS.values() if p.id != "litellm"],
             "settings": settings,
             "selected_provider": selected,
             "current_default": current_default,

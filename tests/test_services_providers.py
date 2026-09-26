@@ -11,8 +11,8 @@ from app.services.providers import (
 )
 
 
-def test_preset_registry_has_six_majors():
-    expected = {"openai", "anthropic", "gemini", "groq", "ollama", "openrouter"}
+def test_preset_registry_has_six_majors_plus_litellm():
+    expected = {"openai", "anthropic", "gemini", "groq", "ollama", "openrouter", "litellm"}
     assert set(PROVIDER_PRESETS.keys()) == expected
 
 
@@ -321,3 +321,57 @@ def test_split_ollama_tags_no_embedders_returns_all_chat():
     chat, embed = split_ollama_tags(["llama3.1", "qwen3:8b"])
     assert set(chat) == {"llama3.1", "qwen3:8b"}
     assert embed == []
+
+
+def test_litellm_preset_registered():
+    from app.services.providers import PROVIDER_PRESETS
+
+    preset = PROVIDER_PRESETS["litellm"]
+    assert preset.litellm_provider == "litellm_proxy"
+    assert preset.requires_api_key
+
+
+async def test_fetch_litellm_models_prefixes_aliases(monkeypatch):
+    import respx
+    from httpx import Response
+
+    from app.services.providers import fetch_litellm_models
+
+    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
+    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    with respx.mock as mock:
+        route = mock.get("https://llm.example.com/v1/models").mock(
+            return_value=Response(200, json={"data": [{"id": "pro"}, {"id": "cheap"}]})
+        )
+        models = await fetch_litellm_models("https://llm.example.com/", "sk-virtual")
+    assert models == ["litellm_proxy/cheap", "litellm_proxy/pro"]
+    assert route.calls.last.request.headers["authorization"] == "Bearer sk-virtual"
+
+
+async def test_fetch_litellm_models_falls_back_to_env(monkeypatch):
+    """Blank form values use the same env vars the LiteLLM SDK reads,
+    so the proxy secret never has to be stored in the database."""
+    import respx
+    from httpx import Response
+
+    from app.services.providers import fetch_litellm_models
+
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://env.example.com/v1")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    with respx.mock as mock:
+        route = mock.get("https://env.example.com/v1/models").mock(
+            return_value=Response(200, json={"data": [{"id": "fast"}]})
+        )
+        models = await fetch_litellm_models("", "")
+    assert models == ["litellm_proxy/fast"]
+    assert route.calls.last.request.headers["authorization"] == "Bearer sk-env"
+
+
+async def test_fetch_litellm_models_without_base_raises(monkeypatch):
+    import pytest
+
+    from app.services.providers import fetch_litellm_models
+
+    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
+    with pytest.raises(ValueError, match="LITELLM_PROXY_API_BASE"):
+        await fetch_litellm_models("", "")

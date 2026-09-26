@@ -624,7 +624,7 @@ async def summarize(
         with_highlights=with_highlights,
     )
 
-    max_tokens = await get_context_window(model, base_url)
+    max_tokens = await get_context_window(model, base_url, api_key=api_key)
     budget = int(max_tokens * 0.7)
     transcript_tokens = _safe_token_count(model, transcript)
 

@@ -1,4 +1,5 @@
 import asyncio
+import html
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,9 +27,12 @@ from app.services.auth import generate_api_key as _gen_key
 from app.services.curl_parser import extract_cookies, write_netscape_cookies
 from app.services.providers import (
     PROVIDER_PRESETS,
+    fetch_litellm_models,
     fetch_ollama_models,
     list_chat_models,
+    litellm_proxy_credentials,
     split_ollama_tags,
+    with_litellm_prefix,
 )
 from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
 from app.services.tts_voices import voices_for_language
@@ -141,7 +145,7 @@ async def settings_page(
     preset_chat_models: dict[str, list[str]] = {}
     preset_chat_models_full: dict[str, list[str]] = {}
     for p in presets:
-        if p.id == "ollama":
+        if p.id in ("ollama", "litellm"):
             continue
         # Curated short list — what the dropdown shows by default.
         preset_chat_models[p.id] = list_chat_models(p.id)
@@ -151,6 +155,9 @@ async def settings_page(
         preset_chat_models_full[p.id] = list_chat_models(
             p.id, include_legacy=True
         )
+
+    litellm_env_base, _env_key = litellm_proxy_credentials("", "")
+    litellm_env_key_set = bool(_env_key)
 
     # TTS voice cache: scan tts_voices_dir for .onnx files so the card
     # can surface "N voices installed · M MB" without keeping a separate
@@ -176,6 +183,9 @@ async def settings_page(
             "presets": presets,
             "preset_chat_models": preset_chat_models,
             "preset_chat_models_full": preset_chat_models_full,
+            # Only the URL (not secret) and whether a key is set.
+            "litellm_env_base": litellm_env_base,
+            "litellm_env_key_set": litellm_env_key_set,
             "applied_preset": applied_preset,
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
@@ -357,6 +367,57 @@ async def quick_setup_ollama_models(llm_base_url: str = ""):
     return HTMLResponse(chat_block + summary)
 
 
+@router.get(
+    "/settings/quick-setup/litellm-models",
+    response_class=HTMLResponse,
+)
+async def quick_setup_litellm_models(llm_base_url: str = "", api_key: str = ""):
+    """HTMX fragment: list the model aliases a LiteLLM proxy serves.
+
+    Blank URL / key fall back to LITELLM_PROXY_API_BASE /
+    LITELLM_PROXY_API_KEY, like the LiteLLM SDK does at call time.
+    """
+    base_url = llm_base_url.strip()
+    # Error fragments replace the model field too, so they carry a
+    # manual alias input — the form must stay submittable.
+    manual = (
+        '<label class="settings-field">'
+        '<span class="settings-label">LLM model (proxy alias)</span>'
+        '<input type="text" name="llm_model" placeholder="e.g. pro">'
+        "</label>"
+    )
+    try:
+        models = await fetch_litellm_models(base_url, api_key)
+    except ValueError:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ Enter the proxy URL or set '
+            "LITELLM_PROXY_API_BASE in the container environment.</p>" + manual
+        )
+    except Exception as e:
+        # Only the exception type and the URL — never the key.
+        shown = html.escape(base_url or "LITELLM_PROXY_API_BASE")
+        return HTMLResponse(
+            f'<p class="status status-failed">⚠ Cannot reach LiteLLM proxy at '
+            f"{shown}: {type(e).__name__}</p>" + manual
+        )
+    if not models:
+        return HTMLResponse(
+            '<p class="status status-failed">⚠ The proxy serves no models.</p>' + manual
+        )
+    options = "".join(
+        f'<option value="{html.escape(m)}">{html.escape(m.removeprefix("litellm_proxy/"))}</option>'
+        for m in models
+    )
+    return HTMLResponse(
+        '<label class="settings-field">'
+        '<span class="settings-label">LLM model</span>'
+        f'<select name="llm_model">{options}</select>'
+        "</label>"
+        f'<small class="settings-test-hint">Found {len(models)} model'
+        f'{"" if len(models) == 1 else "s"} on the proxy.</small>'
+    )
+
+
 async def _probe_ollama_reachable(base_url: str) -> str | None:
     """Return None if Ollama answers /api/tags, else a human error string."""
     try:
@@ -387,11 +448,15 @@ async def llm_models_insert(
     can flip it explicitly via /default)."""
     existing = await llm_models_repo.list_all(db)
     make_default = not existing
+    provider_id = provider_id.strip()
+    model = model.strip()
+    if provider_id == "litellm":
+        model = with_litellm_prefix(model)
     new_id = await llm_models_repo.insert(
         db,
         label=label.strip() or "Untitled",
-        provider_id=provider_id.strip(),
-        model=model.strip(),
+        provider_id=provider_id,
+        model=model,
         api_key=api_key.strip(),
         base_url=base_url.strip().rstrip("/"),
         make_default=make_default,
@@ -420,10 +485,13 @@ async def llm_models_update(
     if row is None:
         raise HTTPException(404)
     effective_key = api_key.strip() or row.api_key
+    model = model.strip()
+    if row.provider_id == "litellm":
+        model = with_litellm_prefix(model)
     await llm_models_repo.update(
         db, model_id,
         label=label.strip() or row.label,
-        model=model.strip(),
+        model=model,
         api_key=effective_key,
         base_url=base_url.strip().rstrip("/"),
     )

@@ -1229,3 +1229,93 @@ def test_settings_page_shows_test_buttons(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert "/settings/test-pexels" in resp.text
     assert "/settings/test-youtube" in resp.text
+
+
+def test_quick_setup_litellm_models_renders_select(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    fetch = AsyncMock(return_value=["litellm_proxy/cheap", "litellm_proxy/pro"])
+    with (
+        TestClient(app) as client,
+        patch("app.routes.settings.fetch_litellm_models", fetch),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/litellm-models",
+            params={"llm_base_url": "https://llm.example.com", "api_key": "sk-x"},
+        )
+    assert resp.status_code == 200
+    assert 'name="llm_model"' in resp.text
+    assert 'value="litellm_proxy/pro"' in resp.text
+    assert "Found 2 models" in resp.text
+    fetch.assert_awaited_once_with("https://llm.example.com", "sk-x")
+
+
+def test_quick_setup_litellm_models_error_does_not_echo_key(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with (
+        TestClient(app) as client,
+        patch(
+            "app.routes.settings.fetch_litellm_models",
+            AsyncMock(side_effect=ConnectionError("refused")),
+        ),
+    ):
+        resp = client.get(
+            "/settings/quick-setup/litellm-models",
+            params={"llm_base_url": "https://nope.example.com", "api_key": "sk-secret"},
+        )
+    assert "Cannot reach LiteLLM proxy" in resp.text
+    assert "sk-secret" not in resp.text
+    # The error replaces the model field, so a manual alias input must
+    # come back with it — otherwise the form can't be submitted.
+    assert '<input type="text" name="llm_model"' in resp.text
+
+
+def test_insert_litellm_model_adds_prefix(tmp_path, monkeypatch):
+    import asyncio
+
+    import aiosqlite
+
+    from app.repos import llm_models as llm_models_repo
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings/llm-models",
+            data={
+                "label": "Proxy pro",
+                "provider_id": "litellm",
+                "llm_model": "pro",
+                "api_key": "",
+                "llm_base_url": "",
+            },
+            follow_redirects=False,
+        )
+    assert resp.status_code == 303
+
+    async def _read():
+        async with aiosqlite.connect(tmp_path / "app.db") as db:
+            db.row_factory = aiosqlite.Row
+            return await llm_models_repo.list_all(db)
+
+    rows = asyncio.run(_read())
+    assert [(r.provider_id, r.model, r.api_key, r.base_url) for r in rows] == [
+        ("litellm", "litellm_proxy/pro", "", "")
+    ]
+
+
+def test_settings_page_shows_litellm_env_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env-secret")
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/settings")
+    assert "LiteLLM Proxy" in resp.text
+    assert "https://llm.example.com" in resp.text
+    assert "sk-env-secret" not in resp.text

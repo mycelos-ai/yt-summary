@@ -164,7 +164,9 @@ async def extract_claims_for_source(
     transcript = source.transcript or ""
     if transcript:
         try:
-            context_window = await model_info.get_context_window(model, base_url)
+            context_window = await model_info.get_context_window(
+                model, base_url, api_key=api_key
+            )
             budget = int(context_window * _TRANSCRIPT_WINDOW_FRACTION)
             # chars/4 heuristic matches what summarizer.py uses via _safe_token_count
             transcript_tokens = len(transcript) // 4
