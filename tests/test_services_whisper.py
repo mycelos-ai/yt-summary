@@ -307,3 +307,40 @@ def test_transcribe_forwards_cpu_threads(tmp_path):
         transcribe(fake_audio, model_name="base", cpu_threads=2)
     assert load.call_args.args[0] == "base"
     assert load.call_args.kwargs["cpu_threads"] == 2
+
+
+def test_transcribe_passes_language_hint(tmp_path):
+    from app.services.whisper import transcribe
+    fake_audio = tmp_path / "x.flac"
+    fake_audio.write_bytes(b"")
+    info = MagicMock()
+    info.language = "de"
+    fake_model = MagicMock()
+    fake_model.transcribe.return_value = (iter([]), info)
+    with patch("app.services.whisper._load_model", return_value=fake_model):
+        transcribe(fake_audio, model_name="small", language="de")
+    assert fake_model.transcribe.call_args.kwargs["language"] == "de"
+
+
+async def test_transcribe_via_api_sends_language_hint_and_flac_type(tmp_path):
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "chunk_001.flac"
+    audio.write_bytes(b"flac-bytes")
+    with respx.mock(base_url="https://api.example.com") as mock:
+        route = mock.post("/audio/transcriptions").mock(
+            return_value=Response(200, json={"text": "hallo"})
+        )
+        await transcribe_via_api(
+            audio,
+            base_url="https://api.example.com",
+            api_key="",
+            model_name="whisper-large-v3",
+            language="de",
+        )
+    body = route.calls.last.request.content
+    assert b'name="language"\r\n\r\nde' in body
+    assert b"Content-Type: audio/flac" in body

@@ -1,20 +1,25 @@
 import asyncio
 import contextlib
-import logging
+import shutil
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from app.models import TranscriptSource
+from app.services.audio_chunks import extract_chunk
+from app.services.audio_probe import probe_duration_seconds
 from app.services.whisper import transcribe, transcribe_via_api
 from app.services.youtube import download_audio, fetch_subtitles
-
-log = logging.getLogger(__name__)
 
 # Don't update job.step more than once every 3 seconds. Whisper yields
 # many segments per minute on a Pi5; without throttling we'd hammer
 # SQLite with no UI benefit (the HTMX poll only ticks every 2s anyway).
 _PROGRESS_MIN_INTERVAL_S = 3.0
+
+# Audio longer than this is transcribed in chunks of this length.
+# faster-whisper holds its whole input in RAM, so chunking keeps memory
+# flat on a Pi; hosted endpoints get uploads under their size limit.
+CHUNK_S = 600
 
 
 class TranscriptTooLongError(RuntimeError):
@@ -32,28 +37,19 @@ def _check_whisper_cap(duration_seconds: int, max_whisper_duration_s: int) -> No
         )
 
 
-async def probe_duration_seconds(audio_path: Path) -> int | None:
-    """Audio length via ffprobe, or None when ffprobe is missing or its
-    output can't be parsed. Reads only the container header, so it is
-    cheap even for multi-hour files."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        log.warning("ffprobe not found on PATH; audio duration unknown")
+def _offset_progress(progress, offset: float, total: int | None):
+    """Map a chunk's (current, chunk_total) progress onto the whole
+    video: current is shifted by the chunk offset, total becomes the
+    full length."""
+    if progress is None:
         return None
-    out, _err = await proc.communicate()
-    try:
-        return int(float(out.decode().strip()))
-    except (ValueError, UnicodeDecodeError):
-        return None
+    if total is None:
+        return progress
+
+    def shifted(current: float, _chunk_total: float) -> None:
+        progress(offset + current, float(total))
+
+    return shifted
 
 
 def _format_progress(current: float, total: float) -> str:
@@ -152,34 +148,75 @@ async def obtain_transcript(
         _check_whisper_cap(duration_seconds, max_whisper_duration_s)
 
     audio_path = await download_audio(url, video_id, audio_dir, cookies_path=cookies_path)
+    chunk_dir = audio_dir / f"{video_id}.chunks"
     try:
         if duration_seconds is None:
-            probed = await probe_duration_seconds(audio_path)
-            if probed is not None:
+            duration_seconds = await probe_duration_seconds(audio_path)
+            if duration_seconds is not None:
                 if duration_cb is not None:
-                    await duration_cb(probed)
+                    await duration_cb(duration_seconds)
                 if not whisper_base_url:
-                    _check_whisper_cap(probed, max_whisper_duration_s)
-        if whisper_base_url:
-            if progress_cb is not None:
-                await progress_cb(f"sending audio to {whisper_base_url}")
-            text, segments, language = await transcribe_via_api(
-                audio_path,
-                base_url=whisper_base_url,
-                api_key=whisper_api_key,
-                model_name=whisper_model,
-            )
-        else:
-            loop = asyncio.get_running_loop()
-            whisper_progress = _build_whisper_progress(progress_cb, loop)
-            text, segments, language = await asyncio.to_thread(
-                transcribe,
-                audio_path,
-                whisper_model,
-                progress=whisper_progress,
-                cpu_threads=whisper_cpu_threads,
-            )
+                    _check_whisper_cap(duration_seconds, max_whisper_duration_s)
+
+        # Unknown length (ffprobe missing) falls back to one pass over
+        # the whole file, same as before chunking existed.
+        chunked = duration_seconds is not None and duration_seconds > CHUNK_S
+        n_expected = -(-(duration_seconds or 0) // CHUNK_S)
+
+        texts: list[str] = []
+        segments: list[tuple[float, str]] = []
+        language: str | None = None
+        loop = asyncio.get_running_loop()
+        whisper_progress = _build_whisper_progress(progress_cb, loop)
+        index = 0
+        while True:
+            if chunked:
+                # Loop until ffmpeg finds no samples left rather than
+                # trusting the metadata length, so no tail is lost.
+                chunk = await extract_chunk(
+                    audio_path,
+                    chunk_dir / f"chunk_{index:03d}.flac",
+                    start_s=index * CHUNK_S,
+                    length_s=CHUNK_S,
+                )
+                if chunk is None:
+                    break
+            elif index == 0:
+                chunk = audio_path
+            else:
+                break
+            offset = float(index * CHUNK_S)
+            if whisper_base_url:
+                if progress_cb is not None:
+                    part = f" (part {index + 1}/{n_expected})" if chunked else ""
+                    await progress_cb(f"sending audio to {whisper_base_url}{part}")
+                text, chunk_segments, chunk_lang = await transcribe_via_api(
+                    chunk,
+                    base_url=whisper_base_url,
+                    api_key=whisper_api_key,
+                    model_name=whisper_model,
+                    language=language,
+                )
+            else:
+                text, chunk_segments, chunk_lang = await asyncio.to_thread(
+                    transcribe,
+                    chunk,
+                    whisper_model,
+                    progress=_offset_progress(
+                        whisper_progress, offset, duration_seconds
+                    ),
+                    cpu_threads=whisper_cpu_threads,
+                    language=language,
+                )
+            if text:
+                texts.append(text)
+            segments.extend((start + offset, seg) for start, seg in chunk_segments)
+            language = language or chunk_lang
+            if chunk != audio_path:
+                await asyncio.to_thread(chunk.unlink, missing_ok=True)
+            index += 1
     finally:
         if await asyncio.to_thread(audio_path.exists):
             await asyncio.to_thread(audio_path.unlink)
-    return text, segments, TranscriptSource.WHISPER, language
+        await asyncio.to_thread(shutil.rmtree, chunk_dir, ignore_errors=True)
+    return " ".join(texts), segments, TranscriptSource.WHISPER, language

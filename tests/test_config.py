@@ -37,7 +37,7 @@ def test_config_worker_limits_defaults(tmp_path, monkeypatch):
     monkeypatch.delenv("YTS_JOB_MAX_ATTEMPTS", raising=False)
     cfg = Config.from_env()
     assert cfg.whisper_cpu_threads == 2
-    assert cfg.whisper_max_duration_s == 1800
+    assert cfg.whisper_max_duration_s == 10800
     assert cfg.job_max_attempts == 3
 
 

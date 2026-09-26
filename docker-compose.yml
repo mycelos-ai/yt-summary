@@ -32,7 +32,7 @@ services:
       # README → "Keeping a Pi responsive during local Whisper".
       # Defaults shown; uncomment to change.
       # YTS_WHISPER_CPU_THREADS: "2"
-      # YTS_WHISPER_MAX_DURATION_S: "1800"
+      # YTS_WHISPER_MAX_DURATION_S: "10800"
       # YTS_JOB_MAX_ATTEMPTS: "3"
     ports:
       # Host port 8200 → container's uvicorn on 8000.

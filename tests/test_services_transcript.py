@@ -1,4 +1,19 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
+
+
+def _fake_extract(n_chunks: int, seen_dirs: list | None = None):
+    """extract_chunk stand-in: writes n_chunks files, then reports end."""
+    async def fake(audio_path, out_path, *, start_s, length_s):
+        index = int(out_path.stem.split("_")[1])
+        if index >= n_chunks:
+            return None
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"c")
+        if seen_dirs is not None:
+            seen_dirs.append(out_path.parent)
+        return out_path
+    return fake
 
 
 async def test_obtain_transcript_uses_subs_when_available(tmp_path):
@@ -85,7 +100,7 @@ async def test_obtain_transcript_calls_progress_callback_during_whisper(tmp_path
     async def progress(step: str) -> None:
         captured.append(step)
 
-    def fake_transcribe(audio_path, model_name, progress=None, cpu_threads=0):
+    def fake_transcribe(audio_path, model_name, progress=None, cpu_threads=0, language=None):
         # Whisper would report segment-end / duration as it goes.
         if progress is not None:
             progress(30.0, 60.0)
@@ -250,6 +265,7 @@ async def test_obtain_transcript_duration_cap_ignored_for_hosted_whisper(tmp_pat
     with (
         patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.extract_chunk", side_effect=_fake_extract(1)),
         patch(
             "app.services.transcript.transcribe_via_api",
             AsyncMock(return_value=("hosted", [], "en")),
@@ -278,6 +294,7 @@ async def test_obtain_transcript_cap_zero_or_unknown_duration_allows_local(tmp_p
         with (
             patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
             patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+            patch("app.services.transcript.extract_chunk", side_effect=_fake_extract(1)),
             patch(
                 "app.services.transcript.transcribe",
                 return_value=("ok", [], None),
@@ -350,6 +367,7 @@ async def test_obtain_transcript_probed_duration_reported_for_hosted_whisper(tmp
     with (
         patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
         patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.extract_chunk", side_effect=_fake_extract(1)),
         patch("app.services.transcript.probe_duration_seconds", AsyncMock(return_value=3600)),
         patch(
             "app.services.transcript.transcribe_via_api",
@@ -392,3 +410,125 @@ async def test_obtain_transcript_known_duration_not_probed(tmp_path):
             max_whisper_duration_s=1800,
         )
     probe.assert_not_called()
+
+
+async def test_obtain_transcript_long_audio_is_chunked_for_local_whisper(tmp_path):
+    """Long audio goes to local Whisper in fixed-length chunks so RAM
+    stays flat: timestamps are shifted by the chunk offset, language
+    comes from the first chunk that reports one, progress spans the
+    whole video, and chunk files are removed afterwards."""
+    from app.services import transcript as mod
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+    chunk_dir_seen: list = []
+
+    results = {
+        "chunk_000.flac": ("one", [(1.0, "one")], None),
+        "chunk_001.flac": ("two", [(2.0, "two")], "de"),
+        "chunk_002.flac": ("three", [(3.0, "three")], "en"),
+    }
+    progress_seen: list[tuple[float, float]] = []
+    languages_passed: list[str | None] = []
+
+    def fake_transcribe(path, model, *, progress=None, cpu_threads=0, language=None):
+        languages_passed.append(language)
+        if progress is not None:
+            progress(5.0, 600.0)
+            progress_seen.append((5.0, 600.0))
+        return results[path.name]
+
+    messages: list[str] = []
+
+    async def on_progress(msg: str) -> None:
+        messages.append(msg)
+
+    with (
+        patch.object(mod, "CHUNK_S", 600),
+        patch.object(mod, "_PROGRESS_MIN_INTERVAL_S", 0.0),
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch(
+            "app.services.transcript.extract_chunk",
+            side_effect=_fake_extract(3, chunk_dir_seen),
+        ),
+        patch("app.services.transcript.transcribe", side_effect=fake_transcribe),
+    ):
+        text, segments, source, language = await mod.obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            duration_seconds=1500,
+            max_whisper_duration_s=10800,
+            progress_cb=on_progress,
+        )
+        await asyncio.sleep(0)
+
+    assert text == "one two three"
+    assert segments == [(1.0, "one"), (602.0, "two"), (1203.0, "three")]
+    assert language == "de"
+    # Once a chunk detects the language, later chunks are pinned to it
+    # so a quiet or accented stretch can't flip the transcript mid-video.
+    assert languages_passed == [None, None, "de"]
+    assert source.value == "whisper"
+    assert not fake_audio.exists()
+    assert not chunk_dir_seen[0].exists()
+    assert any("20:05 / 25:00" in m for m in messages)
+
+
+async def test_obtain_transcript_long_audio_is_chunked_for_hosted_whisper(tmp_path):
+    from app.services import transcript as mod
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+
+    api = AsyncMock(side_effect=[
+        ("a", [(0.5, "a")], "en"),
+        ("b", [(0.5, "b")], "en"),
+    ])
+    with (
+        patch.object(mod, "CHUNK_S", 600),
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.extract_chunk", side_effect=_fake_extract(2)),
+        patch("app.services.transcript.transcribe_via_api", api),
+    ):
+        text, segments, _, language = await mod.obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="whisper-large-v3",
+            whisper_base_url="https://api.groq.com/openai/v1",
+            duration_seconds=1100,
+        )
+    assert text == "a b"
+    assert segments == [(0.5, "a"), (600.5, "b")]
+    assert language == "en"
+    assert api.await_count == 2
+    assert [c.kwargs.get("language") for c in api.await_args_list] == [None, "en"]
+
+
+async def test_obtain_transcript_short_audio_not_chunked(tmp_path):
+    from app.services import transcript as mod
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"")
+    with (
+        patch.object(mod, "CHUNK_S", 600),
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.extract_chunk", AsyncMock()) as split,
+        patch("app.services.transcript.transcribe", return_value=("ok", [], None)),
+    ):
+        await mod.obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            duration_seconds=600,
+        )
+    split.assert_not_called()

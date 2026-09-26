@@ -67,8 +67,13 @@ def transcribe(
     *,
     progress: ProgressFn | None = None,
     cpu_threads: int = 0,
+    language: str | None = None,
 ) -> tuple[str, list[tuple[float, str]], str | None]:
     """Run Whisper on `audio_path`.
+
+    `language` pins decoding to that ISO code; None lets Whisper detect
+    it. Chunked transcription pins later chunks to the first detected
+    language so a quiet or accented stretch can't flip it mid-video.
 
     Returns:
       (joined_text, segments, language)
@@ -84,7 +89,7 @@ def transcribe(
     """
     model = _load_model(model_name, cpu_threads=cpu_threads)
     segments, info = model.transcribe(
-        str(audio_path), language=None, vad_filter=True
+        str(audio_path), language=language, vad_filter=True
     )
     total = float(getattr(info, "duration", 0.0) or 0.0)
     raw_lang = getattr(info, "language", None)
@@ -116,6 +121,7 @@ async def transcribe_via_api(
     api_key: str,
     model_name: str,
     timeout_s: float = 300.0,
+    language: str | None = None,
 ) -> tuple[str, list[tuple[float, str]], str | None]:
     """Send `audio_path` to a hosted Whisper endpoint.
 
@@ -133,6 +139,7 @@ async def transcribe_via_api(
     model_name: server-side name, e.g. "whisper-large-v3" for Groq,
       "whisper-1" for OpenAI, "Systran/faster-whisper-large-v3" for
       self-hosted faster-whisper-server.
+    language: optional ISO-639-1 hint (OpenAI `language` field).
     """
     url = f"{base_url.rstrip('/')}/audio/transcriptions"
     headers: dict[str, str] = {}
@@ -144,7 +151,12 @@ async def transcribe_via_api(
     # blob anyway. asyncio.to_thread keeps the event loop responsive.
     audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
     files = {
-        "file": (audio_path.name, audio_bytes, "audio/mpeg"),
+        "file": (
+            audio_path.name,
+            audio_bytes,
+            # Chunks are FLAC; whole downloads keep the historic type.
+            "audio/flac" if audio_path.suffix == ".flac" else "audio/mpeg",
+        ),
     }
     data = {
         "model": model_name,
@@ -153,6 +165,8 @@ async def transcribe_via_api(
         # servers fall back to plain `{text}` which we handle below.
         "response_format": "verbose_json",
     }
+    if language:
+        data["language"] = language
 
     async with httpx.AsyncClient(timeout=timeout_s, trust_env=False) as client:
         resp = await client.post(url, headers=headers, files=files, data=data)

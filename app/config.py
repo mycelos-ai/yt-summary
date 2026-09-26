@@ -25,13 +25,15 @@ class Config:
     # whisper_cpu_threads: threads for local faster-whisper. 0 = let
     #   the library decide (all cores).
     # whisper_max_duration_s: videos longer than this get no LOCAL
-    #   Whisper fallback and fail with a clear message. Hosted Whisper
-    #   (base_url set) is not affected. 0 = no cap.
+    #   Whisper fallback and fail with a clear message. Audio is
+    #   transcribed in 10-minute chunks, so RAM stays flat; the cap
+    #   only bounds how long the CPU stays busy (default 3 h). Hosted
+    #   Whisper (base_url set) is not affected. 0 = no cap.
     # job_max_attempts: a summary job that is interrupted (container
     #   killed / rebooted mid-run) is requeued at startup at most this
     #   many times, then marked failed.
     whisper_cpu_threads: int = 2
-    whisper_max_duration_s: int = 1800
+    whisper_max_duration_s: int = 10800
     job_max_attempts: int = 3
 
     @property
@@ -63,7 +65,7 @@ class Config:
         return cls(
             data_dir=Path(os.environ.get("YTS_DATA_DIR", "/data")),
             whisper_cpu_threads=_env_int("YTS_WHISPER_CPU_THREADS", 2),
-            whisper_max_duration_s=_env_int("YTS_WHISPER_MAX_DURATION_S", 1800),
+            whisper_max_duration_s=_env_int("YTS_WHISPER_MAX_DURATION_S", 10800),
             job_max_attempts=_env_int("YTS_JOB_MAX_ATTEMPTS", 3),
         )
 

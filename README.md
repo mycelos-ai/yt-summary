@@ -214,8 +214,15 @@ in `docker-compose.yml`) keep this in check:
 | Variable | Default | Meaning |
 |---|---|---|
 | `YTS_WHISPER_CPU_THREADS` | `2` | Threads for local Whisper. `0` = all cores. |
-| `YTS_WHISPER_MAX_DURATION_S` | `1800` | Videos without subtitles longer than this (seconds) fail with a clear message instead of running local Whisper. `0` = no cap. Hosted Whisper backends ignore it. |
+| `YTS_WHISPER_MAX_DURATION_S` | `10800` | Videos without subtitles longer than this (seconds) fail with a clear message instead of running local Whisper. `0` = no cap. Hosted Whisper backends ignore it. |
 | `YTS_JOB_MAX_ATTEMPTS` | `3` | A job interrupted by a crash or restart is requeued at most this many times, then marked failed. Retry from Diagnostics resets the counter. |
+
+Audio longer than 10 minutes is cut into 10-minute FLAC chunks (via
+`ffmpeg`) and transcribed one chunk at a time. faster-whisper keeps
+its whole input in RAM, so this holds memory flat no matter how long
+the video is; for hosted Whisper it keeps every upload under the
+usual 25 MB limit. The duration cap therefore only limits how long
+the CPU stays busy.
 
 On top of that, give the container a CPU and memory ceiling so a runaway
 job cannot take the host down (`cpus: "2"` / `mem_limit: 2g` in the
