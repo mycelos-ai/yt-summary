@@ -28,6 +28,7 @@ from app.services.summarizer import (
 )
 from app.services.transcript import obtain_transcript
 from app.services.transcript_format import group_segments
+from app.services.whisper import resolve_whisper_backend
 from app.services.youtube import fetch_metadata
 
 log = logging.getLogger(__name__)
@@ -63,7 +64,6 @@ async def process_video(
         raise RuntimeError(f"Video {video_id} not found")
 
     settings = await settings_repo.get_all(db)
-    whisper_model = settings.get("whisper_model", "small")
 
     # Resolve which LLM to use. Background work (auto-import, initial
     # submit) passes llm_model_id=None and we use the default row.
@@ -149,6 +149,9 @@ async def process_video(
             text = article.body
         else:
             await set_step("fetching transcript")
+            whisper_base_url, whisper_api_key, whisper_model = (
+                resolve_whisper_backend(settings)
+            )
             text, segments, source, transcript_lang = await obtain_transcript(
                 url=video.url,
                 video_id=video_id,
@@ -156,8 +159,8 @@ async def process_video(
                 cookies_path=cookies,
                 whisper_model=whisper_model,
                 progress_cb=set_step,
-                whisper_base_url=settings.get("whisper_base_url", ""),
-                whisper_api_key=settings.get("whisper_api_key", ""),
+                whisper_base_url=whisper_base_url,
+                whisper_api_key=whisper_api_key,
                 duration_seconds=video.duration_seconds,
                 max_whisper_duration_s=config.whisper_max_duration_s,
                 whisper_cpu_threads=config.whisper_cpu_threads,

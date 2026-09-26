@@ -46,6 +46,37 @@ def _normalise_lang(raw: str | None) -> str | None:
     return None
 
 
+def resolve_whisper_backend(settings: dict[str, str]) -> tuple[str, str, str]:
+    """Return (base_url, api_key, model) for the configured Whisper
+    backend. base_url "" means local faster-whisper.
+
+    With `whisper_via_litellm` set, URL and key come from
+    LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY (the env vars the
+    LLM proxy profile uses too) and the stored URL/key are ignored, so
+    the proxy secret never sits in the database. The model defaults to
+    the proxy alias `stt`.
+
+    Raises ValueError when the proxy is selected but no URL is set —
+    silently falling back to local Whisper would put exactly the load
+    on a Pi that the proxy option exists to avoid.
+    """
+    if settings.get("whisper_via_litellm") == "1":
+        from app.services.providers import litellm_proxy_credentials
+
+        base, key = litellm_proxy_credentials("", "")
+        if not base:
+            raise ValueError(
+                "Whisper is set to use the LiteLLM proxy, but "
+                "LITELLM_PROXY_API_BASE is not set in the container environment"
+            )
+        return f"{base}/v1", key, settings.get("whisper_model") or "stt"
+    return (
+        (settings.get("whisper_base_url") or "").strip(),
+        settings.get("whisper_api_key") or "",
+        settings.get("whisper_model") or "small",
+    )
+
+
 def _load_model(name: str, *, cpu_threads: int = 0) -> WhisperModel:
     """Load (and cache) a CPU int8 model.
 
@@ -170,6 +201,12 @@ async def transcribe_via_api(
 
     async with httpx.AsyncClient(timeout=timeout_s, trust_env=False) as client:
         resp = await client.post(url, headers=headers, files=files, data=data)
+        if resp.status_code in (400, 415, 422):
+            # Some backends (e.g. behind a LiteLLM proxy) reject
+            # verbose_json. Plain json still yields the text; the
+            # transcript just has no timestamps.
+            data["response_format"] = "json"
+            resp = await client.post(url, headers=headers, files=files, data=data)
         resp.raise_for_status()
         body = resp.json()
 

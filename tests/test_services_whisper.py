@@ -344,3 +344,104 @@ async def test_transcribe_via_api_sends_language_hint_and_flac_type(tmp_path):
     body = route.calls.last.request.content
     assert b'name="language"\r\n\r\nde' in body
     assert b"Content-Type: audio/flac" in body
+
+
+def test_resolve_whisper_backend_plain_settings(monkeypatch):
+    from app.services.whisper import resolve_whisper_backend
+
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
+    backend = resolve_whisper_backend({
+        "whisper_base_url": "https://api.groq.com/openai/v1",
+        "whisper_api_key": "gsk-x",
+        "whisper_model": "whisper-large-v3",
+    })
+    assert backend == ("https://api.groq.com/openai/v1", "gsk-x", "whisper-large-v3")
+
+
+def test_resolve_whisper_backend_local_default():
+    from app.services.whisper import resolve_whisper_backend
+
+    assert resolve_whisper_backend({}) == ("", "", "small")
+
+
+def test_resolve_whisper_backend_via_litellm_uses_env(monkeypatch):
+    """The proxy option ignores the stored URL/key and reads the same
+    env vars as the LLM profile, so no secret sits in the database."""
+    from app.services.whisper import resolve_whisper_backend
+
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com/")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    backend = resolve_whisper_backend({
+        "whisper_via_litellm": "1",
+        "whisper_base_url": "https://api.groq.com/openai/v1",
+        "whisper_api_key": "gsk-x",
+        "whisper_model": "stt",
+    })
+    assert backend == ("https://llm.example.com/v1", "sk-env", "stt")
+
+
+def test_resolve_whisper_backend_via_litellm_defaults_model(monkeypatch):
+    from app.services.whisper import resolve_whisper_backend
+
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com/v1")
+    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    assert resolve_whisper_backend({"whisper_via_litellm": "1"}) == (
+        "https://llm.example.com/v1", "", "stt",
+    )
+
+
+def test_resolve_whisper_backend_via_litellm_without_env_raises(monkeypatch):
+    """Never fall back to local Whisper silently: on a Pi that is the
+    exact load the proxy option exists to avoid."""
+    from app.services.whisper import resolve_whisper_backend
+
+    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
+    with pytest.raises(ValueError, match="LITELLM_PROXY_API_BASE"):
+        resolve_whisper_backend({"whisper_via_litellm": "1"})
+
+
+async def test_transcribe_via_api_retries_plain_json_when_verbose_rejected(tmp_path):
+    """Some STT backends behind a proxy reject verbose_json. Retry once
+    with plain json: the transcript loses timestamps but the job works."""
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "x.flac"
+    audio.write_bytes(b"flac-bytes")
+    with respx.mock(base_url="https://llm.example.com/v1") as mock:
+        route = mock.post("/audio/transcriptions").mock(side_effect=[
+            Response(400, json={"error": "response_format not supported"}),
+            Response(200, json={"text": "plain text"}),
+        ])
+        text, segments, language = await transcribe_via_api(
+            audio,
+            base_url="https://llm.example.com/v1",
+            api_key="sk",
+            model_name="stt",
+        )
+    assert (text, segments, language) == ("plain text", [], None)
+    assert route.call_count == 2
+    assert b"verbose_json" in route.calls[0].request.content
+    assert b"verbose_json" not in route.calls[1].request.content
+
+
+async def test_transcribe_via_api_auth_error_not_retried(tmp_path):
+    import httpx
+    import respx
+    from httpx import Response
+
+    from app.services.whisper import transcribe_via_api
+
+    audio = tmp_path / "x.flac"
+    audio.write_bytes(b"flac-bytes")
+    with respx.mock(base_url="https://llm.example.com/v1") as mock:
+        route = mock.post("/audio/transcriptions").mock(
+            return_value=Response(401, json={"error": "bad key"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await transcribe_via_api(
+                audio, base_url="https://llm.example.com/v1", api_key="x", model_name="stt",
+            )
+    assert route.call_count == 1

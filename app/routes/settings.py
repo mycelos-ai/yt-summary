@@ -36,7 +36,7 @@ from app.services.providers import (
 )
 from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
 from app.services.tts_voices import voices_for_language
-from app.services.whisper import transcribe, transcribe_via_api
+from app.services.whisper import resolve_whisper_backend, transcribe, transcribe_via_api
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -219,6 +219,7 @@ async def save_settings(
     whisper_model: str = Form("small"),
     whisper_base_url: str = Form(""),
     whisper_api_key: str = Form(""),
+    whisper_via_litellm: str = Form(""),
     summary_language: str = Form("auto"),
     playlist_refresh_interval_hours: str = Form(""),
     playlist_refresh_interval_minutes: str = Form(""),
@@ -239,8 +240,15 @@ async def save_settings(
     # would produce "//audio/transcriptions" or "//api/chat" which some
     # providers reject with 405.
     whisper_base_url = whisper_base_url.strip().rstrip("/")
+    via_litellm = whisper_via_litellm == "1"
+    whisper_model = whisper_model.strip()
+    if via_litellm and whisper_model in ("", "small"):
+        # The local default is still in the field when the box gets
+        # ticked; the proxy knows the alias, not faster-whisper sizes.
+        whisper_model = "stt"
     for key, value in (
-        ("whisper_model", whisper_model.strip() or "small"),
+        ("whisper_model", whisper_model or "small"),
+        ("whisper_via_litellm", "1" if via_litellm else ""),
         ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
         ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
@@ -606,14 +614,11 @@ async def test_whisper(
         )
 
     settings = await settings_repo.get_all(db)
-    model = settings.get("whisper_model") or "small"
-    base_url = (settings.get("whisper_base_url") or "").strip()
-    api_key = settings.get("whisper_api_key") or ""
-
     started = time.monotonic()
     try:
+        base_url, api_key, model = resolve_whisper_backend(settings)
         if base_url:
-            text = await transcribe_via_api(
+            text, _, _ = await transcribe_via_api(
                 WHISPER_TEST_SAMPLE,
                 base_url=base_url,
                 api_key=api_key,
@@ -623,7 +628,7 @@ async def test_whisper(
         else:
             # Same thread count as the pipeline so the test button
             # shares the cached model instead of loading a second one.
-            text = await asyncio.to_thread(
+            text, _, _ = await asyncio.to_thread(
                 transcribe, WHISPER_TEST_SAMPLE, model,
                 cpu_threads=config.whisper_cpu_threads,
             )

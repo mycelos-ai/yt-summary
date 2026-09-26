@@ -198,16 +198,26 @@ the default or pick a profile per job as usual.
 Leave URL and key blank to keep the secret out of the database: the
 LiteLLM SDK then reads `LITELLM_PROXY_API_BASE` / `LITELLM_PROXY_API_KEY`
 from the container environment. `docker-compose.yml` fills them from
-`LITELLM_HOST` / `LITELLM_SECRET` in `.env`.
+`LITELLM_HOST` / `LITELLM_SECRET` in `.env`:
 
-The proxy can also serve Whisper: put `<proxy>/v1` and the STT alias
-into the Whisper card.
+```bash
+# .env next to docker-compose.yml
+LITELLM_HOST=https://llm.example.com   # proxy root, without /v1
+LITELLM_SECRET=sk-...                  # LiteLLM virtual key
+```
+
+Use an address the container can reach: the proxy's Docker service
+name only works when both run in the same Docker network; on another
+machine (e.g. a Pi at home) use the proxy's public HTTPS URL.
+
+The proxy can also serve Whisper — see
+[Whisper backends](#whisper-backends).
 
 ## Whisper backends
 
 A 1-hour video on a Pi5 with `small` Whisper takes ~1 hour to transcribe.
 That's fine for "kick off and forget" but uncomfortable if you're
-waiting for it. Four backends are supported:
+waiting for it. Five backends are supported:
 
 1. **Local in container** *(default)* — `faster-whisper` on CPU. Drop
    model to `base` if `small` is too slow.
@@ -216,10 +226,23 @@ waiting for it. Four backends are supported:
 3. **Groq Cloud** — `whisper-large-v3` at ~150× realtime, ~$0.04 per
    audio-hour. The fastest option by far.
 4. **OpenAI Cloud** — `whisper-1`.
+5. **Your LiteLLM proxy** — tick "Use the LiteLLM proxy" in the
+   Whisper card. Audio goes to `<proxy>/v1/audio/transcriptions`
+   with the proxy's STT alias as model (default `stt`). URL and key
+   come from `LITELLM_PROXY_API_BASE` / `LITELLM_PROXY_API_KEY` (see
+   [Your own LiteLLM proxy](#your-own-litellm-proxy)); the Base URL
+   and API key fields are ignored, so no secret is stored in the
+   database. If the env URL is missing, jobs fail with a clear
+   message instead of silently falling back to local Whisper. The
+   virtual key must allow the STT alias.
 
-Set Whisper Base URL + (optionally) API key in Settings → Whisper card.
-Each is OpenAI-API-compatible, so the same code path drives all three
-hosted variants.
+For 2–4, set Whisper Base URL + (optionally) API key in Settings →
+Whisper card. All hosted variants are OpenAI-API-compatible, so the
+same code path drives them. The app asks for `verbose_json` to get
+segment timestamps; a backend that rejects it (HTTP 400/415/422) is
+retried once with plain `json` — the transcript then has no
+timestamps. Hosted backends are not subject to
+`YTS_WHISPER_MAX_DURATION_S`.
 
 ### Keeping a Pi responsive during local Whisper
 

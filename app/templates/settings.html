@@ -387,6 +387,17 @@
         </div>
       </header>
 
+      <label class="settings-field settings-check">
+        <input type="checkbox" name="whisper_via_litellm" value="1"
+               {% if settings.get('whisper_via_litellm') == '1' %}checked{% endif %}>
+        <span class="settings-label">Use the LiteLLM proxy</span>
+        <small>Sends audio to <code>{{ (litellm_env_base or 'LITELLM_PROXY_API_BASE') }}/v1/audio/transcriptions</code>
+          with the key from LITELLM_PROXY_API_KEY. Base URL and API key below are
+          ignored; the model is the proxy alias (default <code>stt</code>).
+          {% if not litellm_env_base %}<strong>LITELLM_PROXY_API_BASE is not set</strong> —
+          transcription fails until it is.{% endif %}</small>
+      </label>
+
       <label class="settings-field">
         <span class="settings-label">Whisper Model</span>
         <input name="whisper_model" value="{{ settings.get('whisper_model', 'small') }}"

@@ -439,7 +439,7 @@ def test_test_whisper_local_path(tmp_path, monkeypatch):
         TestClient(app) as client,
         patch(
             "app.routes.settings.transcribe",
-            return_value="this is a test",
+            return_value=("this is a test", [], "en"),
         ) as local_mock,
     ):
         resp = client.post("/settings/test-whisper")
@@ -470,7 +470,7 @@ def test_test_whisper_api_path(tmp_path, monkeypatch):
         asyncio.get_event_loop().run_until_complete(setup())
         with patch(
             "app.routes.settings.transcribe_via_api",
-            AsyncMock(return_value="hosted whisper text"),
+            AsyncMock(return_value=("hosted whisper text", [], "en")),
         ) as api_mock:
             resp = client.post("/settings/test-whisper")
     assert resp.status_code == 200
@@ -1319,3 +1319,59 @@ def test_settings_page_shows_litellm_env_hint(tmp_path, monkeypatch):
     assert "LiteLLM Proxy" in resp.text
     assert "https://llm.example.com" in resp.text
     assert "sk-env-secret" not in resp.text
+
+
+def test_test_whisper_via_litellm_uses_env(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import settings as settings_repo
+            await settings_repo.set(app.state.db, "whisper_via_litellm", "1")
+            await settings_repo.set(app.state.db, "whisper_model", "stt")
+
+        asyncio.get_event_loop().run_until_complete(setup())
+        with patch(
+            "app.routes.settings.transcribe_via_api",
+            AsyncMock(return_value=("proxy text", [], "en")),
+        ) as api_mock:
+            resp = client.post("/settings/test-whisper")
+    assert "proxy text" in resp.text
+    assert "sk-env" not in resp.text
+    kwargs = api_mock.call_args.kwargs
+    assert kwargs["base_url"] == "https://llm.example.com/v1"
+    assert kwargs["api_key"] == "sk-env"
+    assert kwargs["model_name"] == "stt"
+
+
+def test_save_settings_whisper_via_litellm_defaults_model(tmp_path, monkeypatch):
+    """Ticking the proxy box with the local default model still in the
+    field stores the proxy alias `stt` instead of `small`."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        client.post(
+            "/settings",
+            data={"whisper_via_litellm": "1", "whisper_model": "small"},
+            follow_redirects=False,
+        )
+        import asyncio
+
+        from app.repos import settings as settings_repo
+        stored = asyncio.get_event_loop().run_until_complete(
+            settings_repo.get_all(app.state.db)
+        )
+        assert stored.get("whisper_via_litellm") == "1"
+        assert stored.get("whisper_model") == "stt"
+
+        client.post("/settings", data={"whisper_model": "stt"}, follow_redirects=False)
+        stored = asyncio.get_event_loop().run_until_complete(
+            settings_repo.get_all(app.state.db)
+        )
+        assert "whisper_via_litellm" not in stored

@@ -1003,6 +1003,15 @@ button.section-download {
   margin-bottom: 18px;
 }
 .settings-field:last-of-type { margin-bottom: 0; }
+/* Checkbox row: box and label on one line, hint below. */
+.settings-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+}
+.settings-check input[type="checkbox"] { margin: 0; }
+.settings-check small { grid-column: 2; }
 .settings-label {
   display: flex;
   align-items: center;

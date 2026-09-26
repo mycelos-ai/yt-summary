@@ -1128,3 +1128,29 @@ async def test_pipeline_skips_thumbnail_without_key(db, tmp_path, monkeypatch):
     assert fetch_called is False
     v = await videos_repo.get(db, "e2")
     assert v.thumbnail_path is None
+
+
+async def test_pipeline_whisper_via_litellm_passes_proxy_backend(db, tmp_path, monkeypatch):
+    config = Config(data_dir=tmp_path)
+    config.ensure_dirs()
+    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    await videos_repo.upsert_metadata(
+        db, video_id="v1", url="https://youtu.be/v1", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await settings_repo.set(db, "whisper_via_litellm", "1")
+    await settings_repo.set(db, "whisper_model", "stt")
+
+    async def set_step(s: str) -> None:
+        pass
+
+    obtain = AsyncMock(return_value=("t", [], TranscriptSource.WHISPER, "de"))
+    with patch("app.pipeline.obtain_transcript", obtain):
+        from app.pipeline import process_video
+        await process_video(db, config, "v1", set_step)
+
+    kwargs = obtain.call_args.kwargs
+    assert kwargs["whisper_base_url"] == "https://llm.example.com/v1"
+    assert kwargs["whisper_api_key"] == "sk-env"
+    assert kwargs["whisper_model"] == "stt"
