@@ -296,3 +296,99 @@ async def test_obtain_transcript_cap_zero_or_unknown_duration_allows_local(tmp_p
         assert text == "ok"
         assert local_mock.call_args.kwargs["cpu_threads"] == 2
         fake_audio.write_bytes(b"")
+
+
+async def test_obtain_transcript_unknown_duration_probed_after_download(tmp_path):
+    """Playlist entries from the YouTube Data API carry no duration, so
+    the pre-download cap can't fire. The downloaded audio is probed and
+    the cap enforced before local Whisper starts; the audio is deleted
+    and the measured duration is reported back for persisting."""
+    import pytest
+
+    from app.services.transcript import TranscriptTooLongError, obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+    reported: list[int] = []
+
+    async def on_duration(seconds: int) -> None:
+        reported.append(seconds)
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.probe_duration_seconds", AsyncMock(return_value=3600)),
+        patch("app.services.transcript.transcribe") as local_mock,
+        pytest.raises(TranscriptTooLongError) as exc,
+    ):
+        await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            duration_seconds=None,
+            max_whisper_duration_s=1800,
+            duration_cb=on_duration,
+        )
+    assert "60 min" in str(exc.value)
+    local_mock.assert_not_called()
+    assert not fake_audio.exists()
+    assert reported == [3600]
+
+
+async def test_obtain_transcript_probed_duration_reported_for_hosted_whisper(tmp_path):
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+    reported: list[int] = []
+
+    async def on_duration(seconds: int) -> None:
+        reported.append(seconds)
+
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.probe_duration_seconds", AsyncMock(return_value=3600)),
+        patch(
+            "app.services.transcript.transcribe_via_api",
+            AsyncMock(return_value=("hosted", [], "en")),
+        ),
+    ):
+        text, _, _, _ = await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="whisper-large-v3",
+            whisper_base_url="https://api.groq.com/openai/v1",
+            duration_seconds=None,
+            max_whisper_duration_s=1800,
+            duration_cb=on_duration,
+        )
+    assert text == "hosted"
+    assert reported == [3600]
+
+
+async def test_obtain_transcript_known_duration_not_probed(tmp_path):
+    from app.services.transcript import obtain_transcript
+
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"")
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch("app.services.transcript.probe_duration_seconds", AsyncMock()) as probe,
+        patch("app.services.transcript.transcribe", return_value=("ok", [], None)),
+    ):
+        await obtain_transcript(
+            url="https://youtu.be/x",
+            video_id="x",
+            audio_dir=tmp_path,
+            cookies_path=None,
+            whisper_model="small",
+            duration_seconds=600,
+            max_whisper_duration_s=1800,
+        )
+    probe.assert_not_called()

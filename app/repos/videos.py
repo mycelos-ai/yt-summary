@@ -745,6 +745,17 @@ async def set_image_query(
     await db.commit()
 
 
+async def set_duration_if_missing(
+    db: aiosqlite.Connection, video_id: str, duration_seconds: int,
+) -> None:
+    await db.execute(
+        "UPDATE videos SET duration_seconds=?, updated_at=datetime('now') "
+        "WHERE id=? AND duration_seconds IS NULL",
+        (duration_seconds, video_id),
+    )
+    await db.commit()
+
+
 async def set_thumbnail_path(
     db: aiosqlite.Connection, video_id: str, thumbnail_path: str,
 ) -> None:

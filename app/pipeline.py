@@ -161,6 +161,9 @@ async def process_video(
                 duration_seconds=video.duration_seconds,
                 max_whisper_duration_s=config.whisper_max_duration_s,
                 whisper_cpu_threads=config.whisper_cpu_threads,
+                duration_cb=lambda secs: videos_repo.set_duration_if_missing(
+                    db, video_id, secs
+                ),
             )
             # Group raw cues into 8-second-gap paragraphs and JSON-
             # serialise — the detail page renders blocks with leading

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 from app.models import TranscriptSource
 from app.services.whisper import transcribe, transcribe_via_api
 from app.services.youtube import download_audio, fetch_subtitles
+
+log = logging.getLogger(__name__)
 
 # Don't update job.step more than once every 3 seconds. Whisper yields
 # many segments per minute on a Pi5; without throttling we'd hammer
@@ -17,6 +20,40 @@ _PROGRESS_MIN_INTERVAL_S = 3.0
 class TranscriptTooLongError(RuntimeError):
     """Raised when a video has no subtitles and is longer than the
     local-Whisper duration cap. Surfaces as the job's error message."""
+
+
+def _check_whisper_cap(duration_seconds: int, max_whisper_duration_s: int) -> None:
+    if 0 < max_whisper_duration_s < duration_seconds:
+        raise TranscriptTooLongError(
+            f"no subtitles and video is {duration_seconds // 60} min long; "
+            f"local Whisper is capped at {max_whisper_duration_s // 60} min "
+            "(YTS_WHISPER_MAX_DURATION_S). Configure a hosted Whisper "
+            "backend in Settings or raise the cap."
+        )
+
+
+async def probe_duration_seconds(audio_path: Path) -> int | None:
+    """Audio length via ffprobe, or None when ffprobe is missing or its
+    output can't be parsed. Reads only the container header, so it is
+    cheap even for multi-hour files."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        log.warning("ffprobe not found on PATH; audio duration unknown")
+        return None
+    out, _err = await proc.communicate()
+    try:
+        return int(float(out.decode().strip()))
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 def _format_progress(current: float, total: float) -> str:
@@ -78,6 +115,7 @@ async def obtain_transcript(
     duration_seconds: int | None = None,
     max_whisper_duration_s: int = 0,
     whisper_cpu_threads: int = 0,
+    duration_cb: Callable[[int], Awaitable[None]] | None = None,
 ) -> tuple[str, list[tuple[float, str]], TranscriptSource, str | None]:
     """Obtain a transcript for `url`.
 
@@ -99,27 +137,29 @@ async def obtain_transcript(
     video pins a Pi5 for about an hour; this keeps the box usable.
     `whisper_cpu_threads` is forwarded to faster-whisper (0 = all
     cores).
+
+    When `duration_seconds` is unknown (e.g. playlist entries from the
+    YouTube Data API), the downloaded audio is probed instead: the cap
+    is enforced before Whisper starts, and the measured length is
+    handed to `duration_cb` so the caller can persist it.
     """
     subs = await fetch_subtitles(url, cookies_path=cookies_path)
     if subs is not None:
         text, segments, source, language = subs
         return text, segments, TranscriptSource(source), language
 
-    if (
-        not whisper_base_url
-        and max_whisper_duration_s > 0
-        and duration_seconds is not None
-        and duration_seconds > max_whisper_duration_s
-    ):
-        raise TranscriptTooLongError(
-            f"no subtitles and video is {duration_seconds // 60} min long; "
-            f"local Whisper is capped at {max_whisper_duration_s // 60} min "
-            "(YTS_WHISPER_MAX_DURATION_S). Configure a hosted Whisper "
-            "backend in Settings or raise the cap."
-        )
+    if not whisper_base_url and duration_seconds is not None:
+        _check_whisper_cap(duration_seconds, max_whisper_duration_s)
 
     audio_path = await download_audio(url, video_id, audio_dir, cookies_path=cookies_path)
     try:
+        if duration_seconds is None:
+            probed = await probe_duration_seconds(audio_path)
+            if probed is not None:
+                if duration_cb is not None:
+                    await duration_cb(probed)
+                if not whisper_base_url:
+                    _check_whisper_cap(probed, max_whisper_duration_s)
         if whisper_base_url:
             if progress_cb is not None:
                 await progress_cb(f"sending audio to {whisper_base_url}")

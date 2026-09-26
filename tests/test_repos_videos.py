@@ -428,3 +428,18 @@ async def test_get_most_recently_summarized_returns_newest_summarized(db: aiosql
 async def test_get_most_recently_summarized_none_when_no_summaries(db: aiosqlite.Connection):
     await _insert_sample(db, "x")   # no summary
     assert await videos_repo.get_most_recently_summarized(db) is None
+
+
+async def test_set_duration_if_missing_fills_null_only(db: aiosqlite.Connection):
+    await videos_repo.upsert_metadata(
+        db, video_id="nodur", url="https://youtu.be/nodur", title="t",
+        description="", thumbnail_path=None, duration_seconds=None,
+    )
+    await videos_repo.set_duration_if_missing(db, "nodur", 3600)
+    v = await videos_repo.get(db, "nodur")
+    assert v is not None and v.duration_seconds == 3600
+
+    await _insert_sample(db)  # duration_seconds=600
+    await videos_repo.set_duration_if_missing(db, "abc123", 3600)
+    v = await videos_repo.get(db, "abc123")
+    assert v is not None and v.duration_seconds == 600
