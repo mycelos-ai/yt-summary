@@ -196,9 +196,8 @@ the 8000-token fallback. It sits next to the other profiles — switch
 the default or pick a profile per job as usual.
 
 Leave URL and key blank to keep the secret out of the database: the
-LiteLLM SDK then reads `LITELLM_PROXY_API_BASE` / `LITELLM_PROXY_API_KEY`
-from the container environment. `docker-compose.yml` fills them from
-`LITELLM_HOST` / `LITELLM_SECRET` in `.env`:
+app then uses `LITELLM_HOST` / `LITELLM_SECRET` from the container
+environment. `docker-compose.yml` passes them through from `.env`:
 
 ```bash
 # .env next to docker-compose.yml
@@ -226,18 +225,18 @@ waiting for it. Five backends are supported:
 3. **Groq Cloud** — `whisper-large-v3` at ~150× realtime, ~$0.04 per
    audio-hour. The fastest option by far.
 4. **OpenAI Cloud** — `whisper-1`.
-5. **Your LiteLLM proxy** — tick "Use the LiteLLM proxy" in the
-   Whisper card. Audio goes to `<proxy>/v1/audio/transcriptions`
-   with the proxy's STT alias as model (default `stt`). URL and key
-   come from `LITELLM_PROXY_API_BASE` / `LITELLM_PROXY_API_KEY` (see
-   [Your own LiteLLM proxy](#your-own-litellm-proxy)); the Base URL
-   and API key fields are ignored, so no secret is stored in the
-   database. If the env URL is missing, jobs fail with a clear
-   message instead of silently falling back to local Whisper. The
-   virtual key must allow the STT alias.
+5. **Your LiteLLM proxy** — pick "LiteLLM proxy" under Settings →
+   Transcription. Audio goes to `<proxy>/v1/audio/transcriptions`
+   with the proxy's STT alias as model (default `stt`). The proxy URL
+   is prefilled from `LITELLM_HOST` and editable; an empty key uses
+   `LITELLM_SECRET` (see [Your own LiteLLM proxy](#your-own-litellm-proxy)).
+   The app stores URL and key only when they differ from the env.
+   If no URL is set at all, jobs fail with a clear message instead
+   of silently falling back to local Whisper. The virtual key must
+   allow the STT alias.
 
-For 2–4, set Whisper Base URL + (optionally) API key in Settings →
-Whisper card. All hosted variants are OpenAI-API-compatible, so the
+For 2–4, pick "Other endpoint" in Settings → Transcription and set
+the endpoint URL and (optionally) the API key. All hosted variants are OpenAI-API-compatible, so the
 same code path drives them. The app asks for `verbose_json` to get
 segment timestamps; a backend that rejects it (HTTP 400/415/422) is
 retried once with plain `json` — the transcript then has no

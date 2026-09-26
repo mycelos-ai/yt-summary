@@ -35,11 +35,11 @@ services:
       # YTS_WHISPER_MAX_DURATION_S: "10800"
       # YTS_JOB_MAX_ATTEMPTS: "3"
       # Optional LiteLLM proxy (Settings → Add model → LiteLLM Proxy).
-      # Compose fills these from LITELLM_HOST / LITELLM_SECRET in .env;
-      # the LiteLLM SDK reads them whenever a proxy profile leaves URL
-      # or key blank, so the secret stays out of the database.
-      LITELLM_PROXY_API_BASE: ${LITELLM_HOST:-}
-      LITELLM_PROXY_API_KEY: ${LITELLM_SECRET:-}
+      # Set LITELLM_HOST / LITELLM_SECRET in .env; the app uses them
+      # whenever a proxy profile leaves URL or key blank, so the secret
+      # stays out of the database.
+      LITELLM_HOST: ${LITELLM_HOST:-}
+      LITELLM_SECRET: ${LITELLM_SECRET:-}
     ports:
       # Host port 8200 → container's uvicorn on 8000.
       # Direct access: http://<host>:8200

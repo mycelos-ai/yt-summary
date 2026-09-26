@@ -17,6 +17,7 @@ import litellm
 from app.config import Config
 from app.models import Video, VideoKind
 from app.repos import videos as videos_repo
+from app.services.providers import with_litellm_proxy_credentials
 from app.services.youtube import download_thumbnail
 
 log = logging.getLogger(__name__)
@@ -135,6 +136,7 @@ async def generate_image_query(*, summary: str, model_row) -> str | None:
         }
         if model_row.base_url:
             kwargs["api_base"] = model_row.base_url
+        with_litellm_proxy_credentials(kwargs)
         resp: Any = await litellm.acompletion(**kwargs)
         text = (resp.choices[0].message.content or "").strip()
         return text or None

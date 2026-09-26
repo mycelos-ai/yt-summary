@@ -222,8 +222,8 @@ async def test_litellm_proxy_context_from_model_info(monkeypatch):
     import respx
     from httpx import Response
 
-    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
-    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_HOST", raising=False)
+    monkeypatch.delenv("LITELLM_SECRET", raising=False)
     payload = {
         "data": [
             {"model_name": "cheap", "model_info": {"max_input_tokens": 32000}},
@@ -245,8 +245,8 @@ async def test_litellm_proxy_context_uses_env_and_strips_v1(monkeypatch):
     import respx
     from httpx import Response
 
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://env.example.com/v1")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    monkeypatch.setenv("LITELLM_HOST", "https://env.example.com/v1")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
     payload = {"data": [{"model_name": "fast", "model_info": {"max_tokens": 64000}}]}
     with respx.mock as mock:
         mock.get("https://env.example.com/model/info").mock(
@@ -260,7 +260,7 @@ async def test_litellm_proxy_context_unreachable_falls_back(monkeypatch):
     import httpx
     import respx
 
-    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_SECRET", raising=False)
     with respx.mock as mock:
         mock.get("https://llm.example.com/model/info").mock(
             side_effect=httpx.ConnectError("refused")

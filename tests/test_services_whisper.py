@@ -349,7 +349,7 @@ async def test_transcribe_via_api_sends_language_hint_and_flac_type(tmp_path):
 def test_resolve_whisper_backend_plain_settings(monkeypatch):
     from app.services.whisper import resolve_whisper_backend
 
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
     backend = resolve_whisper_backend({
         "whisper_base_url": "https://api.groq.com/openai/v1",
         "whisper_api_key": "gsk-x",
@@ -369,8 +369,8 @@ def test_resolve_whisper_backend_via_litellm_uses_env(monkeypatch):
     env vars as the LLM profile, so no secret sits in the database."""
     from app.services.whisper import resolve_whisper_backend
 
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com/")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com/")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
     backend = resolve_whisper_backend({
         "whisper_via_litellm": "1",
         "whisper_base_url": "https://api.groq.com/openai/v1",
@@ -383,8 +383,8 @@ def test_resolve_whisper_backend_via_litellm_uses_env(monkeypatch):
 def test_resolve_whisper_backend_via_litellm_defaults_model(monkeypatch):
     from app.services.whisper import resolve_whisper_backend
 
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com/v1")
-    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com/v1")
+    monkeypatch.delenv("LITELLM_SECRET", raising=False)
     assert resolve_whisper_backend({"whisper_via_litellm": "1"}) == (
         "https://llm.example.com/v1", "", "stt",
     )
@@ -395,8 +395,8 @@ def test_resolve_whisper_backend_via_litellm_without_env_raises(monkeypatch):
     exact load the proxy option exists to avoid."""
     from app.services.whisper import resolve_whisper_backend
 
-    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
-    with pytest.raises(ValueError, match="LITELLM_PROXY_API_BASE"):
+    monkeypatch.delenv("LITELLM_HOST", raising=False)
+    with pytest.raises(ValueError, match="LITELLM_HOST"):
         resolve_whisper_backend({"whisper_via_litellm": "1"})
 
 
@@ -445,3 +445,16 @@ async def test_transcribe_via_api_auth_error_not_retried(tmp_path):
                 audio, base_url="https://llm.example.com/v1", api_key="x", model_name="stt",
             )
     assert route.call_count == 1
+
+
+def test_resolve_whisper_backend_via_litellm_stored_proxy_wins(monkeypatch):
+    from app.services.whisper import resolve_whisper_backend
+
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
+    backend = resolve_whisper_backend({
+        "whisper_via_litellm": "1",
+        "whisper_proxy_url": "https://other.example.com/v1",
+        "whisper_proxy_key": "sk-stored",
+    })
+    assert backend == ("https://other.example.com/v1", "sk-stored", "stt")

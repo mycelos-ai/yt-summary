@@ -1133,8 +1133,8 @@ async def test_pipeline_skips_thumbnail_without_key(db, tmp_path, monkeypatch):
 async def test_pipeline_whisper_via_litellm_passes_proxy_backend(db, tmp_path, monkeypatch):
     config = Config(data_dir=tmp_path)
     config.ensure_dirs()
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
     await videos_repo.upsert_metadata(
         db, video_id="v1", url="https://youtu.be/v1", title="t",
         description="", thumbnail_path=None, duration_seconds=None,

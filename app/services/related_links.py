@@ -21,6 +21,7 @@ from app.models import Video
 from app.repos import videos as videos_repo
 from app.services import related as related_svc
 from app.services.highlight_parser import _extract_json_blob
+from app.services.providers import with_litellm_proxy_credentials
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ async def _llm_select(
     }
     if model_row.base_url:
         kwargs["api_base"] = model_row.base_url
+    with_litellm_proxy_credentials(kwargs)
     resp: Any = await litellm.acompletion(**kwargs)
     return resp.choices[0].message.content or ""
 

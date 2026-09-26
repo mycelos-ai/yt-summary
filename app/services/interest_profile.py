@@ -20,6 +20,7 @@ import litellm
 from app.repos import feedback as feedback_repo
 from app.repos import llm_models as llm_models_repo
 from app.repos import users as users_repo
+from app.services.providers import with_litellm_proxy_credentials
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ async def _call_consolidate_llm(
     }
     if base_url:
         kwargs["api_base"] = base_url
+    with_litellm_proxy_credentials(kwargs)
     response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 

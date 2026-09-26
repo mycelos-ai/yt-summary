@@ -42,6 +42,7 @@ from app.models import TtsJob
 from app.repos import settings as settings_repo
 from app.repos import tts_jobs as tts_jobs_repo
 from app.repos import videos as videos_repo
+from app.services.providers import with_litellm_proxy_credentials
 from app.services.tts_render import _split_into_sentence_chunks
 
 log = logging.getLogger(__name__)
@@ -359,6 +360,7 @@ class TtsWorker:
             }
             if base_url:
                 kwargs["api_base"] = base_url
+            with_litellm_proxy_credentials(kwargs)
             response: Any = await litellm.acompletion(**kwargs)
             return response.choices[0].message.content or ""
 

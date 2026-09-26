@@ -31,7 +31,7 @@ from app.repos import llm_models as llm_models_repo
 from app.repos import settings as settings_repo
 from app.repos import users as users_repo
 from app.services import avatars as avatars_service
-from app.services.providers import PROVIDER_PRESETS
+from app.services.providers import PROVIDER_PRESETS, with_litellm_proxy_credentials
 from app.template_filters import register_filters
 
 router = APIRouter()
@@ -218,6 +218,7 @@ async def test_provider(
         kwargs["api_base"] = base_url
 
     try:
+        with_litellm_proxy_credentials(kwargs)
         response: Any = await litellm.acompletion(**kwargs)
         text = (response.choices[0].message.content or "").strip()
         return HTMLResponse(

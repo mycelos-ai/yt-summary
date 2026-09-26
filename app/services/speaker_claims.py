@@ -29,6 +29,7 @@ from app.repos import speaker_claims as claims_repo
 from app.repos import speakers as speakers_repo
 from app.services import model_info
 from app.services.highlight_parser import _extract_json_blob
+from app.services.providers import with_litellm_proxy_credentials
 
 log = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ async def extract_claims_for_source(
         kwargs["api_base"] = base_url
 
     try:
+        with_litellm_proxy_credentials(kwargs)
         response: Any = await litellm.acompletion(**kwargs)
         raw = response.choices[0].message.content or ""
     except Exception as e:  # noqa: BLE001 — extraction is best-effort

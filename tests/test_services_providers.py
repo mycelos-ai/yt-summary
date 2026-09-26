@@ -337,8 +337,8 @@ async def test_fetch_litellm_models_prefixes_aliases(monkeypatch):
 
     from app.services.providers import fetch_litellm_models
 
-    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
-    monkeypatch.delenv("LITELLM_PROXY_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_HOST", raising=False)
+    monkeypatch.delenv("LITELLM_SECRET", raising=False)
     with respx.mock as mock:
         route = mock.get("https://llm.example.com/v1/models").mock(
             return_value=Response(200, json={"data": [{"id": "pro"}, {"id": "cheap"}]})
@@ -356,8 +356,8 @@ async def test_fetch_litellm_models_falls_back_to_env(monkeypatch):
 
     from app.services.providers import fetch_litellm_models
 
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://env.example.com/v1")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    monkeypatch.setenv("LITELLM_HOST", "https://env.example.com/v1")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
     with respx.mock as mock:
         route = mock.get("https://env.example.com/v1/models").mock(
             return_value=Response(200, json={"data": [{"id": "fast"}]})
@@ -372,6 +372,35 @@ async def test_fetch_litellm_models_without_base_raises(monkeypatch):
 
     from app.services.providers import fetch_litellm_models
 
-    monkeypatch.delenv("LITELLM_PROXY_API_BASE", raising=False)
-    with pytest.raises(ValueError, match="LITELLM_PROXY_API_BASE"):
+    monkeypatch.delenv("LITELLM_HOST", raising=False)
+    with pytest.raises(ValueError, match="LITELLM_HOST"):
         await fetch_litellm_models("", "")
+
+
+def test_with_litellm_proxy_credentials_fills_from_env(monkeypatch):
+    from app.services.providers import with_litellm_proxy_credentials
+
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com/v1/")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
+    kwargs = with_litellm_proxy_credentials(
+        {"model": "litellm_proxy/pro", "api_key": ""}
+    )
+    assert kwargs["api_base"] == "https://llm.example.com"
+    assert kwargs["api_key"] == "sk-env"
+
+
+def test_with_litellm_proxy_credentials_keeps_explicit_and_other_models(monkeypatch):
+    from app.services.providers import with_litellm_proxy_credentials
+
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
+    explicit = with_litellm_proxy_credentials({
+        "model": "litellm_proxy/pro",
+        "api_base": "https://other.example.com",
+        "api_key": "sk-row",
+    })
+    assert explicit["api_base"] == "https://other.example.com"
+    assert explicit["api_key"] == "sk-row"
+    other = with_litellm_proxy_credentials({"model": "openai/gpt-5", "api_key": "sk-o"})
+    assert "api_base" not in other
+    assert other["api_key"] == "sk-o"

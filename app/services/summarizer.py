@@ -6,6 +6,7 @@ import litellm
 
 from app.services.highlight_parser import HIGHLIGHTS_SCHEMA_HINT, parse_summary_payload
 from app.services.model_info import get_context_window
+from app.services.providers import with_litellm_proxy_credentials
 from app.services.transcript_format import format_timestamp
 
 ProgressCb = Callable[[str], Awaitable[None]]
@@ -543,6 +544,7 @@ async def _completion(
     }
     if base_url:
         kwargs["api_base"] = base_url
+    with_litellm_proxy_credentials(kwargs)
     response: Any = await litellm.acompletion(**kwargs)
     return response.choices[0].message.content or ""
 

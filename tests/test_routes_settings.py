@@ -1320,8 +1320,8 @@ def test_insert_litellm_model_adds_prefix(tmp_path, monkeypatch):
 
 def test_settings_page_shows_litellm_env_hint(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env-secret")
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env-secret")
     app = create_app()
     with TestClient(app) as client:
         resp = client.get("/settings")
@@ -1334,8 +1334,8 @@ def test_test_whisper_via_litellm_uses_env(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, patch
 
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("LITELLM_PROXY_API_BASE", "https://llm.example.com")
-    monkeypatch.setenv("LITELLM_PROXY_API_KEY", "sk-env")
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
     app = create_app()
     with TestClient(app) as client:
         import asyncio
@@ -1457,3 +1457,98 @@ def test_settings_page_keeps_third_party_keys_out_of_html(tmp_path, monkeypatch)
                     follow_redirects=False)
         page = client.get("/settings")
     assert "PEXELS-SECRET-1" not in page.text
+
+
+def test_test_whisper_uses_unsaved_form_values(tmp_path, monkeypatch):
+    """The Test button checks the host as it stands in the form, before
+    Save — and nothing gets stored by the test."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    monkeypatch.setenv("LITELLM_SECRET", "sk-env")
+    app = create_app()
+    with TestClient(app) as client:
+        with patch(
+            "app.routes.settings.transcribe_via_api",
+            AsyncMock(return_value=("proxy text", [], "en")),
+        ) as api_mock:
+            resp = client.post("/settings/test-whisper", data={
+                "whisper_backend": "proxy",
+                "whisper_proxy_url": "https://other.example.com/",
+                "whisper_proxy_key": "sk-form",
+                "whisper_model_proxy": "stt-large",
+            })
+        s = _settings(app)
+    assert "proxy text" in resp.text
+    kwargs = api_mock.call_args.kwargs
+    assert kwargs["base_url"] == "https://other.example.com/v1"
+    assert kwargs["api_key"] == "sk-form"
+    assert kwargs["model_name"] == "stt-large"
+    assert "whisper_proxy_url" not in s
+    assert "whisper_via_litellm" not in s
+
+
+def test_save_whisper_proxy_url_and_key_are_editable(tmp_path, monkeypatch):
+    """A proxy URL different from LITELLM_HOST is stored and wins; the
+    prefilled LITELLM_HOST value is not stored, so the env stays the
+    source of truth. The key is write-only and never rendered."""
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings", data={
+            "whisper_backend": "proxy",
+            "whisper_proxy_url": "https://other.example.com",
+            "whisper_proxy_key": "sk-proxy-secret",
+        }, follow_redirects=False)
+        s = _settings(app)
+        assert s["whisper_proxy_url"] == "https://other.example.com"
+        assert s["whisper_proxy_key"] == "sk-proxy-secret"
+        page = client.get("/settings")
+        assert "sk-proxy-secret" not in page.text
+        assert 'value="https://other.example.com"' in page.text
+
+        # Back to the prefilled env value: nothing stored, key kept.
+        client.post("/settings", data={
+            "whisper_backend": "proxy",
+            "whisper_proxy_url": "https://llm.example.com",
+        }, follow_redirects=False)
+        s = _settings(app)
+        assert "whisper_proxy_url" not in s
+        assert s["whisper_proxy_key"] == "sk-proxy-secret"
+
+        client.post("/settings", data={
+            "whisper_backend": "proxy",
+            "clear_whisper_proxy_key": "1",
+        }, follow_redirects=False)
+        assert "whisper_proxy_key" not in _settings(app)
+
+
+def test_settings_prefills_proxy_url_from_litellm_host(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    app = create_app()
+    with TestClient(app) as client:
+        page = client.get("/settings")
+    assert 'id="whisper_proxy_url"' in page.text
+    assert page.text.count('value="https://llm.example.com"') >= 2
+
+
+def test_add_litellm_model_with_env_url_stores_blank(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_HOST", "https://llm.example.com")
+    app = create_app()
+    with TestClient(app) as client:
+        client.post("/settings/llm-models", data={
+            "label": "Pro", "provider_id": "litellm", "llm_model": "pro",
+            "llm_base_url": "https://llm.example.com/",
+        }, follow_redirects=False)
+        import asyncio
+
+        async def rows():
+            from app.repos import llm_models as llm_models_repo
+            return await llm_models_repo.list_all(app.state.db)
+        (row,) = asyncio.get_event_loop().run_until_complete(rows())
+    assert row.base_url == ""
+    assert row.model == "litellm_proxy/pro"

@@ -33,6 +33,7 @@ from app.services.providers import (
     litellm_proxy_credentials,
     split_ollama_tags,
     with_litellm_prefix,
+    with_litellm_proxy_credentials,
 )
 from app.services.tts_voices import LANGUAGES as _TTS_VOICE_LANGUAGES
 from app.services.tts_voices import voices_for_language
@@ -126,7 +127,9 @@ async def settings_page(
     has_whisper_key = bool(settings.get("whisper_api_key"))
     # Stored secrets never enter the render context; the page only
     # needs to know whether one is set.
-    secret_keys = ("whisper_api_key", "pexels_api_key", "youtube_api_key")
+    secret_keys = (
+        "whisper_api_key", "whisper_proxy_key", "pexels_api_key", "youtube_api_key",
+    )
     safe_settings = {
         k: v for k, v in settings.items() if k not in secret_keys
     }
@@ -200,6 +203,7 @@ async def settings_page(
             "current_provider_id": current_provider_id,
             "settings": safe_settings,
             "has_whisper_key": has_whisper_key,
+            "has_whisper_proxy_key": bool(settings.get("whisper_proxy_key")),
             "has_pexels_key": bool(settings.get("pexels_api_key")),
             "has_youtube_key": bool(settings.get("youtube_api_key")),
             "saved": saved == "1",
@@ -230,6 +234,69 @@ async def settings_page(
     )
 
 
+_WHISPER_KEYS = (
+    "whisper_via_litellm", "whisper_base_url", "whisper_model",
+    "whisper_api_key", "whisper_proxy_url", "whisper_proxy_key",
+)
+
+
+def _whisper_settings_from_form(
+    stored: dict[str, str],
+    *,
+    backend: str = "",
+    model: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    via_litellm: str = "",
+    model_local: str = "",
+    model_proxy: str = "",
+    model_hosted: str = "",
+    proxy_url: str = "",
+    proxy_key: str = "",
+    clear_proxy_key: str = "",
+) -> dict[str, str]:
+    """Map the Whisper form onto the stored setting keys. Returns every
+    Whisper key; "" means "not set". Shared by Save and Test, so the
+    test button checks exactly what Save would store.
+
+    The page renders one model field per backend (all stay in the form
+    while hidden); without `backend` the legacy single-field payload
+    applies. The proxy has its own URL / key so a hosted provider's key
+    never goes to the proxy. A proxy URL equal to LITELLM_HOST is not
+    stored, so the env var stays the source of truth."""
+    out = {k: stored.get(k, "") for k in _WHISPER_KEYS}
+    # LiteLLM and httpx clients append paths to base; a trailing "/"
+    # would produce "//audio/transcriptions" which some providers
+    # reject with 405.
+    base_url = base_url.strip().rstrip("/")
+    if backend == "local":
+        via_litellm, base_url, model = "", "", model_local
+    elif backend == "proxy":
+        via_litellm, model = "1", model_proxy or "stt"
+        base_url = out["whisper_base_url"]
+    elif backend == "hosted":
+        via_litellm, model = "", model_hosted
+    model = model.strip()
+    if via_litellm == "1" and model in ("", "small"):
+        # The local default is still in the field when the box gets
+        # ticked; the proxy knows the alias, not faster-whisper sizes.
+        model = "stt"
+    out["whisper_via_litellm"] = "1" if via_litellm == "1" else ""
+    out["whisper_base_url"] = base_url
+    out["whisper_model"] = model or "small"
+    if api_key:
+        out["whisper_api_key"] = api_key
+    if backend:
+        env_base, _ = litellm_proxy_credentials("", "")
+        url = proxy_url.strip().rstrip("/")
+        out["whisper_proxy_url"] = "" if url == env_base else url
+        if proxy_key.strip():
+            out["whisper_proxy_key"] = proxy_key.strip()
+        elif clear_proxy_key == "1":
+            out["whisper_proxy_key"] = ""
+    return out
+
+
 @router.post("/settings")
 async def save_settings(
     whisper_model: str = Form("small"),
@@ -256,37 +323,33 @@ async def save_settings(
     whisper_model_local: str = Form(""),
     whisper_model_proxy: str = Form(""),
     whisper_model_hosted: str = Form(""),
+    whisper_proxy_url: str = Form(""),
+    whisper_proxy_key: str = Form(""),
+    clear_whisper_proxy_key: str = Form(""),
     section: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    # LiteLLM and httpx clients append paths to base; a trailing "/"
-    # would produce "//audio/transcriptions" or "//api/chat" which some
-    # providers reject with 405.
-    whisper_base_url = whisper_base_url.strip().rstrip("/")
-    # The settings page picks one backend and renders one model field
-    # per backend (all three stay in the form while hidden). Map that
-    # choice onto the stored keys; without whisper_backend the legacy
-    # single-field payload applies unchanged.
-    if whisper_backend == "local":
-        whisper_via_litellm = ""
-        whisper_base_url = ""
-        whisper_model = whisper_model_local
-    elif whisper_backend == "proxy":
-        whisper_via_litellm = "1"
-        whisper_model = whisper_model_proxy or "stt"
-    elif whisper_backend == "hosted":
-        whisper_via_litellm = ""
-        whisper_model = whisper_model_hosted
-    via_litellm = whisper_via_litellm == "1"
-    whisper_model = whisper_model.strip()
-    if via_litellm and whisper_model in ("", "small"):
-        # The local default is still in the field when the box gets
-        # ticked; the proxy knows the alias, not faster-whisper sizes.
-        whisper_model = "stt"
+    stored = await settings_repo.get_all(db)
+    whisper = _whisper_settings_from_form(
+        stored,
+        backend=whisper_backend,
+        model=whisper_model,
+        base_url=whisper_base_url,
+        api_key=whisper_api_key,
+        via_litellm=whisper_via_litellm,
+        model_local=whisper_model_local,
+        model_proxy=whisper_model_proxy,
+        model_hosted=whisper_model_hosted,
+        proxy_url=whisper_proxy_url,
+        proxy_key=whisper_proxy_key,
+        clear_proxy_key=clear_whisper_proxy_key,
+    )
+    for key, value in whisper.items():
+        if value:
+            await settings_repo.set(db, key, value)
+        else:
+            await settings_repo.delete(db, key)
     for key, value in (
-        ("whisper_model", whisper_model or "small"),
-        ("whisper_via_litellm", "1" if via_litellm else ""),
-        ("whisper_base_url", whisper_base_url),
         ("summary_language", summary_language.strip() or "auto"),
         ("playlist_refresh_interval_minutes", playlist_refresh_interval_minutes.strip()),
         ("playlist_initial_import_limit", playlist_initial_import_limit.strip()),
@@ -324,8 +387,6 @@ async def save_settings(
                 await settings_repo.delete(db, "default_tts_length_scale")
     else:
         await settings_repo.delete(db, "default_tts_length_scale")
-    if whisper_api_key:
-        await settings_repo.set(db, "whisper_api_key", whisper_api_key)
     # Third-party keys are write-only on the page (never rendered back),
     # so a blank field keeps the stored key; removal is explicit.
     for key, value, clear in (
@@ -430,8 +491,8 @@ async def quick_setup_ollama_models(llm_base_url: str = ""):
 async def quick_setup_litellm_models(llm_base_url: str = "", api_key: str = ""):
     """HTMX fragment: list the model aliases a LiteLLM proxy serves.
 
-    Blank URL / key fall back to LITELLM_PROXY_API_BASE /
-    LITELLM_PROXY_API_KEY, like the LiteLLM SDK does at call time.
+    Blank URL / key fall back to LITELLM_HOST /
+    LITELLM_SECRET, like the LiteLLM SDK does at call time.
     """
     base_url = llm_base_url.strip()
     # Error fragments replace the model field too, so they carry a
@@ -447,11 +508,11 @@ async def quick_setup_litellm_models(llm_base_url: str = "", api_key: str = ""):
     except ValueError:
         return HTMLResponse(
             '<p class="status status-failed">⚠ Enter the proxy URL or set '
-            "LITELLM_PROXY_API_BASE in the container environment.</p>" + manual
+            "LITELLM_HOST in the container environment.</p>" + manual
         )
     except Exception as e:
         # Only the exception type and the URL — never the key.
-        shown = html.escape(base_url or "LITELLM_PROXY_API_BASE")
+        shown = html.escape(base_url or "LITELLM_HOST")
         return HTMLResponse(
             f'<p class="status status-failed">⚠ Cannot reach LiteLLM proxy at '
             f"{shown}: {type(e).__name__}</p>" + manual
@@ -486,6 +547,18 @@ async def _probe_ollama_reachable(base_url: str) -> str | None:
         return f"{type(e).__name__}: {e}"
 
 
+def _proxy_base_url(provider_id: str, base_url: str) -> str:
+    """Normalise a model's base URL. For the LiteLLM proxy, a URL equal
+    to LITELLM_HOST (the prefilled value) is stored as "" so the env
+    var stays the source of truth."""
+    url = base_url.strip().rstrip("/")
+    if provider_id == "litellm" and url:
+        env_base, _ = litellm_proxy_credentials("", "")
+        if url.removesuffix("/v1") == env_base:
+            return ""
+    return url
+
+
 @router.post("/settings/llm-models")
 async def llm_models_insert(
     label: str = Form(...),
@@ -514,7 +587,7 @@ async def llm_models_insert(
         provider_id=provider_id,
         model=model,
         api_key=api_key.strip(),
-        base_url=base_url.strip().rstrip("/"),
+        base_url=_proxy_base_url(provider_id, base_url),
         make_default=make_default,
     )
     return RedirectResponse(
@@ -549,7 +622,7 @@ async def llm_models_update(
         label=label.strip() or row.label,
         model=model,
         api_key=effective_key,
-        base_url=base_url.strip().rstrip("/"),
+        base_url=_proxy_base_url(row.provider_id, base_url),
     )
     return RedirectResponse("/settings#models", status_code=303)
 
@@ -622,6 +695,7 @@ async def llm_models_test(
     if base_url:
         kwargs["api_base"] = base_url
     try:
+        with_litellm_proxy_credentials(kwargs)
         response: Any = await litellm.acompletion(**kwargs)
         message = response.choices[0].message
         # Reasoning-tier models put their visible answer on .content
@@ -649,12 +723,14 @@ async def llm_models_test(
 
 @router.post("/settings/test-whisper", response_class=HTMLResponse)
 async def test_whisper(
+    request: Request,
     db: aiosqlite.Connection = Depends(get_db),
     config: Config = Depends(get_config),
 ):
-    """Round-trip the bundled audio sample through whatever Whisper
-    backend is configured. Local path uses faster-whisper, API path
-    uses transcribe_via_api()."""
+    """Round-trip the bundled audio sample through the Whisper backend
+    as it stands in the form (unsaved edits included); without form
+    fields, through the saved backend. Local path uses faster-whisper,
+    API path uses transcribe_via_api()."""
     if not await asyncio.to_thread(WHISPER_TEST_SAMPLE.exists):
         return HTMLResponse(
             '<p class="status status-failed">⚠ Test sample not found '
@@ -662,6 +738,21 @@ async def test_whisper(
         )
 
     settings = await settings_repo.get_all(db)
+    form = await request.form()
+    backend = str(form.get("whisper_backend", ""))
+    if backend:
+        settings.update(_whisper_settings_from_form(
+            settings,
+            backend=backend,
+            base_url=str(form.get("whisper_base_url", "")),
+            api_key=str(form.get("whisper_api_key", "")),
+            model_local=str(form.get("whisper_model_local", "")),
+            model_proxy=str(form.get("whisper_model_proxy", "")),
+            model_hosted=str(form.get("whisper_model_hosted", "")),
+            proxy_url=str(form.get("whisper_proxy_url", "")),
+            proxy_key=str(form.get("whisper_proxy_key", "")),
+            clear_proxy_key=str(form.get("clear_whisper_proxy_key", "")),
+        ))
     started = time.monotonic()
     try:
         base_url, api_key, model = resolve_whisper_backend(settings)

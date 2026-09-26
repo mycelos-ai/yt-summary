@@ -80,7 +80,7 @@
           {{ nav_item('models', 'Language models', 'cpu', 'llm provider default api key ollama litellm proxy',
                       None if default_model else 'err') }}
           {{ nav_item('transcription', 'Transcription', 'mic', 'whisper speech text stt',
-                      'err' if wb == 'proxy' and not litellm_env_base else None) }}
+                      'err' if wb == 'proxy' and not (settings.get('whisper_proxy_url') or litellm_env_base) else None) }}
         </ul>
       </div>
       <div class="st-nav-group">
@@ -404,25 +404,35 @@
 
           <div class="st-row" x-show="wb === 'proxy'" x-cloak>
             <div class="st-row-text">
+              <label for="whisper_proxy_url">Proxy URL</label>
+              <p>The proxy root without <code>/v1</code>.{% if litellm_env_base %} Prefilled from LITELLM_HOST.{% endif %}</p>
+            </div>
+            <div class="st-row-control">
+              <input type="text" name="whisper_proxy_url" id="whisper_proxy_url"
+                     value="{{ settings.get('whisper_proxy_url') or litellm_env_base or '' }}"
+                     placeholder="https://llm.example.com">
+            </div>
+          </div>
+          <div class="st-row" x-show="wb === 'proxy'" x-cloak>
+            <div class="st-row-text">
+              <span class="st-row-title">Proxy key</span>
+              <p>{% if litellm_env_key_set %}Empty uses LITELLM_SECRET from the environment.{% else %}The LiteLLM virtual key. It must allow the STT alias.{% endif %}</p>
+            </div>
+            <div class="st-row-control">
+              {{ secret_field('whisper_proxy_key', has_whisper_proxy_key,
+                              'Uses LITELLM_SECRET' if litellm_env_key_set else 'Paste the proxy key') }}
+            </div>
+          </div>
+          <div class="st-row" x-show="wb === 'proxy'" x-cloak>
+            <div class="st-row-text">
               <label for="whisper_model_proxy">Proxy alias</label>
-              <p>
-                Sends audio to <code>{{ litellm_env_base or 'LITELLM_PROXY_API_BASE' }}/v1/audio/transcriptions</code>
-                with the key from LITELLM_PROXY_API_KEY.
-              </p>
+              <p>The model alias for speech-to-text on the proxy.</p>
             </div>
             <div class="st-row-control">
               <input type="text" name="whisper_model_proxy" id="whisper_model_proxy"
                      value="{{ whisper_model if wb == 'proxy' and whisper_model else 'stt' }}">
             </div>
           </div>
-          {% if not litellm_env_base %}
-            <div class="st-row" x-show="wb === 'proxy'" x-cloak>
-              <p class="st-callout st-callout-err">
-                {{ icon('alert', 16) }}
-                <span>LITELLM_PROXY_API_BASE is not set. Transcription fails until you set it in the container environment.</span>
-              </p>
-            </div>
-          {% endif %}
 
           <div class="st-row" x-show="wb === 'hosted'" x-cloak>
             <div class="st-row-text">
@@ -460,11 +470,12 @@
           <div class="st-row">
             <div class="st-row-text">
               <span class="st-row-title">Test</span>
-              <p>Sends a 3-second audio sample through the saved backend. Save your changes first.</p>
+              <p>Sends a 3-second audio sample through the backend as set above, also before you save.</p>
             </div>
             <div class="st-row-control">
               <button type="button" class="st-btn"
-                      hx-post="/settings/test-whisper" hx-target="#whisper-test-result"
+                      hx-post="/settings/test-whisper" hx-include="#pane-transcription"
+                      hx-target="#whisper-test-result"
                       hx-swap="innerHTML" hx-disabled-elt="this">Run test</button>
             </div>
             <div id="whisper-test-result" class="st-result"></div>
@@ -969,7 +980,7 @@
                 </span>
                 <input type="password" name="api_key" id="{{ p.id }}-api-key" autocomplete="off"
                        x-bind:disabled="provider !== '{{ p.id }}'"
-                       placeholder="{% if edit_model and edit_model.has_key %}Saved. Leave blank to keep it.{% elif edit_model %}Leave blank to keep the current key.{% else %}Paste your API key{% endif %}">
+                       placeholder="{% if edit_model and edit_model.has_key %}Saved. Leave blank to keep it.{% elif edit_model %}Leave blank to keep the current key.{% elif p.id == 'litellm' and litellm_env_key_set %}Empty uses LITELLM_SECRET{% else %}Paste your API key{% endif %}">
               </label>
             {% endif %}
 
@@ -997,17 +1008,16 @@
             {% elif p.id == 'litellm' %}
               {# The proxy serves whatever aliases its config defines, so
                  the list comes from /v1/models. Blank URL / key fall back
-                 to LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. #}
+                 to LITELLM_HOST / LITELLM_SECRET. #}
               <label class="st-field">
                 <span>Proxy URL</span>
                 <input type="text" name="llm_base_url" id="litellm-base-url"
                        x-bind:disabled="provider !== '{{ p.id }}'"
-                       value="{{ edit_model.base_url if edit_model and edit_model.provider_id == 'litellm' else '' }}"
+                       value="{{ (edit_model.base_url if edit_model and edit_model.provider_id == 'litellm' else '') or litellm_env_base or '' }}"
                        placeholder="{{ litellm_env_base or 'https://llm.example.com' }}">
                 {% if litellm_env_base %}
-                  <small>Blank uses <code>{{ litellm_env_base }}</code> from
-                    LITELLM_PROXY_API_BASE{% if litellm_env_key_set %} and the key
-                    from LITELLM_PROXY_API_KEY{% endif %}.</small>
+                  <small>Prefilled from LITELLM_HOST{% if litellm_env_key_set %}. An empty
+                    key uses LITELLM_SECRET{% endif %}.</small>
                 {% endif %}
               </label>
               <div>

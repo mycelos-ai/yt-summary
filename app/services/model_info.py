@@ -184,7 +184,7 @@ async def get_context_window(
     1. Cached value from a previous lookup in this process.
     2. For ollama / ollama_chat: Ollama's /api/show output.
        For litellm_proxy/*: the proxy's /model/info (api_key or
-       LITELLM_PROXY_API_KEY authenticates).
+       LITELLM_SECRET authenticates).
     3. For openrouter/*: OpenRouter's /api/v1/models catalogue.
     4. LiteLLM's built-in catalogue.
     5. DEFAULT_CONTEXT (8000).

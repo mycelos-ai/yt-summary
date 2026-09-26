@@ -12,6 +12,7 @@ modes and sort with the curated default first.
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -135,8 +136,8 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         default_llm="",
         notes=(
             "Your own LiteLLM proxy (OpenAI-compatible). Leave URL and "
-            "key blank to use LITELLM_PROXY_API_BASE / "
-            "LITELLM_PROXY_API_KEY from the container environment — "
+            "key blank to use LITELLM_HOST / LITELLM_SECRET from the "
+            "container environment — "
             "the key then never lands in the database."
         ),
     ),
@@ -146,15 +147,29 @@ LITELLM_PREFIX = "litellm_proxy/"
 
 
 def litellm_proxy_credentials(base_url: str | None, api_key: str | None) -> tuple[str, str]:
-    """Resolve proxy URL and key the same way the LiteLLM SDK does for
-    `litellm_proxy/` models: explicit values win, else the env vars
-    LITELLM_PROXY_API_BASE / LITELLM_PROXY_API_KEY. The URL comes back
-    without a trailing slash or `/v1` suffix."""
-    base = (base_url or "").strip() or os.environ.get("LITELLM_PROXY_API_BASE", "").strip()
-    key = (api_key or "").strip() or os.environ.get("LITELLM_PROXY_API_KEY", "").strip()
+    """Resolve proxy URL and key: explicit values win, else the env vars
+    LITELLM_HOST / LITELLM_SECRET. The URL comes back without a
+    trailing slash or `/v1` suffix."""
+    base = (base_url or "").strip() or os.environ.get("LITELLM_HOST", "").strip()
+    key = (api_key or "").strip() or os.environ.get("LITELLM_SECRET", "").strip()
     base = base.rstrip("/")
     base = base.removesuffix("/v1")
     return base, key
+
+
+def with_litellm_proxy_credentials(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Fill api_base / api_key of a `litellm_proxy/` completion call from
+    LITELLM_HOST / LITELLM_SECRET when the model profile leaves them
+    blank. The LiteLLM SDK only knows its own env var names, so every
+    call site passes the values explicitly. Other models pass through."""
+    if not str(kwargs.get("model", "")).startswith(LITELLM_PREFIX):
+        return kwargs
+    base, key = litellm_proxy_credentials(kwargs.get("api_base"), kwargs.get("api_key"))
+    if base:
+        kwargs["api_base"] = base
+    if key:
+        kwargs["api_key"] = key
+    return kwargs
 
 
 async def fetch_litellm_models(base_url: str, api_key: str) -> list[str]:
@@ -166,7 +181,7 @@ async def fetch_litellm_models(base_url: str, api_key: str) -> list[str]:
     """
     base, key = litellm_proxy_credentials(base_url, api_key)
     if not base:
-        raise ValueError("no proxy URL given and LITELLM_PROXY_API_BASE is not set")
+        raise ValueError("no proxy URL given and LITELLM_HOST is not set")
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
         resp = await client.get(f"{base}/v1/models", headers=headers)

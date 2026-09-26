@@ -18,6 +18,7 @@ import litellm
 
 from app.models import ChatMessage
 from app.services.chat_core import build_messages
+from app.services.providers import with_litellm_proxy_credentials
 
 _EVIDENCE_TRUNCATE = 200  # chars; keeps rendered lines readable
 
@@ -148,6 +149,7 @@ async def stream_speaker_reply(
     if base_url:
         kwargs["api_base"] = base_url
 
+    with_litellm_proxy_credentials(kwargs)
     response: Any = await litellm.acompletion(**kwargs)
     async for chunk in response:
         delta = chunk.choices[0].delta.content
