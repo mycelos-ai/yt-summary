@@ -359,17 +359,6 @@ async def _import_web(
     return item_id
 
 
-def _elapsed_seconds(job) -> int | None:
-    if job is None or job.state.value != "running":
-        return None
-    from datetime import UTC, datetime
-
-    # job.updated_at is naive UTC (SQLite datetime('now'))
-    now_utc = datetime.now(UTC).replace(tzinfo=None)
-    delta = now_utc - job.updated_at
-    return max(0, int(delta.total_seconds()))
-
-
 @router.get("/v/{video_id}/status", response_class=HTMLResponse)
 async def video_status(
     video_id: str,
@@ -388,7 +377,6 @@ async def video_status(
         {
             "video": video,
             "job": job,
-            "elapsed_s": _elapsed_seconds(job),
             "awaiting_enqueue": job is None and _is_brand_new(video),
             "current_user": current_user,
         },
@@ -439,7 +427,6 @@ async def video_summary_fragment(
             "video": video,
             "job": job,
             "summary_html": summary_html,
-            "elapsed_s": _elapsed_seconds(job),
             "current_user": current_user,
         },
     )
@@ -661,7 +648,6 @@ async def video_detail(
             "chat_history": history,
             "job": job,
             "video_tags": video_tags,
-            "elapsed_s": _elapsed_seconds(job),
             "transcript_blocks": transcript_blocks,
             "current_user": current_user,
             "renderings": audio_renderings,

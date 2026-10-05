@@ -18,6 +18,10 @@ def _row_to_job(row: aiosqlite.Row) -> Job:
         llm_model_id=row["llm_model_id"],
         additional_prompt=row["additional_prompt"],
         attempts=row["attempts"],
+        started_at=(
+            datetime.fromisoformat(row["started_at"])
+            if row["started_at"] else None
+        ),
     )
 
 
@@ -54,7 +58,8 @@ async def claim_next(db: aiosqlite.Connection) -> Job | None:
     cursor = await db.execute(
         """
         UPDATE jobs
-        SET state='running', attempts=attempts+1, updated_at=datetime('now')
+        SET state='running', attempts=attempts+1,
+            started_at=datetime('now'), updated_at=datetime('now')
         WHERE id = (
             SELECT id FROM jobs
             WHERE state='pending'

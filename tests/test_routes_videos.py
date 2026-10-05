@@ -104,6 +104,37 @@ def test_status_pending(tmp_path, monkeypatch):
     assert any(w in resp.text.lower() for w in status_words)
 
 
+def test_status_running_renders_progress_ring(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
+    app = create_app()
+    with TestClient(app) as client:
+        import asyncio
+
+        async def setup():
+            from app.repos import jobs as jobs_repo
+            from app.repos import videos as videos_repo
+            await videos_repo.upsert_metadata(
+                app.state.db, video_id="v1", url="u", title="t",
+                description="", thumbnail_path=None, duration_seconds=None,
+            )
+            job_id = await jobs_repo.enqueue(app.state.db, "v1")
+            # Mark running directly so the background worker can't claim it.
+            await app.state.db.execute(
+                "UPDATE jobs SET state='running', started_at=datetime('now'), "
+                "step='transcribing 3:12 / 42:10 (8%) · ~12:40 left' WHERE id=?",
+                (job_id,),
+            )
+            await app.state.db.commit()
+        asyncio.get_event_loop().run_until_complete(setup())
+        resp = client.get("/v/v1/status")
+    assert 'class="progress-ring"' in resp.text
+    assert "3:12 / 42:10" in resp.text
+    assert "8%" in resp.text
+    assert "about 12:40 left" in resp.text
+    assert "Whisper" in resp.text
+    assert "every 2s" in resp.text
+
+
 def test_status_done_summary_ready(tmp_path, monkeypatch):
     monkeypatch.setenv("YTS_DATA_DIR", str(tmp_path))
     app = create_app()

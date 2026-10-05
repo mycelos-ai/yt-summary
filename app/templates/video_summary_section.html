@@ -25,10 +25,14 @@
   </h2>
   {% if video.summary %}
     {% if job and job.state.value in ('running', 'pending') %}
-      <p class="status status-running">
-        <span class="spinner" aria-hidden="true"></span>
-        {{ job.step or 'working' }}{% if elapsed_s is not none %} · {{ elapsed_s }}s{% endif %}…
-      </p>
+      {% if job.state.value == 'running' %}
+        {% include "_progress_ring.html" %}
+      {% else %}
+        <p class="status status-pending">
+          <span class="spinner" aria-hidden="true"></span>
+          queued…
+        </p>
+      {% endif %}
     {% endif %}
     <div data-highlight-target>{{ summary_html | safe }}</div>
   {% else %}

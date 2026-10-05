@@ -532,3 +532,54 @@ async def test_obtain_transcript_short_audio_not_chunked(tmp_path):
             duration_seconds=600,
         )
     split.assert_not_called()
+
+
+async def test_obtain_transcript_reports_subtitle_check_before_audio(tmp_path):
+    """The progress UI labels the transcript phase from these steps:
+    subtitles are checked first, audio is only announced once that
+    check came back empty."""
+    from app.services.transcript import obtain_transcript
+
+    captured: list[str] = []
+
+    async def progress(step: str) -> None:
+        captured.append(step)
+
+    subs = ("hi", [(0.0, "hi")], "auto_subs", "en")
+    with patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=subs)):
+        await obtain_transcript(
+            url="https://youtu.be/x", video_id="x", audio_dir=tmp_path,
+            cookies_path=None, whisper_model="small", progress_cb=progress,
+        )
+    assert captured == ["checking subtitles", "subtitles found (auto-generated)"]
+
+    captured.clear()
+    fake_audio = tmp_path / "x.m4a"
+    fake_audio.write_bytes(b"data")
+    with (
+        patch("app.services.transcript.fetch_subtitles", AsyncMock(return_value=None)),
+        patch("app.services.transcript.download_audio", AsyncMock(return_value=fake_audio)),
+        patch(
+            "app.services.transcript.transcribe",
+            return_value=("w", [(0.0, "w")], "en"),
+        ),
+    ):
+        await obtain_transcript(
+            url="https://youtu.be/x", video_id="x", audio_dir=tmp_path,
+            cookies_path=None, whisper_model="small", progress_cb=progress,
+        )
+    assert captured[:2] == [
+        "checking subtitles", "no subtitles, downloading audio for Whisper",
+    ]
+
+
+def test_format_progress_appends_eta():
+    from app.services.transcript import _eta_seconds, _format_progress
+
+    # 120 s of audio done in 10 s wall time → 12x; 480 s left → 40 s.
+    eta = _eta_seconds(120.0, 600.0, (0.0, 0.0), 10.0)
+    assert eta == 40.0
+    assert _format_progress(120.0, 600.0, eta) == (
+        "transcribing 2:00 / 10:00 (20%) · ~0:40 left"
+    )
+    assert _eta_seconds(1.0, 600.0, (0.0, 0.0), 2.0) is None
