@@ -102,6 +102,8 @@ class Job:
     # the configured max so a job that keeps killing the container
     # is not requeued forever.
     attempts: int = 0
+    # Set when the worker claims the job; None while pending.
+    started_at: datetime | None = None
 
 
 @dataclass

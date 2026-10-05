@@ -1,0 +1,17 @@
+{# Progress ring for a running job on the detail page: ring for the
+   current phase, the phase name and a big detail line next to it, one
+   chip per phase below. Expects `job` and `video`. Data from
+   app/services/job_progress.py. #}
+{% import "macros/progress.html" as progress %}
+{% set pr = job_progress(job, video.transcript_source) %}
+<div class="progress-ring" role="status" aria-live="polite">
+  <div class="progress-ring-main">
+    {{ progress.dial(pr) }}
+    <div class="progress-ring-info">
+      <span class="progress-ring-phase">{{ pr.label }}</span>
+      <span class="progress-ring-headline">{{ pr.headline }}</span>
+      <span class="progress-ring-meta">{{ progress.timing(pr) }}</span>
+    </div>
+  </div>
+  {{ progress.chips(pr) }}
+</div>

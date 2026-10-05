@@ -68,7 +68,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     llm_model_id      INTEGER REFERENCES llm_models(id) ON DELETE SET NULL,
     additional_prompt TEXT,
-    attempts          INTEGER NOT NULL DEFAULT 0
+    attempts          INTEGER NOT NULL DEFAULT 0,
+    -- When the worker last claimed the job. updated_at moves on every
+    -- step, so this is what the progress UI counts total time from.
+    started_at        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
 
@@ -938,6 +941,7 @@ async def _run_migrations(conn: aiosqlite.Connection) -> None:
         await _ensure_column(
             conn, "jobs", "attempts", "INTEGER NOT NULL DEFAULT 0"
         )
+        await _ensure_column(conn, "jobs", "started_at", "TEXT")
 
     # Backfill from legacy settings keys, but only once: if any row
     # already exists in llm_models, the migration has already run

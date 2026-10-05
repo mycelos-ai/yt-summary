@@ -3695,3 +3695,128 @@ mark.highlight-not_interesting {
 @media (prefers-reduced-motion: reduce) {
   .st-drawer { transition: none; }
 }
+
+/* Progress for a running job: ring + chips on the detail page
+   (_progress_ring.html), small dial in the home strip and on
+   /processing. Shared markup in macros/progress.html. */
+.status-running-ring { display: block; }
+.progress-ring {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 8px;
+}
+.progress-ring-main {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.progress-dial {
+  position: relative;
+  flex: none;
+  display: inline-block;
+}
+.progress-dial-large { width: 96px; height: 96px; }
+.progress-dial-medium { width: 40px; height: 40px; }
+.progress-dial-small { width: 20px; height: 20px; }
+.progress-dial svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.progress-dial-track,
+.progress-dial-arc {
+  fill: none;
+  stroke-width: 9;
+}
+.progress-dial-small .progress-dial-track,
+.progress-dial-small .progress-dial-arc { stroke-width: 16; }
+.progress-dial-medium .progress-dial-track,
+.progress-dial-medium .progress-dial-arc { stroke-width: 12; }
+.progress-dial-track { stroke: var(--hairline); }
+.progress-dial-arc {
+  stroke: var(--brand-green);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+.progress-dial.is-indeterminate svg {
+  animation: progress-dial-spin 1.2s linear infinite;
+}
+@keyframes progress-dial-spin {
+  from { transform: rotate(-90deg); }
+  to { transform: rotate(270deg); }
+}
+.progress-dial-pct {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.progress-ring-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.progress-ring-phase {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-green-deep);
+}
+.progress-ring-headline {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.progress-ring-meta {
+  font-size: 13px;
+  color: var(--steel);
+  font-variant-numeric: tabular-nums;
+}
+.progress-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.progress-chips-small { gap: 4px; margin-top: 6px; }
+.progress-chip {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: var(--rounded-full);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--stone);
+}
+.progress-chips-small .progress-chip { font-size: 11px; padding: 1px 8px; }
+.progress-chip.is-done {
+  border-color: transparent;
+  background: #d9f7ee;
+  color: var(--brand-green-deep);
+}
+.progress-chip.is-now {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-primary);
+}
+.processing-step { font-variant-numeric: tabular-nums; }
+.processing-strip-progress { display: block; font-size: 13px; }
+.processing-row-running { align-items: flex-start; }
+@media (prefers-reduced-motion: reduce) {
+  .progress-dial-arc { transition: none; }
+  .progress-dial.is-indeterminate svg { animation: none; }
+}

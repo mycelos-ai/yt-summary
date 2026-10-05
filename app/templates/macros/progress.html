@@ -1,0 +1,41 @@
+{# Progress visuals for a running job; `pr` comes from job_progress(). #}
+
+{# The ring itself. `size` is 'large' (detail page) or 'small'. #}
+{% macro dial(pr, size='large') %}
+{% set circ = 301.59 %}
+<span class="progress-dial progress-dial-{{ size }}{% if pr.fraction is none %} is-indeterminate{% endif %}">
+  <svg viewBox="0 0 112 112" aria-hidden="true">
+    <circle class="progress-dial-track" cx="56" cy="56" r="48"/>
+    <circle class="progress-dial-arc" cx="56" cy="56" r="48"
+            stroke-dasharray="{{ circ }}"
+            stroke-dashoffset="{{ (circ * (1 - pr.fraction)) if pr.fraction is not none else (circ * 0.75) }}"/>
+  </svg>
+  {% if size == 'large' and pr.percent is not none %}
+    <span class="progress-dial-pct">{{ pr.percent }}%</span>
+  {% endif %}
+</span>
+{% endmacro %}
+
+{# "about 12:40 left · 1:34 total"; empty when neither is known. #}
+{% macro timing(pr) -%}
+  {%- if pr.eta %}about {{ pr.eta }} left{% endif -%}
+  {%- if pr.eta and pr.elapsed_s %} · {% endif -%}
+  {%- if pr.elapsed_s %}{{ pr.elapsed_s | format_duration }} total{% endif -%}
+{%- endmacro %}
+
+{# One chip per phase: done ones ticked, the current one filled. #}
+{% macro chips(pr, size='large') %}
+<ol class="progress-chips progress-chips-{{ size }}">
+  {% for ph in pr.phases %}
+    <li class="progress-chip is-{{ ph.state }}"{% if ph.state == 'now' %} aria-current="step"{% endif %}>
+      {%- if ph.state == 'done' %}✓ {% endif %}{{ ph.label -}}
+    </li>
+  {% endfor %}
+</ol>
+{% endmacro %}
+
+{# One line of text for compact places: "Whisper · 3:12 / 42:10 · 8%". #}
+{% macro summary_line(pr) -%}
+  {{ pr.label }} · {{ pr.headline }}
+  {%- if pr.percent is not none %} · {{ pr.percent }}%{% endif -%}
+{%- endmacro %}

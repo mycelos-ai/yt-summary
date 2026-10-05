@@ -545,3 +545,11 @@ async def test_get_for_user_hides_foreign_jobs(db: aiosqlite.Connection):
     assert await jobs_repo.get_for_user(db, theirs, user_id=1) is None
     got = await jobs_repo.get_for_user(db, theirs, user_id=other)
     assert got is not None and got.id == theirs
+
+
+async def test_claim_next_stamps_started_at(db: aiosqlite.Connection):
+    await _video(db)
+    job_id = await jobs_repo.enqueue(db, "v1")
+    assert (await jobs_repo.get(db, job_id)).started_at is None
+    claimed = await jobs_repo.claim_next(db)
+    assert claimed is not None and claimed.started_at is not None

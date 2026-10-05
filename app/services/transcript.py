@@ -52,19 +52,40 @@ def _offset_progress(progress, offset: float, total: int | None):
     return shifted
 
 
-def _format_progress(current: float, total: float) -> str:
-    def hms(seconds: float) -> str:
-        s = int(seconds)
-        h, rem = divmod(s, 3600)
-        m, sec = divmod(rem, 60)
-        if h:
-            return f"{h}:{m:02d}:{sec:02d}"
-        return f"{m}:{sec:02d}"
+def _hms(seconds: float) -> str:
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{sec:02d}"
+    return f"{m}:{sec:02d}"
 
+
+def _format_progress(
+    current: float, total: float, eta_s: float | None = None
+) -> str:
     if total <= 0:
-        return f"transcribing {hms(current)}"
+        return f"transcribing {_hms(current)}"
     pct = int(round(current / total * 100))
-    return f"transcribing {hms(current)} / {hms(total)} ({pct}%)"
+    message = f"transcribing {_hms(current)} / {_hms(total)} ({pct}%)"
+    if eta_s is not None and current < total:
+        message += f" · ~{_hms(eta_s)} left"
+    return message
+
+
+def _eta_seconds(
+    current: float, total: float, first: tuple[float, float] | None, now: float
+) -> float | None:
+    """Remaining wall-clock seconds, extrapolated from the speed since
+    the first report. None until there is enough signal to be useful."""
+    if first is None or total <= 0:
+        return None
+    first_pos, first_time = first
+    elapsed = now - first_time
+    done = current - first_pos
+    if elapsed < 5.0 or done <= 0:
+        return None
+    return (total - current) * elapsed / done
 
 
 def _build_whisper_progress(
@@ -77,15 +98,18 @@ def _build_whisper_progress(
     if progress_cb is None:
         return None
 
-    state = {"last_emit": 0.0}
+    state: dict = {"last_emit": 0.0, "first": None}
 
     def on_segment(current: float, total: float) -> None:
         now = time.monotonic()
+        if state["first"] is None:
+            state["first"] = (current, now)
         is_final = total > 0 and current >= total
         if not is_final and now - state["last_emit"] < _PROGRESS_MIN_INTERVAL_S:
             return
         state["last_emit"] = now
-        message = _format_progress(current, total)
+        eta = _eta_seconds(current, total, state["first"], now)
+        message = _format_progress(current, total, eta)
         # Whisper runs in a worker thread; bounce the coroutine back
         # onto the main loop. Any failure (loop closed, etc.) is fine
         # to swallow — progress is best-effort.
@@ -139,14 +163,23 @@ async def obtain_transcript(
     is enforced before Whisper starts, and the measured length is
     handed to `duration_cb` so the caller can persist it.
     """
+    # These step strings are parsed by app.services.job_progress to pick
+    # the transcript phase label (subtitles vs Whisper); keep them in sync.
+    if progress_cb is not None:
+        await progress_cb("checking subtitles")
     subs = await fetch_subtitles(url, cookies_path=cookies_path)
     if subs is not None:
         text, segments, source, language = subs
+        if progress_cb is not None:
+            kind = "manual" if source == "manual_subs" else "auto-generated"
+            await progress_cb(f"subtitles found ({kind})")
         return text, segments, TranscriptSource(source), language
 
     if not whisper_base_url and duration_seconds is not None:
         _check_whisper_cap(duration_seconds, max_whisper_duration_s)
 
+    if progress_cb is not None:
+        await progress_cb("no subtitles, downloading audio for Whisper")
     audio_path = await download_audio(url, video_id, audio_dir, cookies_path=cookies_path)
     chunk_dir = audio_dir / f"{video_id}.chunks"
     try:

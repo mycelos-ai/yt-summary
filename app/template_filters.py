@@ -46,6 +46,9 @@ def register_filters(templates: "Jinja2Templates") -> None:
     # Inline SVG icons — {{ icon('headphones') }} works in any template.
     from app.services.icons import icon
     templates.env.globals["icon"] = icon
+    # job_progress(job, video) → phases + ring data for a running job.
+    from app.services.job_progress import describe
+    templates.env.globals["job_progress"] = describe
 
 
 def relative_time(dt: datetime | None, *, now: datetime | None = None) -> str:

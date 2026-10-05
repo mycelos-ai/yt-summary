@@ -3,10 +3,9 @@
 {% elif job and job.state.value == 'failed' %}
   <p class="status status-failed">⚠ {{ job.error_message or 'failed' }}</p>
 {% elif job and job.state.value == 'running' %}
-  <p class="status status-running" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
-    <span class="spinner" aria-hidden="true"></span>
-    {{ job.step or 'running' }}{% if elapsed_s is not none %} · {{ elapsed_s }}s{% endif %}…
-  </p>
+  <div class="status status-running-ring" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
+    {% include "_progress_ring.html" %}
+  </div>
 {% elif job or awaiting_enqueue %}
   {# Pending — or a brand-new row whose enqueue may still be in flight. #}
   <p class="status status-pending" hx-get="/v/{{ video.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML">
