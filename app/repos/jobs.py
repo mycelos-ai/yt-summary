@@ -287,6 +287,8 @@ class QueueEntry:
     job: Job
     title: str
     position: int
+    # The video's stored transcript source; labels the progress chips.
+    transcript_source: str | None = None
 
 
 # Ordering shared by the position window and the row listing. Running
@@ -357,7 +359,8 @@ async def list_active_for_user(
             FROM jobs
             WHERE state IN ('pending', 'running')
         )
-        SELECT r.*, v.title AS video_title
+        SELECT r.*, v.title AS video_title,
+               v.transcript_source AS video_transcript_source
         FROM ranked r
         JOIN videos v ON v.id = r.video_id AND v.user_id = ?
         ORDER BY r.position ASC
@@ -371,6 +374,7 @@ async def list_active_for_user(
             job=_row_to_job(r),
             title=r["video_title"] or r["video_id"],
             position=r["position"],
+            transcript_source=r["video_transcript_source"],
         )
         for r in rows
     ]

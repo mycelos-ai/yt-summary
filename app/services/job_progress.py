@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.models import Job, TranscriptSource, Video
+from app.models import Job, TranscriptSource
 
 _TRANSCRIBING = re.compile(
     r"transcribing (?P<cur>[\d:]+)(?: / (?P<tot>[\d:]+) \((?P<pct>\d+)%\))?"
@@ -52,7 +52,7 @@ class JobProgress:
         return None if self.fraction is None else int(round(self.fraction * 100))
 
 
-def _transcript_label(step: str, video: Video) -> str:
+def _transcript_label(step: str, source: str | None) -> str:
     if "subtitles found" in step or "checking subtitles" in step:
         return "Subtitles" if "found" in step else "Transcript"
     if (
@@ -65,7 +65,6 @@ def _transcript_label(step: str, video: Video) -> str:
         return "Transcript"
     if "fetching article" in step:
         return "Article"
-    source = video.transcript_source
     if source in (TranscriptSource.MANUAL_SUBS, TranscriptSource.AUTO_SUBS):
         return "Subtitles"
     if source == TranscriptSource.WHISPER:
@@ -125,12 +124,18 @@ def _transcript_detail(step: str) -> tuple[str, float | None, str | None]:
     return step or "Starting", None, None
 
 
-def describe(job: Job, video: Video, now: datetime | None = None) -> JobProgress:
-    """Progress data for a running job. `now` is naive UTC, like the
-    timestamps SQLite writes."""
+def describe(
+    job: Job,
+    transcript_source: str | None = None,
+    now: datetime | None = None,
+) -> JobProgress:
+    """Progress data for a running job. `transcript_source` is the
+    video's stored source, used to label the transcript chip once the
+    pipeline has moved past it. `now` is naive UTC, like the timestamps
+    SQLite writes."""
     step = (job.step or "").strip()
     current = _current_phase(step)
-    transcript_label = _transcript_label(step, video)
+    transcript_label = _transcript_label(step, transcript_source)
 
     keys = ["transcript", "summary", "index", "speakers"]
     labels = {

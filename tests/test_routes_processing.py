@@ -72,13 +72,15 @@ def test_processing_page_lists_own_running_pending_failed(tmp_path, monkeypatch)
             await jobs_repo.fail(db, jf, "transcript unavailable")
             claimed = await jobs_repo.claim_next(db)
             assert claimed is not None
-            await jobs_repo.set_step(db, claimed.id, "summarizing")
+            await jobs_repo.set_step(db, claimed.id, "summarizing chunk 2/4")
         _run(seed())
         resp = client.get("/processing")
     assert resp.status_code == 200
     text = resp.text
     assert "RunningTitle" in text
-    assert "summarizing" in text
+    assert "Summary · Part 2 of 4 · 20%" in text
+    assert "progress-dial-medium" in text
+    assert 'aria-current="step"' in text
     assert "WaitingTitle" in text
     assert "#3 in line" in text
     assert "FailedTitle" in text
@@ -134,9 +136,28 @@ def test_fragment_strip_shows_activity(tmp_path, monkeypatch):
         resp = client.get("/processing/fragment?view=strip")
     text = resp.text
     assert "RunningTitle" in text
-    assert "fetching transcript" in text
+    assert "Transcript · Checking subtitles" in text
+    assert "progress-dial-small is-indeterminate" in text
     assert "2 waiting" in text
     assert 'href="/processing"' in text
+
+
+def test_fragment_strip_shows_whisper_position_and_eta(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        async def seed():
+            db = app.state.db
+            await _seed_video(db, "run-1", title="RunningTitle")
+            await jobs_repo.enqueue(db, "run-1")
+            claimed = await jobs_repo.claim_next(db)
+            assert claimed is not None
+            await jobs_repo.set_step(
+                db, claimed.id, "transcribing 3:12 / 42:10 (8%) · ~12:40 left",
+            )
+        _run(seed())
+        resp = client.get("/processing/fragment?view=strip")
+    assert "Whisper · 3:12 / 42:10 · 8%" in resp.text
+    assert "about 12:40 left" in resp.text
 
 
 def test_fragment_rejects_unknown_view(tmp_path, monkeypatch):

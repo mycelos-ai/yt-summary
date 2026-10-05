@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.models import Job, JobState, TranscriptSource, Video
+from app.models import Job, JobState, TranscriptSource
 from app.services.job_progress import describe
 
 
@@ -13,10 +13,8 @@ def _job(step: str, started_at: datetime | None = None) -> Job:
     )
 
 
-def _video(source: TranscriptSource | None = None) -> Video:
-    class _V:
-        transcript_source = source
-    return _V()  # type: ignore[return-value]
+def _video(source: TranscriptSource | None = None) -> TranscriptSource | None:
+    return source
 
 
 def _chips(p):

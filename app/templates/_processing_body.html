@@ -1,5 +1,6 @@
 {# Body of /processing. Self-polling so counts, steps and buttons stay
    live; every action button swaps this same element. #}
+{% import "macros/progress.html" as progress %}
 {% set p = processing %}
 <div id="processing-body"
      hx-get="/processing/fragment?view=page"
@@ -17,18 +18,20 @@
   <section class="processing-section">
     <h2 class="section-title">Running</h2>
     {% for e in p.running %}
-      <article class="processing-row">
-        <span class="spinner" aria-hidden="true"></span>
+      {% set pr = job_progress(e.job, e.transcript_source, p.now) %}
+      <article class="processing-row processing-row-running">
+        {{ progress.dial(pr, 'medium') }}
         <div class="processing-row-body">
           <h3><a href="/v/{{ e.job.video_id }}">{{ e.title }}</a></h3>
           <p class="processing-row-meta">
-            {{ e.job.step or 'starting' }}
-            <span class="dot">·</span>
-            {{ ((p.now - e.job.updated_at).total_seconds()) | int }}s in this step
+            {{ progress.summary_line(pr) }}
+            {% set t = progress.timing(pr) %}
+            {% if t %}<span class="dot">·</span> {{ t }}{% endif %}
             {% if e.job.attempts > 1 %}
               <span class="dot">·</span> attempt {{ e.job.attempts }}
             {% endif %}
           </p>
+          {{ progress.chips(pr, 'small') }}
         </div>
       </article>
     {% endfor %}
